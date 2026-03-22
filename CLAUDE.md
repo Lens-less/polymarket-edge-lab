@@ -82,3 +82,9 @@ The bot includes production safety features:
 - Stale order cleanup (5 min timeout)
 - Balance monitoring with alerts
 - Kill switch on excessive errors/losses
+
+## Additional Documentation
+
+- [User Documentation](docs/user/) - For non-technical users (getting started, configuration, safety, FAQ)
+- [Developer Documentation](docs/developer/) - For contributors (architecture, setup, contributing)
+- [Roadmap](docs/roadmap.md) - Project plans and future features

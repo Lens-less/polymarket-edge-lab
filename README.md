@@ -315,6 +315,14 @@ This software is for educational and research purposes. Trading prediction marke
 
 MIT License - See [LICENSE](LICENSE)
 
+## Documentation
+
+For detailed guides, see the `docs/` directory:
+
+- [User Documentation](docs/user/) - Getting started, configuration, safety, FAQ
+- [Developer Documentation](docs/developer/) - Architecture, setup, contributing
+- [Roadmap](docs/roadmap.md) - Project plans and future features
+
 ## Links
 
 - [Polymarket](https://polymarket.com)
