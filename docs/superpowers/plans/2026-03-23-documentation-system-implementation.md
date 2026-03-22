@@ -4,6 +4,8 @@
 
 **Goal:** Create a comprehensive Markdown-based documentation system for terminal users, including 10 documents covering getting started, configuration, trading modes, safety, FAQ, and roadmap.
 
+**Language:** Chinese (Simplified) with English technical terms explained in Chinese.
+
 **Architecture:** Simple Markdown file structure under docs/ directory, organized by user/developer categories. Extends existing README.md and PROJECT_CONTEXT.md rather than replacing them.
 
 **Tech Stack:** Markdown, Git
