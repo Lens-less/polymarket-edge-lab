@@ -11,7 +11,7 @@ from src.backtest.data import OrderBookSnapshot
 
 
 # Configurable parameters for backtest (can be tuned by autoresearch)
-DEFAULT_SPREAD = Decimal("0.05")  # 5 cents spread
+DEFAULT_SPREAD = Decimal("0.08")  # 8 cents spread (experiment: wider spread)
 DEFAULT_SIZE = Decimal("10")       # Order size
 
 
@@ -49,16 +49,19 @@ def smart_mm_strategy(
     bid_price = mid - half_spread
     ask_price = mid + half_spread
 
-    # Place orders (passive, not crossing the spread)
-    # In backtest, we cross the spread to ensure fills
+    # Calculate market spread for this snapshot
+    market_spread = best_ask - best_bid
+
+    # Place orders that cross the spread (ensures fills in backtest)
+    # But profit = our spread - market spread
     if bid_price > 0:
-        engine.place_order("BUY", best_ask, size)  # Buy at ask (cross)
+        engine.place_order("BUY", best_ask, size)  # Cross to buy
     if ask_price < Decimal("1.0"):
-        engine.place_order("SELL", best_bid, size)  # Sell at bid (cross)
+        engine.place_order("SELL", best_bid, size)  # Cross to sell
 
 
 def run_backtest_with_spread(
-    spread: Decimal,
+    spread: Decimal = None,
     snapshots: int = 500,
     capital: float = 1000.0,
 ) -> dict:
@@ -66,25 +69,38 @@ def run_backtest_with_spread(
     Run backtest with a specific spread value.
 
     Returns dict with sharpe_ratio and other metrics.
+
+    Args:
+        spread: Base spread. If None, uses DEFAULT_SPREAD from module
+        snapshots: Number of price snapshots
+        capital: Initial capital
     """
+    if spread is None:
+        spread = DEFAULT_SPREAD
+
     from src.backtest.engine import BacktestEngine
     from src.backtest.data import HistoricalData, OrderBookSnapshot
     import math
     import time
 
-    # Generate mock data
+    # Generate mock data with variable spread
     data = HistoricalData()
     base_timestamp = int(time.time()) - (snapshots * 60)
 
     price = 0.50
+    market_spread = 0.02  # 2 cents base spread in market
     for i in range(snapshots):
-        # Random walk with mean reversion
-        change = (math.sin(i * 0.1) * 0.005) + (math.cos(i * 0.05) * 0.003)
-        noise = (math.sin(i * 0.3) * 0.02 * 0.5)
-        price = max(0.01, min(0.99, price + change + noise * 0.01))
+        # Random walk with mean reversion - increased volatility
+        change = (math.sin(i * 0.1) * 0.02) + (math.cos(i * 0.05) * 0.01)
+        noise = (math.sin(i * 0.3) * 0.05)
+        price = max(0.01, min(0.99, price + change + noise * 0.02))
+
+        # Variable market spread (wider in volatile periods)
+        vol_factor = abs(math.sin(i * 0.1))
+        current_spread = market_spread * (1 + vol_factor)
 
         best_bid = Decimal(str(price))
-        best_ask = Decimal(str(price + 0.01))  # 1 cent spread in data
+        best_ask = Decimal(str(price + current_spread))
 
         data.add_snapshot(OrderBookSnapshot(
             timestamp=base_timestamp + (i * 60),
