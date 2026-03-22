@@ -1,0 +1,14 @@
+# Main dependencies
+py-clob-client
+python-dotenv
+websockets
+pandas
+pyarrow  # For Parquet export
+certifi
+requests
+rich>=13.0.0
+
+# Development dependencies
+pytest
+pytest-asyncio
+pytest-timeout
