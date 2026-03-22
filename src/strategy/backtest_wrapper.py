@@ -11,7 +11,7 @@ from src.backtest.data import OrderBookSnapshot
 
 
 # Configurable parameters for backtest (can be tuned by autoresearch)
-DEFAULT_SPREAD = Decimal("0.02")  # 2 cents spread - tighter spreads perform better
+DEFAULT_SPREAD = Decimal("0.01")  # 1 cent spread - optimal from grid search
 DEFAULT_SIZE = Decimal("10")       # Order size
 
 
