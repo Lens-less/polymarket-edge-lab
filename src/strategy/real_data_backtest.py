@@ -154,3 +154,27 @@ if __name__ == "__main__":
 
     result = run_backtest(spread=D(str(args.spread)), market=market, snapshots=args.snapshots)
     print(f"sharpe_ratio: {result['sharpe_ratio']:.4f}")
+
+
+class SpreadStrategy:
+    """Strategy with configurable size parameter."""
+
+    def __init__(self, our_spread: Decimal, size: Decimal = Decimal("10")):
+        self.our_spread = our_spread
+        self.size = size
+
+    def __call__(self, eng, snap):
+        """Execute the strategy on each snapshot."""
+        for oid, o in list(eng._orders.items()):
+            if o.status.name == "OPEN":
+                eng.cancel_order(oid)
+
+        mid = (snap.best_bid + snap.best_ask) / 2
+        half = self.our_spread / 2
+        our_bid = mid - half
+        our_ask = mid + half
+
+        if our_bid > 0:
+            eng.place_order("BUY", our_bid, self.size)
+        if our_ask < Decimal("1.0"):
+            eng.place_order("SELL", our_ask, self.size)
