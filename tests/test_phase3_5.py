@@ -6,6 +6,7 @@ Run with: pytest tests/test_phase3_5.py -v --timeout=120
 
 import pytest
 import asyncio
+import json
 from typing import List
 
 
@@ -58,7 +59,6 @@ class TestDataStore:
     def test_freshness(self):
         """Test data freshness detection."""
         from src.feed.data_store import DataStore
-        import time
 
         store = DataStore(stale_threshold=1.0)
         store.register_token("token1")
@@ -66,12 +66,21 @@ class TestDataStore:
         # No data yet
         assert not store.is_fresh("token1")
 
-        # Add data
-        store.update_price("token1", 0.55)
+        # Fresh book data should count as fresh
+        store.update_book(
+            "token1",
+            [{'price': '0.50', 'size': '100'}],
+            [{'price': '0.55', 'size': '200'}]
+        )
         assert store.is_fresh("token1")
 
-        # Wait for staleness
-        time.sleep(1.5)
+        # Stale the book manually
+        store.get("token1").last_book_update -= 2.0
+        assert not store.is_fresh("token1")
+
+        # Trade/price updates should not mask a stale book
+        store.update_price("token1", 0.54)
+        store.update_trade("token1", 0.54, size=10, side="BUY")
         assert not store.is_fresh("token1")
 
         print("✓ Freshness detection works")
@@ -270,13 +279,34 @@ class TestMarketFeed:
 
         try:
             await feed.start([token])
-            await asyncio.sleep(30)
+            await feed._process_message(json.dumps([
+                {
+                    'event_type': 'book',
+                    'asset_id': token,
+                    'bids': [{'price': '0.45', 'size': '100'}],
+                    'asks': [{'price': '0.55', 'size': '200'}],
+                    'timestamp': '2026-01-21T00:00:00Z'
+                },
+                {
+                    'market': 'test',
+                    'price_changes': [
+                        {'asset_id': token, 'price': '0.50'}
+                    ]
+                },
+                {
+                    'event_type': 'last_trade_price',
+                    'asset_id': token,
+                    'price': '0.50',
+                    'size': '10',
+                    'side': 'BUY'
+                }
+            ]))
 
             print(f"  Events received: {events}")
 
             total = sum(events.values())
-            if total > 0:
-                print(f"✓ Callbacks invoked ({total} total)")
+            assert total >= 3
+            print(f"✓ Callbacks invoked ({total} total)")
 
         finally:
             await feed.stop()

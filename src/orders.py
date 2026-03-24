@@ -13,7 +13,10 @@ from src.utils import setup_logging
 logger = setup_logging()
 
 
-def get_open_orders(token_id: Optional[str] = None) -> List[Order]:
+def get_open_orders(
+    token_id: Optional[str] = None,
+    raise_on_error: bool = False,
+) -> List[Order]:
     """Get open orders."""
     if DRY_RUN:
         return get_simulator().get_open_orders(token_id)
@@ -45,14 +48,23 @@ def get_open_orders(token_id: Optional[str] = None) -> List[Order]:
         return orders
 
     except Exception as e:
+        if raise_on_error:
+            raise
         logger.error(f"Error getting orders: {e}")
         return []
 
 
-def get_trades(token_id: Optional[str] = None, limit: int = 50) -> List[Trade]:
+def get_trades(
+    token_id: Optional[str] = None,
+    limit: Optional[int] = 50,
+    raise_on_error: bool = False,
+) -> List[Trade]:
     """Get recent trades."""
     if DRY_RUN:
-        return get_simulator().get_trades(token_id)
+        trades = get_simulator().get_trades(token_id)
+        if limit is not None:
+            trades = trades[:limit]
+        return trades
 
     if not has_credentials():
         return []
@@ -63,7 +75,9 @@ def get_trades(token_id: Optional[str] = None, limit: int = 50) -> List[Trade]:
         response = get_auth_client().get_trades()
         trades = []
 
-        for r in (response or [])[:limit]:
+        raw_trades = response.get("data", []) if isinstance(response, dict) else (response or [])
+
+        for r in raw_trades:
             trade = Trade(
                 id=r['id'],
                 order_id=r.get('order_id', ''),
@@ -75,9 +89,14 @@ def get_trades(token_id: Optional[str] = None, limit: int = 50) -> List[Trade]:
             )
             if token_id is None or trade.token_id == token_id:
                 trades.append(trade)
+
+        if limit is not None:
+            trades = trades[:limit]
         return trades
 
     except Exception as e:
+        if raise_on_error:
+            raise
         logger.error(f"Error getting trades: {e}")
         return []
 
@@ -87,7 +106,9 @@ def get_position(token_id: str) -> Decimal:
     if DRY_RUN:
         return get_simulator().get_position(token_id)
 
-    trades = get_trades(token_id)
+    # Position checks must use the full trade history returned by the API,
+    # not the UI/default preview window.
+    trades = get_trades(token_id, limit=None)
     position = Decimal("0")
     for t in trades:
         if t.side == OrderSide.BUY:

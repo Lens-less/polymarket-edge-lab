@@ -38,7 +38,8 @@ from src.config import (
     CORRELATION_THRESHOLD,
     MAX_CORRELATED_EXPOSURE,
 )
-from src.orders import get_position, get_trades
+from src.models import OrderSide
+from src.orders import get_open_orders, get_position, get_trades
 from src.trading import cancel_all_orders
 from src.utils import setup_logging
 
@@ -292,34 +293,56 @@ class RiskManager:
         return RiskCheck(RiskStatus.OK)
 
     def _check_positions(self, token_ids: List[str]) -> RiskCheck:
-        """Check position limits (uses volatility-adjusted limit)."""
+        """Check projected position limits, including outstanding live orders."""
         total_exposure = Decimal("0")
-
-        # Use vol-adjusted limit instead of raw max_position
-        effective_limit = self._vol_adjusted_position
+        dynamic_limit = self.get_dynamic_limit()
+        effective_limit = min(self._vol_adjusted_position, dynamic_limit)
 
         for token_id in token_ids:
             position = get_position(token_id)
-            abs_position = abs(position)
-            total_exposure += abs_position
+            open_orders = get_open_orders(token_id, raise_on_error=True)
+            pending_buy = sum(
+                order.remaining
+                for order in open_orders
+                if order.is_live and order.side == OrderSide.BUY
+            )
+            pending_sell = sum(
+                order.remaining
+                for order in open_orders
+                if order.is_live and order.side == OrderSide.SELL
+            )
 
-            if abs_position > effective_limit:
+            projected_long = position + pending_buy
+            projected_short = position - pending_sell
+            worst_abs_exposure = max(abs(projected_long), abs(projected_short))
+            total_exposure += worst_abs_exposure
+
+            if worst_abs_exposure > effective_limit:
                 return RiskCheck(
-                    RiskStatus.WARN,
-                    f"Position limit exceeded for {token_id[:16]}: {position} > {effective_limit}",
+                    RiskStatus.STOP,
+                    f"Position limit exceeded for {token_id[:16]}: {worst_abs_exposure} > {effective_limit}",
                     {
                         "token_id": token_id,
                         "position": float(position),
+                        "pending_buy": float(pending_buy),
+                        "pending_sell": float(pending_sell),
+                        "projected_long": float(projected_long),
+                        "projected_short": float(projected_short),
                         "limit": float(effective_limit),
+                        "dynamic_limit": float(dynamic_limit),
+                        "vol_adjusted_limit": float(self._vol_adjusted_position),
                         "vol_adjusted": self._volatility_multiplier < 1.0,
                     }
                 )
 
         if total_exposure > self.max_total_exposure:
             return RiskCheck(
-                RiskStatus.WARN,
+                RiskStatus.STOP,
                 f"Total exposure {total_exposure} exceeds limit {self.max_total_exposure}",
-                {"total_exposure": float(total_exposure)}
+                {
+                    "total_exposure": float(total_exposure),
+                    "max_total_exposure": float(self.max_total_exposure),
+                }
             )
 
         return RiskCheck(RiskStatus.OK)

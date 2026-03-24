@@ -229,7 +229,7 @@ class TestErrorRate:
 class TestPositionLimits:
     """Test position limit checks."""
 
-    def test_position_warning(self):
+    def test_position_stop(self):
         from src.risk.manager import RiskManager, RiskStatus
         from src.simulator import get_simulator, reset_simulator
         from src.models import OrderSide
@@ -248,10 +248,10 @@ class TestPositionLimits:
         risk = RiskManager(max_position=Decimal("100"), enforce=True)
         check = risk.check(["t1"])
 
-        assert check.status == RiskStatus.WARN
+        assert check.status == RiskStatus.STOP
         assert "position" in check.reason.lower()
 
-        print("✓ Position limit triggers warning")
+        print("✓ Position limit triggers stop")
 
 
 class TestGetStatus:

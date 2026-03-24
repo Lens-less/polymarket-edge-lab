@@ -55,6 +55,16 @@ class WebSocketConnection:
     def is_connected(self) -> bool:
         return self._connected and self._ws is not None
 
+    @property
+    def is_reconnecting(self) -> bool:
+        """Whether the background receive loop is currently handling reconnects."""
+        return (
+            self._should_run
+            and not self._connected
+            and self._receive_task is not None
+            and not self._receive_task.done()
+        )
+
     async def connect(self) -> bool:
         """Establish WebSocket connection."""
         self._should_run = True

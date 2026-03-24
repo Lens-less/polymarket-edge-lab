@@ -82,6 +82,7 @@ class MarketFeed:
         # Health monitor
         self._health_task: Optional[asyncio.Task] = None
         self._ws_healthy_since: float = 0
+        self._last_ws_recovery_attempt: float = 0
 
         # User callbacks - simple attributes instead of properties
         self.on_price_change: Optional[Callable] = None
@@ -228,6 +229,12 @@ class MarketFeed:
         if self._state != FeedState.RUNNING:
             return False
 
+        if self._data_source == "none":
+            return False
+
+        if self._data_source == "websocket" and not self._ws.is_connected:
+            return False
+
         # Check if we've received ANY message recently (heartbeat)
         if self._data_store.seconds_since_any_message() > 90:
             return False
@@ -313,12 +320,19 @@ class MarketFeed:
 
     async def _resubscribe(self):
         """Re-subscribe after reconnection."""
-        await self._ws.subscribe(self._tokens)
-        self._data_source = "websocket"
+        subscribed = await self._ws.subscribe(self._tokens)
+        if subscribed:
+            if not self._rest.is_running:
+                self._data_source = "websocket"
+        else:
+            logger.error("WebSocket resubscribe failed")
 
     def _handle_ws_disconnect(self):
         """Handle WebSocket disconnected."""
         logger.debug("WebSocket disconnected callback")
+        self._data_source = "none"
+        self._ws_healthy_since = 0
+        self._data_store.reset_ws_timers()
 
     def _handle_max_retries(self):
         """Handle max reconnection attempts exceeded."""
@@ -335,6 +349,9 @@ class MarketFeed:
     def _handle_connection_lost(self):
         """Handle connection lost - fires BEFORE reconnect attempts."""
         logger.warning("[SAFETY] Connection lost - triggering order cancellation callback")
+        self._data_source = "none"
+        self._ws_healthy_since = 0
+        self._data_store.reset_ws_timers()
         if self._connection_lost_callback:
             try:
                 self._connection_lost_callback()
@@ -388,8 +405,7 @@ class MarketFeed:
                     price = change.get('price')
                     if token_id and price:
                         self._data_store.update_price(token_id, float(price))
-                        if self._data_source == "websocket":
-                            self._data_store.record_ws_message()
+                        self._data_store.record_ws_message()
                         await self._invoke_callback(self.on_price_change, change)
             return
 
@@ -413,16 +429,15 @@ class MarketFeed:
                 data.get('asks', []),
                 data.get('timestamp')
             )
-            if self._data_source == "websocket":
-                self._data_store.record_ws_message()
+            self._data_store.record_ws_message()
+            self._data_store.record_ws_book_message()
             await self._invoke_callback(self.on_book_update, data)
 
         elif event_type == 'price_change':
             price = data.get('price')
             if price:
                 self._data_store.update_price(token_id, float(price))
-                if self._data_source == "websocket":
-                    self._data_store.record_ws_message()
+                self._data_store.record_ws_message()
             await self._invoke_callback(self.on_price_change, data)
 
         elif event_type == 'last_trade_price':
@@ -436,8 +451,7 @@ class MarketFeed:
                     float(size) if size else None,
                     side
                 )
-                if self._data_source == "websocket":
-                    self._data_store.record_ws_message()
+                self._data_store.record_ws_message()
 
                 # Notify flow analyzers
                 if token_id in self._flow_callbacks:
@@ -473,38 +487,57 @@ class MarketFeed:
 
     async def _health_monitor(self):
         """Monitor health and manage failover."""
-        import time
-
         while True:
             try:
                 await asyncio.sleep(5.0)
-
-                ws_connected = self._ws.is_connected
-                data_fresh = self._data_store.all_fresh()
-
-                # Check if WS is actually sending data (not just connected)
-                ws_sending_data = self._data_store.seconds_since_ws_message() < self._stale_threshold
-                if ws_connected and ws_sending_data:
-                    if self._ws_healthy_since == 0:
-                        self._ws_healthy_since = time.time()
-
-                    # If WS healthy long enough, stop REST
-                    if self._rest.is_running:
-                        healthy_duration = time.time() - self._ws_healthy_since
-                        if healthy_duration >= self._rest_recovery_delay:
-                            logger.info("WebSocket recovered, stopping REST fallback")
-                            await self._rest.stop()
-                            self._data_source = "websocket"
-                else:
-                    self._ws_healthy_since = 0
-
-                    # If WS unhealthy and REST not running, start it
-                    if not self._rest.is_running and self._state == FeedState.RUNNING:
-                        logger.warning("WebSocket unhealthy, starting REST fallback")
-                        await self._rest.start(self._tokens)
-                        self._data_source = "rest"
+                await self._monitor_health_once()
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"Health monitor error: {e}")
+
+    async def _monitor_health_once(self):
+        """Run one health-monitor cycle."""
+        import time
+
+        now = time.time()
+        ws_connected = self._ws.is_connected
+        data_fresh = self._data_store.all_fresh()
+        ws_sending_data = self._data_store.seconds_since_ws_message() < self._stale_threshold
+        ws_book_fresh = (
+            self._data_store.seconds_since_ws_book_message() < self._stale_threshold
+        )
+
+        if (
+            not ws_connected
+            and self._state == FeedState.RUNNING
+            and self._tokens
+            and not self._ws.is_reconnecting
+            and now - self._last_ws_recovery_attempt >= 5.0
+        ):
+            self._last_ws_recovery_attempt = now
+            logger.info("Attempting WebSocket recovery while on fallback")
+            await self._ws.connect()
+            ws_connected = self._ws.is_connected
+
+        if ws_connected and ws_sending_data and ws_book_fresh and data_fresh:
+            if self._ws_healthy_since == 0:
+                self._ws_healthy_since = now
+
+            if self._rest.is_running:
+                healthy_duration = now - self._ws_healthy_since
+                if healthy_duration >= self._rest_recovery_delay:
+                    logger.info("WebSocket recovered, stopping REST fallback")
+                    await self._rest.stop()
+                    self._data_source = "websocket"
+            elif self._data_source != "websocket":
+                self._data_source = "websocket"
+            return
+
+        self._ws_healthy_since = 0
+
+        if not self._rest.is_running and self._state == FeedState.RUNNING:
+            logger.warning("WebSocket unhealthy, starting REST fallback")
+            await self._rest.start(self._tokens)
+            self._data_source = "rest"

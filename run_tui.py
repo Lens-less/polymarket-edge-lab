@@ -12,10 +12,19 @@ import asyncio
 import argparse
 import sys
 
-from src.config import DRY_RUN
+from src.config import (
+    DRY_RUN,
+    MM_POSITION_LIMIT,
+    MM_SIZE,
+    SPREAD_BASE,
+    get_mode_string,
+    has_credentials,
+    validate_config,
+)
 from src.markets import fetch_active_markets
 from src.pricing import get_order_books
 from src.strategy.market_scorer import MarketScorer
+from src.strategy.runner import cleanup_orphaned_orders
 from src.tui.runner import run_with_tui
 from src.utils import setup_logging
 
@@ -145,20 +154,20 @@ def main():
     parser.add_argument(
         "--spread", "-s",
         type=float,
-        default=0.02,
-        help="Spread to maintain (default: 0.02)"
+        default=float(SPREAD_BASE),
+        help=f"Spread to maintain (default: {SPREAD_BASE})"
     )
     parser.add_argument(
         "--size", "-z",
         type=float,
-        default=10.0,
-        help="Quote size (default: 10.0)"
+        default=float(MM_SIZE),
+        help=f"Quote size (default: {MM_SIZE})"
     )
     parser.add_argument(
         "--position-limit", "-p",
         type=float,
-        default=100.0,
-        help="Max position size (default: 100.0)"
+        default=float(MM_POSITION_LIMIT),
+        help=f"Max position size (default: {MM_POSITION_LIMIT})"
     )
     parser.add_argument(
         "--manual", "-m",
@@ -168,8 +177,18 @@ def main():
 
     args = parser.parse_args()
 
+    try:
+        validate_config()
+    except ValueError as e:
+        print(f"Configuration error: {e}")
+        sys.exit(1)
+
+    if not DRY_RUN and not has_credentials():
+        print("Missing live trading credentials. Aborting.")
+        sys.exit(1)
+
     # Print mode banner
-    mode = "DRY_RUN" if DRY_RUN else "LIVE"
+    mode = get_mode_string()
     mode_color = "\033[96m" if DRY_RUN else "\033[91m"
     reset = "\033[0m"
     print(f"\n{mode_color}{'='*60}")
@@ -200,6 +219,14 @@ def main():
             sys.exit(1)
         token_id = market.token_ids[0]
         question = market.question
+
+    if not DRY_RUN:
+        orphaned = cleanup_orphaned_orders(token_id)
+        if orphaned < 0:
+            print("Could not verify existing live orders. Aborting for safety.")
+            sys.exit(1)
+        if orphaned > 0:
+            print(f"   Cleaned up {orphaned} orphaned orders before start")
 
     # Get complement token for arbitrage (if available)
     complement_token_id = None

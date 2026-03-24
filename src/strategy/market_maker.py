@@ -6,6 +6,7 @@ SmartMarketMaker: Dynamic spread, inventory skewing, volatility-aware
 
 import asyncio
 import signal
+import traceback
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from typing import Optional
@@ -36,9 +37,9 @@ from src.config import (
     MARKET_MIN_PRICE,
     MARKET_MAX_PRICE,
 )
-from src.models import Order, OrderSide
+from src.models import Order, OrderSide, OrderStatus, Trade
 from src.trading import place_order, cancel_order, cancel_all_orders, OrderError
-from src.orders import get_open_orders, get_position
+from src.orders import get_open_orders, get_position, get_trades
 from src.feed import MarketFeed
 from src.pricing import get_order_book
 from src.risk import RiskManager, RiskStatus, get_risk_manager
@@ -57,15 +58,10 @@ from src.alpha import (
     FlowAnalyzer,
     EventTracker,
     TokenPair,
-    CompetitorDetector,
-    RegimeDetector,
-    TimePatternAnalyzer,
 )
 from src.config import (
     ARB_MIN_PROFIT_BPS,
     FLOW_WINDOW_SECONDS,
-    COMPETITOR_WINDOW_SIZE,
-    REGIME_WINDOW_SIZE,
 )
 
 logger = setup_logging()
@@ -169,12 +165,7 @@ class SmartMarketMaker:
         )
         self.event_tracker = EventTracker()
 
-        # Market intelligence modules
-        self.competitor_detector = CompetitorDetector(window_size=COMPETITOR_WINDOW_SIZE)
-        self.regime_detector = RegimeDetector(window_size=REGIME_WINDOW_SIZE)
-        self.time_analyzer = TimePatternAnalyzer()
-
-        # Configure event tracker with market resolution time
+        # Register YES/NO pair for arbitrage detection
         if market_end_date:
             self.event_tracker.set_market_metadata(token_id, {
                 'resolution_time': market_end_date.timestamp(),
@@ -204,7 +195,6 @@ class SmartMarketMaker:
         self.risk = get_risk_manager()
         self._loop_count = 0
         self._last_heartbeat = 0.0
-        self._last_competitor_reason: str = ""  # Track to avoid log spam
 
         # Balance monitoring (safety)
         self._initial_balance: Optional[Decimal] = None
@@ -212,6 +202,7 @@ class SmartMarketMaker:
 
         # Computed values (for TUI display)
         self._last_state: Optional[SmartMMState] = None
+        self._seen_trade_ids: set[str] = set()
 
     async def run(self, install_signals: bool = True):
         """Main loop. Runs until stopped."""
@@ -237,9 +228,8 @@ class SmartMarketMaker:
             def on_ws_disconnect():
                 logger.warning("[SAFETY] WebSocket disconnected - canceling all orders")
                 try:
-                    cancel_all_orders(self.token_id)
-                    self.bid_order = None
-                    self.ask_order = None
+                    if not self._cancel_all_quotes_sync():
+                        logger.error("[SAFETY] One or more disconnect cancels failed")
                 except Exception as e:
                     logger.error(f"[SAFETY] Failed to cancel orders on disconnect: {e}")
 
@@ -253,6 +243,9 @@ class SmartMarketMaker:
 
             self.feed.register_flow_callback(self.token_id, flow_callback)
 
+            if not DRY_RUN:
+                self._prime_live_trade_state()
+
             self._running = True
             logger.info("Smart market maker running. Press Ctrl+C to stop.")
 
@@ -260,7 +253,9 @@ class SmartMarketMaker:
                 try:
                     await self._loop_iteration()
                 except Exception as e:
+                    self.risk.record_error(f"Loop error: {e}")
                     logger.error(f"Loop error: {e}")
+                    traceback.print_exc()
 
                 # Use adaptive interval instead of fixed
                 interval = self.timer.get_interval()
@@ -299,7 +294,7 @@ class SmartMarketMaker:
         """Handle shutdown signals."""
         self.stop()
 
-    async def _wait_for_data(self, timeout: float = 10.0):
+    async def _wait_for_data(self, timeout: float = 30.0):
         """Wait for feed to have data, bootstrapping via REST if needed."""
         logger.info("Waiting for market data...")
         start = asyncio.get_event_loop().time()
@@ -416,6 +411,15 @@ class SmartMarketMaker:
             )
             self._last_heartbeat = now
 
+        if not DRY_RUN:
+            try:
+                self._sync_live_state()
+            except Exception as e:
+                self.risk.record_error(f"Live sync failed: {e}")
+                logger.error(f"Live sync failed: {e}")
+                await self._cancel_all_quotes()
+                return
+
         # Risk check
         check = self.risk.check([self.token_id])
         if check.status == RiskStatus.STOP:
@@ -484,6 +488,7 @@ class SmartMarketMaker:
                         no_price=str(no_mid),
                         status=parity.value,
                     )
+                    await self._cancel_all_quotes()
                     return
                 elif parity == ParityStatus.NEAR_ARBITRAGE:
                     logger.info(f"Near-arbitrage: YES+NO = {mid + Decimal(str(no_mid)):.3f}")
@@ -498,46 +503,6 @@ class SmartMarketMaker:
         order_book = None
         if hasattr(self.feed, '_data_store'):
             order_book = self.feed._data_store.get_order_book(self.token_id)
-
-        # Feed market intelligence modules
-        if order_book:
-            # Record orders for competitor detection
-            for level in order_book.bids[:10]:  # Top 10 bids
-                price = Decimal(str(level.price))
-                size = Decimal(str(level.size))
-                self.competitor_detector.record_order(price, size, "BUY", mid)
-
-            for level in order_book.asks[:10]:  # Top 10 asks
-                price = Decimal(str(level.price))
-                size = Decimal(str(level.size))
-                self.competitor_detector.record_order(price, size, "SELL", mid)
-
-            # Record liquidity snapshot for regime detection
-            bid_depth = sum(
-                (Decimal(str(level.size)) * Decimal(str(level.price))
-                for level in order_book.bids[:5]),
-                Decimal(0)
-            )
-            ask_depth = sum(
-                (Decimal(str(level.size)) * Decimal(str(level.price))
-                for level in order_book.asks[:5]),
-                Decimal(0)
-            )
-            best_bid_price = Decimal(str(order_book.best_bid)) if order_book.best_bid else mid
-            best_ask_price = Decimal(str(order_book.best_ask)) if order_book.best_ask else mid
-            spread = best_ask_price - best_bid_price if best_ask_price > best_bid_price else Decimal("0.01")
-            volume = bid_depth + ask_depth  # Proxy for recent volume
-
-            self.regime_detector.record_snapshot(spread, bid_depth, ask_depth, volume)
-
-            # Record time pattern stats (hourly aggregation happens internally)
-            current_hour = datetime.now().hour
-            self.time_analyzer.record_hourly_stats(
-                hour=current_hour,
-                volume=volume,
-                avg_spread=spread,
-                fill_rate=0.5,  # Will be improved with real fill data
-            )
 
         # Check for simulated fills in DRY_RUN mode
         if DRY_RUN:
@@ -555,27 +520,7 @@ class SmartMarketMaker:
                     all_trades = sim.get_trades(self.token_id)
                     new_trades = all_trades[trades_before:]
                     for trade in new_trades:
-                        self.inventory.record_fill(
-                            price=trade.price,
-                            size=trade.size,
-                            side=trade.side.value
-                        )
-                        # Track P&L per market
-                        self.pnl_tracker.record_trade(
-                            market_id=self.token_id,
-                            side=trade.side.value,
-                            price=trade.price,
-                            size=trade.size,
-                        )
-                        # Log trade for analysis
-                        self.trade_logger.log_trade(
-                            market_id=self.token_id,
-                            side=trade.side.value,
-                            price=trade.price,
-                            size=trade.size,
-                            fill_type="maker",
-                            order_id=trade.order_id if hasattr(trade, 'order_id') else None,
-                        )
+                        self._record_trade_fill(trade, fill_type="maker")
 
         # Calculate dynamic spread and quotes
         result = self._calculate_quotes(mid, order_book)
@@ -646,34 +591,7 @@ class SmartMarketMaker:
             self.token_id, bid_price, ask_price
         )
 
-        # 6b. Flow analyzer - adjust based on order flow direction
-        flow_state = self.flow_analyzer.get_state()
-
-        # Log flow state if non-neutral
-        if flow_state.signal.value != "neutral" and flow_state.trade_count > 0:
-            logger.info(
-                f"[FLOW] {flow_state.signal.value.upper()}: "
-                f"{flow_state.trade_count} trades, "
-                f"imbalance={flow_state.imbalance:.2f}, "
-                f"skew={flow_state.recommended_skew:.4f}"
-            )
-
-        bid_price = bid_price + flow_state.recommended_skew
-        ask_price = ask_price + flow_state.recommended_skew
-
-        # Widen spread if high aggression detected (informed traders)
-        if self.flow_analyzer.should_widen_spread():
-            logger.info(f"[FLOW] High aggression detected - widening spread 20%")
-            spread = spread * Decimal("1.2")  # 20% wider
-            # Recalculate with wider spread but keep skews
-            half_spread_new = spread / 2
-            bid_price = mid - half_spread_new + inv_state.bid_skew + imbalance_adj + flow_state.recommended_skew
-            ask_price = mid + half_spread_new + inv_state.ask_skew + imbalance_adj + flow_state.recommended_skew
-            bid_price, ask_price = self.arb_detector.get_quote_adjustment(
-                self.token_id, bid_price, ask_price
-            )
-
-        # 6c. Event tracker spread adjustment (should_trade already checked)
+        # 6b. Event tracker spread adjustment (should_trade already checked)
         if event_signal.spread_multiplier != 1.0:
             logger.info(
                 f"[EVENT] Spread multiplier: {event_signal.spread_multiplier:.2f}x - {event_signal.reason}"
@@ -681,41 +599,13 @@ class SmartMarketMaker:
             # Widen spread near events (risk management)
             spread = spread * Decimal(str(event_signal.spread_multiplier))
             half_spread_evt = spread / 2
-            bid_price = mid - half_spread_evt + inv_state.bid_skew + imbalance_adj + flow_state.recommended_skew
-            ask_price = mid + half_spread_evt + inv_state.ask_skew + imbalance_adj + flow_state.recommended_skew
-
-        # 6d. Market intelligence adjustments
-
-        # Competitor response - widen if facing large aggressive competitor
-        comp_response = self.competitor_detector.get_strategy_response()
-        if not comp_response.should_compete:
-            # Only log on state change to avoid spam
-            if comp_response.reason != self._last_competitor_reason:
-                logger.info(f"[COMPETITOR] {comp_response.reason}")
-                self._last_competitor_reason = comp_response.reason
-            spread = spread * Decimal(str(comp_response.spread_multiplier))
-        elif self._last_competitor_reason:
-            # Log when returning to normal
-            logger.info("[COMPETITOR] Returning to normal competition")
-            self._last_competitor_reason = ""
-
-        # Regime adjustment - adapt to liquidity conditions
-        regime_adj = self.regime_detector.get_strategy_adjustment()
-        if regime_adj.should_pause:
-            logger.warning(f"[REGIME] {regime_adj.reason} - reducing size")
-        if regime_adj.spread_multiplier != 1.0:
-            spread = spread * Decimal(str(regime_adj.spread_multiplier))
-
-        # Time-of-day adjustment
-        current_hour = datetime.now().hour
-        time_adj = self.time_analyzer.get_adjustment_for_hour(current_hour)
-        if time_adj.spread_multiplier != 1.0:
-            spread = spread * Decimal(str(time_adj.spread_multiplier))
+            bid_price = mid - half_spread_evt + inv_state.bid_skew + imbalance_adj
+            ask_price = mid + half_spread_evt + inv_state.ask_skew + imbalance_adj
 
         # Recalculate prices after all adjustments
         half_spread_final = spread / 2
-        bid_price = mid - half_spread_final + inv_state.bid_skew + imbalance_adj + flow_state.recommended_skew
-        ask_price = mid + half_spread_final + inv_state.ask_skew + imbalance_adj + flow_state.recommended_skew
+        bid_price = mid - half_spread_final + inv_state.bid_skew + imbalance_adj
+        ask_price = mid + half_spread_final + inv_state.ask_skew + imbalance_adj
 
         # Round to tick
         bid_price = (bid_price * 100).quantize(Decimal("1")) / 100
@@ -753,7 +643,12 @@ class SmartMarketMaker:
 
     def _should_requote(self, mid: Decimal) -> bool:
         """Check if quotes need updating."""
-        if self.bid_order is None and self.ask_order is None:
+        if self.bid_order is not None and not self.bid_order.is_live:
+            self.bid_order = None
+        if self.ask_order is not None and not self.ask_order.is_live:
+            self.ask_order = None
+
+        if self.bid_order is None or self.ask_order is None:
             return True
 
         if self.last_mid is not None:
@@ -775,7 +670,9 @@ class SmartMarketMaker:
                 f"inv={self._last_state.inv_multiplier:.2f}x)"
             )
 
-        await self._cancel_all_quotes()
+        if not await self._cancel_all_quotes():
+            logger.warning("Skipping quote refresh because existing quotes could not be cancelled cleanly")
+            return
 
         # Get size multipliers from inventory
         bid_size_mult, ask_size_mult = self.inventory.get_size_multipliers()
@@ -829,18 +726,41 @@ class SmartMarketMaker:
             logger.info(f"Placed {side.value} {size} @ {price}: {order.id}")
             return order
         except OrderError as e:
+            self.risk.record_error(f"Failed to place {side.value}: {e}")
             logger.error(f"Failed to place {side.value}: {e}")
             return None
 
     async def _cancel_all_quotes(self):
         """Cancel all our quotes."""
-        if self.bid_order and self.bid_order.is_live:
-            cancel_order(self.bid_order.id)
-        if self.ask_order and self.ask_order.is_live:
-            cancel_order(self.ask_order.id)
+        return self._cancel_all_quotes_sync()
 
-        self.bid_order = None
-        self.ask_order = None
+    def _cancel_all_quotes_sync(self) -> bool:
+        """Cancel tracked quotes and preserve local state if cancel fails."""
+        success = True
+
+        for attr_name, label in (("bid_order", "bid"), ("ask_order", "ask")):
+            order = getattr(self, attr_name)
+            if order is None:
+                continue
+
+            if not order.is_live:
+                setattr(self, attr_name, None)
+                continue
+
+            try:
+                cancelled = cancel_order(order.id)
+            except Exception as e:
+                cancelled = False
+                logger.error(f"Failed to cancel {label} order: {e}")
+
+            if cancelled:
+                setattr(self, attr_name, None)
+            else:
+                success = False
+                self.risk.record_error(f"Failed to cancel {label} order {order.id}")
+                logger.error(f"Cancel request did not complete for {label} order {order.id}")
+
+        return success
 
     def _cleanup_stale_orders(self):
         """Cancel orders older than threshold (safety check)."""
@@ -892,6 +812,110 @@ class SmartMarketMaker:
 
         except Exception as e:
             logger.warning(f"Balance check failed: {e}")
+
+    def _prime_live_trade_state(self):
+        """Ignore pre-existing trades so only new session fills are processed."""
+        recent_trades = get_trades(self.token_id, limit=100, raise_on_error=True)
+        self._seen_trade_ids = {trade.id for trade in recent_trades if trade.id}
+
+    def _sync_live_state(self):
+        """Sync live trades and open orders into local state."""
+        self._sync_live_trades()
+        self._sync_live_orders()
+
+    def _sync_live_trades(self):
+        """Process newly observed live trades."""
+        recent_trades = get_trades(self.token_id, limit=100, raise_on_error=True)
+        new_trades = [
+            trade for trade in recent_trades
+            if trade.id and trade.id not in self._seen_trade_ids
+        ]
+
+        for trade in reversed(new_trades):
+            self._record_trade_fill(trade, fill_type="live")
+            self._seen_trade_ids.add(trade.id)
+
+    def _sync_live_orders(self):
+        """Reconcile tracked quote references with exchange open orders."""
+        open_orders = get_open_orders(self.token_id, raise_on_error=True)
+        open_by_id = {order.id: order for order in open_orders}
+
+        for attr_name, label in (("bid_order", "bid"), ("ask_order", "ask")):
+            order = getattr(self, attr_name)
+            if order is None:
+                continue
+
+            live_order = open_by_id.get(order.id)
+            if live_order is None:
+                if order.is_live:
+                    logger.info(f"{label.upper()} order {order.id[:16]} no longer open")
+                    order.status = OrderStatus.CANCELLED
+                setattr(self, attr_name, None)
+                continue
+
+            order.filled = live_order.filled
+            order.status = live_order.status
+
+    def _record_trade_fill(self, trade: Trade, fill_type: str):
+        """Apply a fill to inventory, P&L, and risk state exactly once."""
+        side = trade.side.value if isinstance(trade.side, OrderSide) else str(trade.side).upper()
+        fee = trade.fee if isinstance(trade.fee, Decimal) else Decimal(str(trade.fee))
+
+        self.inventory.record_fill(
+            price=trade.price,
+            size=trade.size,
+            side=side,
+        )
+
+        stats_before = self.pnl_tracker.get_market_stats(self.token_id)
+        realized_before = stats_before.realized_pnl if stats_before else Decimal("0")
+
+        self.pnl_tracker.record_trade(
+            market_id=self.token_id,
+            side=side,
+            price=trade.price,
+            size=trade.size,
+        )
+
+        stats_after = self.pnl_tracker.get_market_stats(self.token_id)
+        realized_after = stats_after.realized_pnl if stats_after else Decimal("0")
+        realized_delta = realized_after - realized_before
+
+        self.risk.record_trade(
+            token_id=self.token_id,
+            side=side,
+            price=trade.price,
+            size=trade.size,
+            realized_pnl=realized_delta if realized_delta != 0 else None,
+            fee=fee,
+        )
+
+        self.trade_logger.log_trade(
+            market_id=self.token_id,
+            side=side,
+            price=trade.price,
+            size=trade.size,
+            fill_type=fill_type,
+            order_id=trade.order_id or None,
+        )
+
+        self._mark_order_fill(trade.order_id, trade.size)
+
+    def _mark_order_fill(self, order_id: str, fill_size: Decimal):
+        """Advance local tracked order state after a fill."""
+        if not order_id:
+            return
+
+        for attr_name in ("bid_order", "ask_order"):
+            order = getattr(self, attr_name)
+            if order is None or order.id != order_id:
+                continue
+
+            order.filled += fill_size
+            if order.filled >= order.size:
+                order.status = OrderStatus.MATCHED
+                setattr(self, attr_name, None)
+            break
 
     async def _shutdown(self):
         """Clean shutdown."""

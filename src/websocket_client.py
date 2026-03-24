@@ -419,34 +419,57 @@ class MarketWebSocket:
         """Parse and route incoming messages"""
         try:
             data = json.loads(raw_message)
-
-            event_type = data.get("event_type")
-            asset_id = data.get("asset_id")
-
-            if not event_type:
-                logger.debug(f"Unknown message format: {raw_message[:100]}")
-                return
-
-            # Update last update time
-            if asset_id and asset_id in self._market_data:
-                self._market_data[asset_id].last_update_time = time.time()
-
-            # Route to appropriate handler
-            if event_type == "price_change":
-                self._handle_price_change(data)
-            elif event_type == "book":
-                self._handle_book_update(data)
-            elif event_type == "last_trade_price":
-                self._handle_trade(data)
-            elif event_type == "tick_size_change":
-                self._handle_tick_size_change(data)
-            else:
-                logger.debug(f"Unhandled event type: {event_type}")
+            await self._process_message_payload(data, raw_message)
 
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse message: {e}")
         except Exception as e:
             logger.error(f"Error handling message: {e}")
+
+    async def _process_message_payload(self, data: Any, raw_message: str = ""):
+        """Handle the Polymarket WS payload shapes we see in production."""
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict):
+                    await self._process_message_payload(item, raw_message)
+            return
+
+        if not isinstance(data, dict):
+            logger.debug(f"Unknown message format: {raw_message[:100]}")
+            return
+
+        price_changes = data.get("price_changes")
+        if isinstance(price_changes, list):
+            for change in price_changes:
+                if not isinstance(change, dict):
+                    continue
+                normalized_change = dict(change)
+                normalized_change.setdefault("event_type", "price_change")
+                await self._process_message_payload(normalized_change, raw_message)
+            return
+
+        event_type = data.get("event_type")
+        asset_id = data.get("asset_id")
+
+        if not event_type:
+            logger.debug(f"Unknown message format: {raw_message[:100]}")
+            return
+
+        # Update last update time
+        if asset_id and asset_id in self._market_data:
+            self._market_data[asset_id].last_update_time = time.time()
+
+        # Route to appropriate handler
+        if event_type == "price_change":
+            self._handle_price_change(data)
+        elif event_type == "book":
+            self._handle_book_update(data)
+        elif event_type == "last_trade_price":
+            self._handle_trade(data)
+        elif event_type == "tick_size_change":
+            self._handle_tick_size_change(data)
+        else:
+            logger.debug(f"Unhandled event type: {event_type}")
 
     def _handle_price_change(self, data: Dict[str, Any]):
         """Handle price_change events"""
