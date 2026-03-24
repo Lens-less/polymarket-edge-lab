@@ -13,6 +13,7 @@ load_dotenv()
 
 # === Network ===
 CHAIN_ID = int(os.getenv("CHAIN_ID", "137"))
+POLYGON_RPC_URL = os.getenv("POLYGON_RPC_URL")
 
 # === API Endpoints ===
 CLOB_API_URL = os.getenv("CLOB_API_URL", "https://clob.polymarket.com")
@@ -23,6 +24,8 @@ POLY_PRIVATE_KEY = os.getenv("POLY_PRIVATE_KEY")
 POLY_API_KEY = os.getenv("POLY_API_KEY")
 POLY_API_SECRET = os.getenv("POLY_API_SECRET")
 POLY_PASSPHRASE = os.getenv("POLY_PASSPHRASE")
+POLY_SIGNATURE_TYPE = int(os.getenv("POLY_SIGNATURE_TYPE", "0"))
+POLY_FUNDER = os.getenv("POLY_FUNDER")
 
 # === WebSocket ===
 WS_MARKET_URL = os.getenv(
@@ -173,13 +176,15 @@ QUEUE_IMPROVE_THRESHOLD = float(os.getenv("QUEUE_IMPROVE_THRESHOLD", "100"))
 
 
 def has_credentials() -> bool:
-    """Check if all required credentials are configured."""
-    return all([
-        POLY_PRIVATE_KEY,
-        POLY_API_KEY,
-        POLY_API_SECRET,
-        POLY_PASSPHRASE
-    ])
+    """Check if enough auth material exists to create an authenticated client."""
+    if not POLY_PRIVATE_KEY:
+        return False
+
+    # Polymarket clients can derive/create API creds from the signing key.
+    if POLY_SIGNATURE_TYPE == 1 and not POLY_FUNDER:
+        return False
+
+    return True
 
 
 def get_mode_string() -> str:

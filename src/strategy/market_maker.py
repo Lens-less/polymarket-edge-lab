@@ -189,6 +189,8 @@ class SmartMarketMaker:
         self.feed: Optional[MarketFeed] = None
         self.bid_order: Optional[Order] = None
         self.ask_order: Optional[Order] = None
+        self._quote_bid_enabled = True
+        self._quote_ask_enabled = True
         self.last_mid: Optional[Decimal] = None
         self._running = False
         self._shutdown_event = asyncio.Event()
@@ -648,7 +650,13 @@ class SmartMarketMaker:
         if self.ask_order is not None and not self.ask_order.is_live:
             self.ask_order = None
 
-        if self.bid_order is None or self.ask_order is None:
+        if self._quote_bid_enabled and self.bid_order is None:
+            return True
+        if self._quote_ask_enabled and self.ask_order is None:
+            return True
+        if not self._quote_bid_enabled and self.bid_order is not None:
+            return True
+        if not self._quote_ask_enabled and self.ask_order is not None:
             return True
 
         if self.last_mid is not None:
@@ -689,6 +697,12 @@ class SmartMarketMaker:
         bid_size = max(MIN_ORDER_SIZE, bid_size)
         ask_size = max(MIN_ORDER_SIZE, ask_size)
 
+        if not DRY_RUN:
+            from src.auth import get_conditional_balance
+
+            conditional = get_conditional_balance(self.token_id)
+            ask_size = min(ask_size, conditional["sellable"])
+
         # Log quote update
         self.trade_logger.log_quote(
             market_id=self.token_id,
@@ -702,17 +716,24 @@ class SmartMarketMaker:
 
         # Place quotes (respecting inventory limits via size reduction, not hard stops)
         inv_state = self.inventory.get_state()
+        self._quote_bid_enabled = inv_state.inventory_level != "MAX_LONG"
+        self._quote_ask_enabled = (
+            inv_state.inventory_level != "MAX_SHORT" and ask_size >= MIN_ORDER_SIZE
+        )
 
         # Only skip side entirely if at absolute max
-        if inv_state.inventory_level != "MAX_LONG":
+        if self._quote_bid_enabled:
             self.bid_order = self._place_quote(OrderSide.BUY, bid_price, bid_size)
         else:
             logger.info("MAX_LONG - skipping bid")
 
-        if inv_state.inventory_level != "MAX_SHORT":
+        if self._quote_ask_enabled:
             self.ask_order = self._place_quote(OrderSide.SELL, ask_price, ask_size)
         else:
-            logger.info("MAX_SHORT - skipping ask")
+            if inv_state.inventory_level == "MAX_SHORT":
+                logger.info("MAX_SHORT - skipping ask")
+            else:
+                logger.info("Skipping ask: no sellable outcome token balance/allowance")
 
     def _place_quote(self, side: OrderSide, price: Decimal, size: Decimal) -> Optional[Order]:
         """Place a single quote."""

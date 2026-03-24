@@ -558,7 +558,7 @@ class DataStorePersistenceMixin:
         )
 
         for seconds, price in future_prices.items():
-            pnl = price - trade_price
+            pnl = round(price - trade_price, 6)
             if seconds == 1:
                 markout.markout_1s = pnl
             elif seconds == 5:

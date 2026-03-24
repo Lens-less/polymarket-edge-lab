@@ -90,21 +90,25 @@ class PersistentDataStore(DataStore):
 
         order_book = data.order_book
 
-        # Calculate depth
-        bid_depth = sum(b.size for b in order_book.bids[:5])
-        ask_depth = sum(a.size for a in order_book.asks[:5])
+        # Persist floats, because SQLite/JSON cannot serialize Decimal directly.
+        bid_depth = float(sum(b.size for b in order_book.bids[:5]))
+        ask_depth = float(sum(a.size for a in order_book.asks[:5]))
 
         snapshot = SnapshotRecord(
             timestamp=now,
             token_id=token_id,
-            best_bid=order_book.best_bid,
-            best_ask=order_book.best_ask,
-            spread=order_book.spread,
-            midpoint=order_book.midpoint,
+            best_bid=float(order_book.best_bid) if order_book.best_bid is not None else None,
+            best_ask=float(order_book.best_ask) if order_book.best_ask is not None else None,
+            spread=float(order_book.spread) if order_book.spread is not None else None,
+            midpoint=float(order_book.midpoint) if order_book.midpoint is not None else None,
             bid_depth_5=bid_depth,
             ask_depth_5=ask_depth,
-            bids_json=json.dumps([{'price': b.price, 'size': b.size} for b in order_book.bids]),
-            asks_json=json.dumps([{'price': a.price, 'size': a.size} for a in order_book.asks]),
+            bids_json=json.dumps(
+                [{"price": float(b.price), "size": float(b.size)} for b in order_book.bids]
+            ),
+            asks_json=json.dumps(
+                [{"price": float(a.price), "size": float(a.size)} for a in order_book.asks]
+            ),
             sequence=self._sequence.get(token_id)
         )
 
@@ -187,7 +191,7 @@ class PersistentDataStore(DataStore):
         )
 
         for seconds, price in future_prices.items():
-            pnl = price - trade_price
+            pnl = round(price - trade_price, 6)
             if seconds == 1:
                 markout.markout_1s = pnl
             elif seconds == 5:

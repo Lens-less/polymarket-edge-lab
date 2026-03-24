@@ -15,6 +15,8 @@ from src.config import (
     POLY_API_KEY,
     POLY_API_SECRET,
     POLY_PASSPHRASE,
+    POLY_SIGNATURE_TYPE,
+    POLY_FUNDER,
     has_credentials,
 )
 from src.utils import setup_logging
@@ -66,23 +68,28 @@ def get_auth_client() -> ClobClient:
         if not has_credentials():
             raise ValueError(
                 "Authentication credentials not configured. "
-                "Set POLY_PRIVATE_KEY, POLY_API_KEY, POLY_API_SECRET, "
-                "and POLY_PASSPHRASE in your .env file."
+                "Set POLY_PRIVATE_KEY and, for signature_type=1, POLY_FUNDER. "
+                "Optional POLY_API_KEY/POLY_API_SECRET/POLY_PASSPHRASE can also be provided."
             )
 
-        # Create client with private key
+        # Create client with signing material. Some accounts also require funder/signature_type.
         _auth_client = ClobClient(
             host=CLOB_API_URL,
             chain_id=CHAIN_ID,
-            key=POLY_PRIVATE_KEY
+            key=POLY_PRIVATE_KEY,
+            signature_type=POLY_SIGNATURE_TYPE,
+            funder=POLY_FUNDER,
         )
 
-        # Set API credentials
-        _auth_client.set_api_creds(ApiCreds(
-            api_key=POLY_API_KEY,
-            api_secret=POLY_API_SECRET,
-            api_passphrase=POLY_PASSPHRASE
-        ))
+        if all([POLY_API_KEY, POLY_API_SECRET, POLY_PASSPHRASE]):
+            _auth_client.set_api_creds(ApiCreds(
+                api_key=POLY_API_KEY,
+                api_secret=POLY_API_SECRET,
+                api_passphrase=POLY_PASSPHRASE
+            ))
+        else:
+            creds = _auth_client.create_or_derive_api_creds()
+            _auth_client.set_api_creds(creds)
 
         logger.info("Created authenticated CLOB client")
 

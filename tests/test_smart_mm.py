@@ -338,5 +338,51 @@ class TestRiskManagerEnhancements:
         print(f"Status fields present: {list(status.keys())}")
 
 
+class TestLiveQuoteGating:
+    """Test live quote behavior when one side is intentionally disabled."""
+
+    def test_missing_disabled_ask_does_not_force_requote(self):
+        from src.strategy.market_maker import SmartMarketMaker
+        from src.models import Order, OrderSide, OrderStatus
+
+        mm = SmartMarketMaker(token_id="test", size=Decimal("1"), position_limit=Decimal("5"))
+        mm.bid_order = Order(
+            id="bid-1",
+            token_id="test",
+            side=OrderSide.BUY,
+            price=Decimal("0.49"),
+            size=Decimal("1"),
+            filled=Decimal("0"),
+            status=OrderStatus.LIVE,
+        )
+        mm.ask_order = None
+        mm._quote_bid_enabled = True
+        mm._quote_ask_enabled = False
+        mm.last_mid = Decimal("0.50")
+
+        assert mm._should_requote(Decimal("0.50")) is False
+
+    def test_missing_enabled_ask_still_requires_requote(self):
+        from src.strategy.market_maker import SmartMarketMaker
+        from src.models import Order, OrderSide, OrderStatus
+
+        mm = SmartMarketMaker(token_id="test", size=Decimal("1"), position_limit=Decimal("5"))
+        mm.bid_order = Order(
+            id="bid-1",
+            token_id="test",
+            side=OrderSide.BUY,
+            price=Decimal("0.49"),
+            size=Decimal("1"),
+            filled=Decimal("0"),
+            status=OrderStatus.LIVE,
+        )
+        mm.ask_order = None
+        mm._quote_bid_enabled = True
+        mm._quote_ask_enabled = True
+        mm.last_mid = Decimal("0.50")
+
+        assert mm._should_requote(Decimal("0.50")) is True
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

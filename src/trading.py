@@ -33,6 +33,8 @@ _last_balance_check: float = 0
 _cached_balance: Optional[Decimal] = None
 BALANCE_CACHE_SECONDS = 30
 MIN_BALANCE_FOR_ORDER = Decimal("1.0")  # Don't trade below $1
+_tick_size_cache: dict[str, str] = {}
+_neg_risk_cache: dict[str, bool] = {}
 
 
 def check_balance_for_order(price: Decimal, size: Decimal) -> None:
@@ -72,13 +74,62 @@ def check_balance_for_order(price: Decimal, size: Decimal) -> None:
         )
 
 
+def check_sell_inventory(token_id: str, size: Decimal) -> None:
+    """Ensure we actually hold enough outcome tokens to place a SELL order."""
+    if DRY_RUN:
+        return
+
+    from src.auth import get_conditional_balance
+
+    token_state = get_conditional_balance(token_id)
+    sellable = token_state["sellable"]
+    if sellable < size:
+        raise OrderError(
+            f"Insufficient outcome token balance/allowance for SELL: "
+            f"need {size}, sellable {sellable}"
+        )
+
+
 def get_tick_size(token_id: str) -> Decimal:
     """
     Get tick size for a token.
-    Most Polymarket markets use 0.01.
+
+    In live mode prefer the exchange-provided tick size and fall back to 0.01.
     """
-    # Default tick size - could fetch from API later
-    return Decimal("0.01")
+    if token_id in _tick_size_cache:
+        return Decimal(_tick_size_cache[token_id])
+
+    if DRY_RUN or not has_credentials():
+        return Decimal("0.01")
+
+    try:
+        from src.client import get_auth_client
+
+        tick_size = str(get_auth_client().get_tick_size(token_id))
+        _tick_size_cache[token_id] = tick_size
+        return Decimal(tick_size)
+    except Exception as e:
+        logger.warning(f"Falling back to default tick size for {token_id[:16]}...: {e}")
+        return Decimal("0.01")
+
+
+def get_order_creation_options(token_id: str) -> dict[str, object]:
+    """Fetch per-market order creation options expected by the SDK."""
+    tick_size = str(get_tick_size(token_id))
+
+    if token_id not in _neg_risk_cache and not DRY_RUN and has_credentials():
+        try:
+            from src.client import get_auth_client
+
+            _neg_risk_cache[token_id] = bool(get_auth_client().get_neg_risk(token_id))
+        except Exception as e:
+            logger.warning(f"Falling back to neg_risk=False for {token_id[:16]}...: {e}")
+            _neg_risk_cache[token_id] = False
+
+    return {
+        "tick_size": tick_size,
+        "neg_risk": _neg_risk_cache.get(token_id, False),
+    }
 
 
 def round_to_tick(price: Decimal, tick_size: Decimal) -> Decimal:
@@ -162,7 +213,10 @@ def place_order(
     price = validate_price(price, token_id)
     validate_size(size)
     check_position_limit(token_id, side, size)
-    check_balance_for_order(price, size)  # SAFETY: Verify balance
+    if side == OrderSide.BUY:
+        check_balance_for_order(price, size)  # SAFETY: Verify collateral balance
+    else:
+        check_sell_inventory(token_id, size)
 
     if DRY_RUN:
         return get_simulator().create_order(token_id, side, price, size)
@@ -175,21 +229,29 @@ def place_order(
         raise OrderError("No credentials configured for live trading")
 
     from src.client import get_auth_client
+    from py_clob_client.clob_types import OrderArgs, OrderType, PartialCreateOrderOptions
     client = get_auth_client()
 
     try:
         logger.info(f"[LIVE] Placing: {side.value} {size} @ {price}")
 
         # Build and post order using py-clob-client
-        order_args = {
-            "token_id": token_id,
-            "price": float(price),
-            "size": float(size),
-            "side": side.value,
-        }
+        order_args = OrderArgs(
+            token_id=token_id,
+            price=float(price),
+            size=float(size),
+            side=side.value,
+        )
 
-        signed_order = client.create_order(order_args)
-        response = client.post_order(signed_order)
+        signed_order = client.create_order(
+            order_args,
+            PartialCreateOrderOptions(**get_order_creation_options(token_id)),
+        )
+        response = client.post_order(
+            signed_order,
+            orderType=OrderType.GTC,
+            post_only=True,
+        )
 
         if not response:
             raise OrderError("Order rejected: empty response")

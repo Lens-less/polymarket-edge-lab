@@ -282,8 +282,12 @@ class BacktestEngine:
                 order.price, snapshot.best_bid, snapshot.best_ask, order.side
             )
 
-        # Calculate available fill size based on depth and queue position
-        available_size = depth * queue_factor * Decimal(str(self.queue_position_factor))
+        # Keep fill-size math in Decimal space to avoid Decimal/float type errors.
+        available_size = (
+            Decimal(str(depth))
+            * Decimal(str(queue_factor))
+            * Decimal(str(self.queue_position_factor))
+        )
 
         if available_size <= 0:
             return
@@ -490,7 +494,10 @@ class BacktestEngine:
             return Decimal("0")
 
         mid = (snapshot.best_bid + snapshot.best_ask) / 2
-        return (mid - self._avg_entry_price) * self.position
+
+        if self.position > 0:
+            return (mid - self._avg_entry_price) * self.position
+        return (self._avg_entry_price - mid) * abs(self.position)
 
     def _calculate_sharpe(self) -> float:
         """Calculate Sharpe ratio."""

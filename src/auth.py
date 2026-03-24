@@ -8,10 +8,13 @@ from typing import Optional, Dict, Any
 from decimal import Decimal
 
 from src.client import get_auth_client
-from src.config import USDC_ADDRESS
+from src.config import POLY_SIGNATURE_TYPE, USDC_ADDRESS
 from src.utils import setup_logging
+from py_clob_client.clob_types import BalanceAllowanceParams, AssetType
 
 logger = setup_logging()
+
+TOKEN_DECIMALS = Decimal("1000000")
 
 
 def get_wallet_address() -> str:
@@ -35,11 +38,19 @@ def get_balances() -> Dict[str, Decimal]:
 
     try:
         # Try to get collateral balance (USDC.e deposited for trading)
-        collateral = client.get_balance_allowance()
+        collateral = client.get_balance_allowance(
+            BalanceAllowanceParams(
+                asset_type=AssetType.COLLATERAL,
+                signature_type=POLY_SIGNATURE_TYPE,
+            )
+        )
+        raw_balance = Decimal(str(collateral.get('balance', 0)))
+        allowances = collateral.get('allowances', {}) or {}
+        max_allowance = max((Decimal(str(v)) for v in allowances.values()), default=Decimal("0"))
 
         return {
-            'usdc_allowance': Decimal(str(collateral.get('balance', 0))),
-            'usdc_allowance_max': Decimal(str(collateral.get('allowance', 0))),
+            'usdc_allowance': raw_balance / TOKEN_DECIMALS,
+            'usdc_allowance_max': max_allowance / TOKEN_DECIMALS,
         }
     except Exception as e:
         logger.error(f"Error getting balances: {e}")
@@ -59,21 +70,62 @@ def check_allowances() -> Dict[str, Any]:
     client = get_auth_client()
 
     try:
-        result = client.get_balance_allowance()
+        result = client.get_balance_allowance(
+            BalanceAllowanceParams(
+                asset_type=AssetType.COLLATERAL,
+                signature_type=POLY_SIGNATURE_TYPE,
+            )
+        )
 
         # Allowance should be very large (max uint256) if properly set
-        allowance = Decimal(str(result.get('allowance', 0)))
-        has_allowance = allowance > 1_000_000  # More than $1M allowance
+        allowances = result.get('allowances', {}) or {}
+        allowance = max((Decimal(str(v)) for v in allowances.values()), default=Decimal("0"))
+        has_allowance = allowance > Decimal("0")
 
         return {
             'usdc_approved': has_allowance,
-            'allowance_amount': allowance,
+            'allowance_amount': allowance / TOKEN_DECIMALS,
         }
     except Exception as e:
         logger.error(f"Error checking allowances: {e}")
         return {
             'usdc_approved': False,
             'allowance_amount': Decimal('0'),
+        }
+
+
+def get_conditional_balance(token_id: str) -> Dict[str, Decimal]:
+    """
+    Get spendable balance/allowance for a specific outcome token.
+
+    Values are normalized to token units (6 decimals).
+    """
+    client = get_auth_client()
+
+    try:
+        result = client.get_balance_allowance(
+            BalanceAllowanceParams(
+                asset_type=AssetType.CONDITIONAL,
+                token_id=token_id,
+                signature_type=POLY_SIGNATURE_TYPE,
+            )
+        )
+        raw_balance = Decimal(str(result.get("balance", 0)))
+        allowances = result.get("allowances", {}) or {}
+        max_allowance = max((Decimal(str(v)) for v in allowances.values()), default=Decimal("0"))
+        balance = raw_balance / TOKEN_DECIMALS
+        allowance = max_allowance / TOKEN_DECIMALS
+        return {
+            "balance": balance,
+            "allowance": allowance,
+            "sellable": min(balance, allowance),
+        }
+    except Exception as e:
+        logger.error(f"Error getting conditional balance for {token_id[:16]}...: {e}")
+        return {
+            "balance": Decimal("0"),
+            "allowance": Decimal("0"),
+            "sellable": Decimal("0"),
         }
 
 

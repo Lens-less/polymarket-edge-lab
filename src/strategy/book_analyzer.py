@@ -200,9 +200,11 @@ class BookAnalyzer:
         included = []
 
         for level in levels:
-            if abs(level.price - best_price) <= within_range:
+            level_price = Decimal(str(level.price))
+            best_price_dec = Decimal(str(best_price))
+            if abs(level_price - best_price_dec) <= Decimal(str(within_range)):
                 # Depth in $ terms (price * size)
-                depth += level.price * level.size
+                depth += float(level_price) * float(level.size)
                 included.append(level)
 
         return depth, included
@@ -241,8 +243,8 @@ class BookAnalyzer:
 
         for level in levels:
             order_value = level.price * level.size
-            if order_value / total_depth > self.WALL_THRESHOLD:
-                return Decimal(str(level.price))
+            if float(order_value) / total_depth > float(self.WALL_THRESHOLD):
+                return level.price
 
         return None
 

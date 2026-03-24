@@ -210,19 +210,19 @@ class TestPartialFillExecution:
             initial_capital=Decimal("1000"),
             fill_model="depth_based",
             partial_fill_enabled=True,
-            queue_position_factor=0.3,  # Low factor for partial fills
+            queue_position_factor=0.5,
         )
 
         order_id = engine.place_order("BUY", Decimal("0.50"), Decimal("100"))
 
-        # First partial fill
+        # First partial fill: 50 * 1.0 * 0.5 = 25 available, so partial fill > min_fill.
         engine.process_snapshot(OrderBookSnapshot(
             timestamp=1000,
             token_id="t",
             best_bid=Decimal("0.49"),
             best_ask=Decimal("0.50"),
-            bid_depth=Decimal("20"),
-            ask_depth=Decimal("20"),
+            bid_depth=Decimal("50"),
+            ask_depth=Decimal("50"),
         ))
 
         order = engine.get_order(order_id)
@@ -230,14 +230,14 @@ class TestPartialFillExecution:
         assert first_fill > 0
         assert order.status == OrderStatus.PARTIAL
 
-        # Second partial fill
+        # Second partial fill with deeper book should accumulate further.
         engine.process_snapshot(OrderBookSnapshot(
             timestamp=2000,
             token_id="t",
             best_bid=Decimal("0.49"),
             best_ask=Decimal("0.50"),
-            bid_depth=Decimal("30"),
-            ask_depth=Decimal("30"),
+            bid_depth=Decimal("200"),
+            ask_depth=Decimal("200"),
         ))
 
         order = engine.get_order(order_id)
