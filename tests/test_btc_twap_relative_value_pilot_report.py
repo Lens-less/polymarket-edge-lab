@@ -2,18 +2,46 @@
 
 from __future__ import annotations
 
+import json
 from decimal import Decimal
+from pathlib import Path
 
 from scripts.build_btc_twap_relative_value_pilot_report import (
     _assert_frozen_decision_tau,
     _book_replay_coverage,
+    _capture_runtime_health,
     _exact,
     _latest_before,
-    _resolution_event_validation,
     _resample_one_second,
+    _resolution_event_validation,
 )
 
 D = Decimal
+
+
+def test_capture_runtime_health_preserves_redundancy_evidence(tmp_path: Path) -> None:
+    summary = {
+        "paper_only": True,
+        "public_only": True,
+        "new_orders_disabled": True,
+        "authenticated_endpoints_used": 0,
+        "orders_submitted": 0,
+        "recorder_leg_count": 2,
+        "recorder_leg_failures": [{"code": "recorder_leg_failed"}],
+        "websocket_redundancy": {"clob_market_ws": 2, "rtds_ws": 2},
+        "capture_error": None,
+    }
+    (tmp_path / "capture-summary.json").write_text(
+        json.dumps(summary),
+        encoding="utf-8",
+    )
+
+    assert _capture_runtime_health(tmp_path) == {
+        "recorder_leg_count": 2,
+        "recorder_leg_failures": [{"code": "recorder_leg_failed"}],
+        "websocket_redundancy": {"clob_market_ws": 2, "rtds_ws": 2},
+        "capture_error": None,
+    }
 
 
 def test_predictor_window_ends_at_latest_causally_received_complete_second() -> None:

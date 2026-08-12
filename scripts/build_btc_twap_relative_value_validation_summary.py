@@ -88,6 +88,13 @@ def build_summary(report_paths: tuple[Path, ...]) -> dict[str, Any]:
     clob_websocket_errors = 0
     clob_reconnects = 0
     clob_disconnects = 0
+    rtds_websocket_errors = 0
+    rtds_reconnects = 0
+    rtds_disconnects = 0
+    recorder_leg_failures = 0
+    degraded_capture_cycles = 0
+    clob_recorder_legs: list[int] = []
+    rtds_recorder_legs: list[int] = []
     clock_required_decisions = 0
     clock_valid_decisions = 0
     clock_measurement_ages_ms: list[int] = []
@@ -180,6 +187,43 @@ def build_summary(report_paths: tuple[Path, ...]) -> dict[str, Any]:
             clob_websocket_errors += int(clob_counts.get("error", 0))
             clob_reconnects += int(clob_counts.get("reconnect_scheduled", 0))
             clob_disconnects += int(clob_counts.get("disconnected", 0))
+            rtds_counts = observed.get("rtds_event_counts", {})
+            if not isinstance(rtds_counts, dict):
+                raise ValueError(
+                    f"report has invalid RTDS event counts: {resolved_path}"
+                )
+            rtds_websocket_errors += int(rtds_counts.get("error", 0))
+            rtds_reconnects += int(rtds_counts.get("reconnect_scheduled", 0))
+            rtds_disconnects += int(rtds_counts.get("disconnected", 0))
+            capture_runtime = observed.get("capture_runtime")
+            if capture_runtime is not None:
+                if not isinstance(capture_runtime, dict):
+                    raise ValueError(
+                        f"report has invalid capture runtime: {resolved_path}"
+                    )
+                failures = capture_runtime.get("recorder_leg_failures")
+                redundancy = capture_runtime.get("websocket_redundancy")
+                if not isinstance(failures, list) or not isinstance(redundancy, dict):
+                    raise ValueError(
+                        f"report has incomplete capture runtime: {resolved_path}"
+                    )
+                recorder_leg_failures += len(failures)
+                degraded_capture_cycles += int(bool(failures))
+                clob_legs = redundancy.get("clob_market_ws")
+                rtds_legs = redundancy.get("rtds_ws")
+                if (
+                    isinstance(clob_legs, bool)
+                    or not isinstance(clob_legs, int)
+                    or clob_legs < 1
+                    or isinstance(rtds_legs, bool)
+                    or not isinstance(rtds_legs, int)
+                    or rtds_legs < 1
+                ):
+                    raise ValueError(
+                        f"report has invalid websocket redundancy: {resolved_path}"
+                    )
+                clob_recorder_legs.append(clob_legs)
+                rtds_recorder_legs.append(rtds_legs)
         rules = observed["latest_rules"]
         for market_id, rule in rules.items():
             market_ids.add(str(market_id))
@@ -362,6 +406,17 @@ def build_summary(report_paths: tuple[Path, ...]) -> dict[str, Any]:
             "clob_websocket_errors": clob_websocket_errors,
             "clob_reconnects": clob_reconnects,
             "clob_disconnects": clob_disconnects,
+            "rtds_websocket_errors": rtds_websocket_errors,
+            "rtds_reconnects": rtds_reconnects,
+            "rtds_disconnects": rtds_disconnects,
+            "recorder_leg_failures": recorder_leg_failures,
+            "degraded_capture_cycles": degraded_capture_cycles,
+            "minimum_clob_recorder_legs": (
+                min(clob_recorder_legs) if clob_recorder_legs else None
+            ),
+            "minimum_rtds_recorder_legs": (
+                min(rtds_recorder_legs) if rtds_recorder_legs else None
+            ),
             "clock_sync": {
                 "required_decisions": clock_required_decisions,
                 "valid_decisions": clock_valid_decisions,

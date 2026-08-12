@@ -258,13 +258,47 @@ def _latest_rules(root: Path, market_ids: set[str]) -> dict[str, dict[str, Any]]
     return {market_id: value for market_id, (_, value) in latest.items()}
 
 
-def _event_counts(root: Path) -> dict[str, int]:
+def _event_counts(root: Path, source: str) -> dict[str, int]:
     counts: Counter[str] = Counter()
-    for record in _records(root, "clob_market_ws"):
+    for record in _records(root, source):
         envelope = record.get("payload")
         if isinstance(envelope, dict):
             counts[str(envelope.get("event_type") or "unknown")] += 1
     return dict(sorted(counts.items()))
+
+
+def _capture_runtime_health(root: Path) -> dict[str, Any] | None:
+    path = root / "capture-summary.json"
+    if not path.is_file():
+        return None
+    summary = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(summary, dict):
+        raise TypeError("capture summary must be an object")
+    if (
+        summary.get("paper_only") is not True
+        or summary.get("public_only") is not True
+        or summary.get("new_orders_disabled") is not True
+        or summary.get("authenticated_endpoints_used") != 0
+        or summary.get("orders_submitted") != 0
+    ):
+        raise ValueError("capture summary violates the public paper-only guard")
+    recorder_leg_count = summary.get("recorder_leg_count")
+    recorder_leg_failures = summary.get("recorder_leg_failures")
+    websocket_redundancy = summary.get("websocket_redundancy")
+    if (
+        isinstance(recorder_leg_count, bool)
+        or not isinstance(recorder_leg_count, int)
+        or recorder_leg_count < 1
+        or not isinstance(recorder_leg_failures, list)
+        or not isinstance(websocket_redundancy, dict)
+    ):
+        raise ValueError("capture summary has invalid recorder-health evidence")
+    return {
+        "recorder_leg_count": recorder_leg_count,
+        "recorder_leg_failures": recorder_leg_failures,
+        "websocket_redundancy": websocket_redundancy,
+        "capture_error": summary.get("capture_error"),
+    }
 
 
 def _book_observations(
@@ -1309,7 +1343,9 @@ def build_report(
             "twap_60_unique_observations": len(twap_60),
             "binance_btc_unique_observations": len(predictor),
             "predictor_one_second_samples": len(predictor_before),
-            "clob_event_counts": _event_counts(capture_root),
+            "clob_event_counts": _event_counts(capture_root, "clob_market_ws"),
+            "rtds_event_counts": _event_counts(capture_root, "rtds_ws"),
+            "capture_runtime": _capture_runtime_health(capture_root),
             "clock_sync": clock_sync_summary,
             "book_replay_coverage": book_replay_coverage,
             "mechanically_labelable_markets": mechanically_labelable,

@@ -1,0 +1,103 @@
+{
+  "schema_version": "btc-5m-15m-relative-value-preregistration.v4",
+  "frozen_at": "2026-08-12T16:14:46Z",
+  "strategy_spec": {
+    "path": "research/btc_5m_15m_relative_value_paper_v04_linux_2026-08-13/STRATEGY_SPEC.md",
+    "sha256": "11abd4022c7769344b32e17bdec2e45c46ce9a5185e88459ae2a8e38520eb132"
+  },
+  "repository_head": "3292c9bdeada074ea5e697da0b6fe8d9b37470b0",
+  "scope": {
+    "asset": "BTC",
+    "horizons": [
+      "5m",
+      "15m"
+    ],
+    "pair_rule": "same_expiry_only",
+    "settlement_regime": "chainlink_twap_30s_5m_and_60s_15m",
+    "paper_only": true,
+    "live_orders_disabled": true,
+    "prospective_only_after": "2026-08-12T16:14:46Z"
+  },
+  "frozen_strategy": {
+    "decision_tau_seconds": [
+      240,
+      180,
+      120,
+      60
+    ],
+    "tau_min_seconds": 45,
+    "tau_max_seconds": 240,
+    "max_spread_each_leg": "0.03",
+    "max_chainlink_staleness_ms": 5000,
+    "chainlink_staleness_change_reason": "Two independent pre-v0.2 live captures had 2000ms source age and sub-536ms receipt age at the frozen tick; 1500ms rejected the normal publication cadence before any edge was evaluated.",
+    "max_book_staleness_ms": 750,
+    "max_clock_drift_ms": 100,
+    "clock_sync": {
+      "source": "Chrony Amazon Time Sync Service 169.254.169.123",
+      "measurement_timing": "before_each_capture",
+      "measurement_command": "/usr/bin/chronyc -n tracking",
+      "measurement_attempts": 3,
+      "measurement_selection": "minimum_uncertainty_then_latest_measurement",
+      "receipt_time_correction": "corrected_received_at_ms = raw_received_at_ms + measured_clock_offset_ms",
+      "maximum_measurement_uncertainty_ms": 100,
+      "maximum_measurement_age_seconds": 1200,
+      "uncertainty_formula": "abs(last_offset) + abs(root_delay)/2 + root_dispersion",
+      "host_clock_discipline": "chronyd may discipline the host clock in the background, but the measurement command is read-only and never steps or slews time",
+      "system_clock_mutation": false,
+      "freeze_reason": "v0.4 migrates the prospective paper run onto AWS Linux; frozen causal-clock evidence now requires read-only chronyc tracking locked to the Amazon Time Sync Service endpoint 169.254.169.123 while preserving the same 100ms gate."
+    },
+    "book_replay": "full_book_anchor_plus_target_price_changes_top_reconciled",
+    "persisted_book_cadence_ms": 250,
+    "forward_vol_method": "ewma_regime",
+    "distribution_method": "standardized_residual_bootstrap",
+    "monte_carlo_paths": 20000,
+    "calibration": "isotonic_train_only",
+    "development_calibration_minimum_points_per_horizon": 20,
+    "development_shadow_uses_raw_probabilities": true,
+    "development_shadow_is_qualified_evidence": false,
+    "execution_mode": "conservative_taker",
+    "taker_delay_ms_when_itode": 250,
+    "max_leg_delay_ms": 750,
+    "minimum_net_expected_pnl_per_pair": "0.015",
+    "uncertainty_multiplier": "1.25",
+    "paper_bankroll": "10000",
+    "pair_risk_usdc": "25",
+    "max_same_expiry_risk_usdc": "100",
+    "max_total_open_risk_usdc": "250",
+    "primary_exit": "hold_to_settlement"
+  },
+  "split_policy": {
+    "method": "chronological_walk_forward",
+    "shuffle": false,
+    "train_days": 5,
+    "validation_days": 1,
+    "test_days": 1,
+    "parameters_selected_on": "train_and_validation_only",
+    "test_is_locked": true,
+    "pre_v04_data_use": "operational diagnostics, Linux deployment shakeout, and prior opening-boundary diagnostics only; never v0.4 PnL"
+  },
+  "promotion_gates": {
+    "minimum_resolved_markets": 2000,
+    "minimum_simulated_trades": 500,
+    "minimum_explainable_fills": 500,
+    "phase0_market_coverage_minimum": "0.995",
+    "unknown_resolution_mapping_count": 0,
+    "oos_brier_must_beat_market_probability": true,
+    "oos_expected_calibration_error_maximum": "0.05",
+    "oos_net_pnl_must_be_positive": true,
+    "bootstrap_confidence": "0.95",
+    "bootstrap_mean_net_pnl_lower_bound_must_exceed": "0",
+    "maximum_single_event_pnl_share": "0.20",
+    "fees_depth_delay_partial_fills_and_legging_required": true,
+    "direction_exposure_must_be_below_single_leg": true,
+    "signal_strength_net_ev_monotonicity_required": true
+  },
+  "fail_closed": [
+    "Development shadow PnL is reported separately and can never populate qualified_net_pnl.",
+    "No midpoint fills or current-book substitutions for delayed execution.",
+    "No missing fee, delay, depth, Chainlink boundary, settlement, or clock-sync value is imputed.",
+    "chronyc tracking is queried read-only; the measurement command never changes the host clock.",
+    "No live orders, credentials, signing, authenticated endpoint, or chain write.",
+    "Tests passing or a small positive shadow sample is not profitability evidence."
+  ]
+}

@@ -1,0 +1,29 @@
+[Unit]
+Description=BTC 5m/15m relative-value paper service v0.4
+After=network-online.target chronyd.service
+Wants=network-online.target chronyd.service
+
+[Service]
+Type=simple
+User=polybot
+Group=polybot
+WorkingDirectory=/opt/poly-mm
+Environment=PYTHONUNBUFFERED=1
+ExecStartPre=/opt/poly-mm/.venv/bin/python /opt/poly-mm/scripts/run_btc_twap_relative_value_service.py --config /opt/poly-mm/research/btc_5m_15m_relative_value_paper_v04_linux_2026-08-13/SERVICE_CONFIG.json --validate-only
+ExecStart=/opt/poly-mm/.venv/bin/python /opt/poly-mm/scripts/run_btc_twap_relative_value_service.py --config /opt/poly-mm/research/btc_5m_15m_relative_value_paper_v04_linux_2026-08-13/SERVICE_CONFIG.json
+Restart=always
+RestartSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/opt/poly-mm
+ReadWritePaths=/var/lib/poly-mm
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

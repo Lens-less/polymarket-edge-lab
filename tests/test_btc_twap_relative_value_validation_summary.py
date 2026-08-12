@@ -19,6 +19,8 @@ def _write_report(
     shadow_net_pnl: str | None = None,
     capture_root: str = "/capture/run-1",
     websocket_errors: int = 0,
+    rtds_errors: int = 0,
+    recorder_leg_failures: int = 0,
     shadow_no_trade_reason: str | None = None,
     clock_sync_valid: bool | None = None,
     decision_tau_seconds: int = 60,
@@ -47,6 +49,23 @@ def _write_report(
             "clob_event_counts": {
                 "error": websocket_errors,
                 "reconnect_scheduled": websocket_errors,
+            },
+            "rtds_event_counts": {
+                "error": rtds_errors,
+                "reconnect_scheduled": rtds_errors,
+                "disconnected": rtds_errors,
+            },
+            "capture_runtime": {
+                "recorder_leg_count": 2,
+                "recorder_leg_failures": [
+                    {"code": "recorder_leg_failed"}
+                    for _ in range(recorder_leg_failures)
+                ],
+                "websocket_redundancy": {
+                    "clob_market_ws": 2,
+                    "rtds_ws": 2,
+                },
+                "capture_error": None,
             },
             "clock_sync": (
                 {
@@ -204,8 +223,14 @@ def test_summary_rejects_tampered_report(tmp_path: Path) -> None:
 def test_summary_deduplicates_retried_market_evidence(tmp_path: Path) -> None:
     first = tmp_path / "first.json"
     second = tmp_path / "second.json"
-    _write_report(first, websocket_errors=3)
-    _write_report(second, websocket_errors=3, decision_tau_seconds=120)
+    _write_report(first, websocket_errors=3, rtds_errors=2, recorder_leg_failures=1)
+    _write_report(
+        second,
+        websocket_errors=3,
+        rtds_errors=2,
+        recorder_leg_failures=1,
+        decision_tau_seconds=120,
+    )
 
     summary = build_summary((first, second))
 
@@ -217,6 +242,12 @@ def test_summary_deduplicates_retried_market_evidence(tmp_path: Path) -> None:
     assert summary["evidence"]["decision_reports"] == 2
     assert summary["evidence"]["clob_websocket_errors"] == 3
     assert summary["evidence"]["clob_reconnects"] == 3
+    assert summary["evidence"]["rtds_websocket_errors"] == 2
+    assert summary["evidence"]["rtds_reconnects"] == 2
+    assert summary["evidence"]["recorder_leg_failures"] == 1
+    assert summary["evidence"]["degraded_capture_cycles"] == 1
+    assert summary["evidence"]["minimum_clob_recorder_legs"] == 2
+    assert summary["evidence"]["minimum_rtds_recorder_legs"] == 2
 
 
 def test_summary_rejects_duplicate_decisions_and_mixed_preregistrations(

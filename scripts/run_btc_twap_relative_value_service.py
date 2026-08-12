@@ -32,11 +32,13 @@ from src.edge_lab.btc_twap_relative_value_schedule import (  # noqa: E402
     next_bootstrap_expiry_seconds,
 )
 from src.edge_lab.btc_twap_relative_value_service import (  # noqa: E402
+    CLOCK_SYNC_SOURCE_CHRONY_AMAZON,
     ClockSyncMeasurement,
     ContinuousServiceConfig,
     ServiceStatus,
     discover_next_pair,
     load_service_config,
+    measure_chrony_clock_sync,
     measure_sntp_clock_sync,
     public_session,
     require_disk_capacity,
@@ -65,6 +67,12 @@ def _epoch_ms() -> int:
 def _attempt_id() -> str:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
     return f"{timestamp}-{uuid.uuid4().hex[:12]}"
+
+
+def _measure_clock_sync(config: ContinuousServiceConfig) -> ClockSyncMeasurement:
+    if config.clock_sync_source == CLOCK_SYNC_SOURCE_CHRONY_AMAZON:
+        return measure_chrony_clock_sync()
+    return measure_sntp_clock_sync()
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:
@@ -137,12 +145,8 @@ def _status(
         heartbeat_at=_utc_now(),
         pid=os.getpid(),
         child_pid=None,
-        current_expiry_seconds=(
-            None if plan is None else int(plan.expiry_seconds)
-        ),
-        current_capture_root=(
-            None if plan is None else str(plan.capture_root)
-        ),
+        current_expiry_seconds=(None if plan is None else int(plan.expiry_seconds)),
+        current_capture_root=(None if plan is None else str(plan.capture_root)),
         completed_report_count=len(_generated_report_paths(config)),
         latest_summary_path=(
             None
@@ -205,13 +209,14 @@ async def _capture_with_heartbeat(
         ),
     }
     if clock_refresh_at_ms is not None:
+
         async def refresh_clock() -> ClockSyncMeasurement:
             delay_seconds = max(
                 0.0,
                 (clock_refresh_at_ms - _epoch_ms()) / 1_000,
             )
             await asyncio.sleep(delay_seconds)
-            return await asyncio.to_thread(measure_sntp_clock_sync)
+            return await asyncio.to_thread(_measure_clock_sync, config)
 
         refresh_task = asyncio.create_task(
             refresh_clock(),
@@ -298,7 +303,7 @@ async def run_service(
             try:
                 require_disk_capacity(config)
                 _emit_status(config, phase="measuring_clock")
-                clock_sync = await asyncio.to_thread(measure_sntp_clock_sync)
+                clock_sync = await asyncio.to_thread(_measure_clock_sync, config)
                 _emit_status(config, phase="discovering")
                 plan = await asyncio.to_thread(
                     discover_next_pair,

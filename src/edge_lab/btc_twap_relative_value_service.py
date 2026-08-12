@@ -45,11 +45,23 @@ SERVICE_STATUS_SCHEMA = "btc-twap-relative-value-service-status.v1"
 CAPTURE_CONFIG_SCHEMA = "edge-lab-forward-capture-config.v1"
 _ATTEMPT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SNTP_SELECTED = re.compile(
-    r"^\s*([+-]\d+(?:\.\d+)?)\s+\+/-\s+(\d+(?:\.\d+)?)\s+"
-    r"time\.apple\.com(?:\s|$)",
+    r"^\s*([+-]\d+(?:\.\d+)?)\s+\+/-\s+(\d+(?:\.\d+)?)\s+" r"time\.apple\.com(?:\s|$)",
     re.MULTILINE,
 )
+_CHRONYC_VALUE = re.compile(r"^\s*([^:]+?)\s*:\s*(.+?)\s*$")
+_CHRONYC_SYSTEM_TIME = re.compile(
+    r"^\s*(\d+(?:\.\d+)?)\s+seconds\s+(slow|fast)\s+of\s+NTP\s+time\s*$",
+    re.IGNORECASE,
+)
+_CHRONYC_REFERENCE = re.compile(
+    r"^(?:[0-9A-Fa-f]+\s+\()?([0-9]{1,3}(?:\.[0-9]{1,3}){3})\)?$"
+)
 _COMPACT_DATA_IDENTITY_MAX = 50_000
+CLOCK_SYNC_SOURCE_SNTP = "SNTP time.apple.com"
+CLOCK_SYNC_SOURCE_CHRONY_AMAZON = "Chrony Amazon Time Sync Service 169.254.169.123"
+SUPPORTED_CLOCK_SYNC_SOURCES = frozenset(
+    (CLOCK_SYNC_SOURCE_SNTP, CLOCK_SYNC_SOURCE_CHRONY_AMAZON)
+)
 
 
 class DiskCapacityError(RuntimeError):
@@ -63,7 +75,7 @@ class ClockSyncMeasurement:
     measured_at_raw_ms: int
     offset_seconds: str
     uncertainty_seconds: str
-    source: str = "SNTP time.apple.com"
+    source: str = CLOCK_SYNC_SOURCE_SNTP
 
     def __post_init__(self) -> None:
         if (
@@ -72,7 +84,7 @@ class ClockSyncMeasurement:
             or self.measured_at_raw_ms < 0
         ):
             raise ValueError("measured_at_raw_ms must be non-negative")
-        if self.source != "SNTP time.apple.com":
+        if self.source not in SUPPORTED_CLOCK_SYNC_SOURCES:
             raise ValueError("unsupported clock-sync source")
         try:
             offset = Decimal(self.offset_seconds)
@@ -97,9 +109,7 @@ class ClockSyncMeasurement:
         latest_seconds = Decimal(self.offset_seconds) + Decimal(
             self.uncertainty_seconds
         )
-        return int(
-            (latest_seconds * 1_000).to_integral_value(rounding=ROUND_CEILING)
-        )
+        return int((latest_seconds * 1_000).to_integral_value(rounding=ROUND_CEILING))
 
     @property
     def uncertainty_ms(self) -> int:
@@ -137,6 +147,7 @@ def parse_sntp_output(
         measured_at_raw_ms=measured_at_raw_ms,
         offset_seconds=offset,
         uncertainty_seconds=uncertainty,
+        source=CLOCK_SYNC_SOURCE_SNTP,
     )
 
 
@@ -173,14 +184,115 @@ def measure_sntp_clock_sync() -> ClockSyncMeasurement:
             or uncertainty < best_uncertainty
             or (
                 uncertainty == best_uncertainty
-                and measurement.measured_at_raw_ms
-                > best_measurement.measured_at_raw_ms
+                and measurement.measured_at_raw_ms > best_measurement.measured_at_raw_ms
             )
         ):
             best_measurement = measurement
             best_uncertainty = uncertainty
     if best_measurement is None:
         raise RuntimeError("public SNTP clock measurement failed")
+    return best_measurement
+
+
+def parse_chronyc_tracking_output(
+    output: str,
+    *,
+    measured_at_raw_ms: int,
+) -> ClockSyncMeasurement:
+    if not isinstance(output, str):
+        raise TypeError("chronyc output must be text")
+    fields: dict[str, str] = {}
+    for line in output.splitlines():
+        match = _CHRONYC_VALUE.match(line)
+        if match is None:
+            continue
+        fields[match.group(1).strip().casefold()] = match.group(2).strip()
+    reference = fields.get("reference id")
+    if reference is None:
+        raise ValueError("chronyc output missing reference id")
+    reference_match = _CHRONYC_REFERENCE.match(reference)
+    if reference_match is None or reference_match.group(1) != "169.254.169.123":
+        raise ValueError("chronyc output is not locked to 169.254.169.123")
+    leap_status = fields.get("leap status")
+    if leap_status != "Normal":
+        raise ValueError("chronyc leap status is not Normal")
+    system_time = fields.get("system time")
+    if system_time is None:
+        raise ValueError("chronyc output missing system time")
+    system_time_match = _CHRONYC_SYSTEM_TIME.match(system_time)
+    if system_time_match is None:
+        raise ValueError("chronyc system time is not parseable")
+    offset = Decimal(system_time_match.group(1))
+    direction = system_time_match.group(2).casefold()
+    if direction == "fast":
+        offset = -offset
+    elif direction != "slow":
+        raise ValueError("chronyc system time direction is unsupported")
+
+    def parse_decimal(field: str) -> Decimal:
+        value = fields.get(field)
+        if value is None:
+            raise ValueError(f"chronyc output missing {field}")
+        try:
+            parsed = Decimal(value.split()[0])
+        except (ArithmeticError, IndexError, ValueError) as exc:
+            raise ValueError(f"chronyc {field} is not parseable") from exc
+        if not parsed.is_finite():
+            raise ValueError(f"chronyc {field} is not finite")
+        return parsed
+
+    last_offset = parse_decimal("last offset")
+    root_delay = parse_decimal("root delay")
+    root_dispersion = parse_decimal("root dispersion")
+    uncertainty = abs(last_offset) + (abs(root_delay) / 2) + root_dispersion
+    return ClockSyncMeasurement(
+        measured_at_raw_ms=measured_at_raw_ms,
+        offset_seconds=str(offset),
+        uncertainty_seconds=str(uncertainty),
+        source=CLOCK_SYNC_SOURCE_CHRONY_AMAZON,
+    )
+
+
+def measure_chrony_clock_sync() -> ClockSyncMeasurement:
+    """Query Amazon Time Sync Service via chrony without mutating the system clock."""
+
+    best_measurement: ClockSyncMeasurement | None = None
+    best_uncertainty: Decimal | None = None
+    for _ in range(3):
+        try:
+            completed = subprocess.run(
+                ("/usr/bin/chronyc", "-n", "tracking"),
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if completed.returncode != 0:
+            continue
+        measured_at_raw_ms = int(datetime.now(timezone.utc).timestamp() * 1_000)
+        try:
+            measurement = parse_chronyc_tracking_output(
+                completed.stdout,
+                measured_at_raw_ms=measured_at_raw_ms,
+            )
+        except ValueError:
+            continue
+        uncertainty = Decimal(measurement.uncertainty_seconds)
+        if (
+            best_measurement is None
+            or best_uncertainty is None
+            or uncertainty < best_uncertainty
+            or (
+                uncertainty == best_uncertainty
+                and measurement.measured_at_raw_ms > best_measurement.measured_at_raw_ms
+            )
+        ):
+            best_measurement = measurement
+            best_uncertainty = uncertainty
+    if best_measurement is None:
+        raise RuntimeError("chrony clock measurement failed")
     return best_measurement
 
 
@@ -386,9 +498,7 @@ class CompactRecorderSink:
                 "timestamp": str(timestamp_ms),
                 "bids": self._levels_from_depth(bids, bids=True),
                 "asks": self._levels_from_depth(asks, bids=False),
-                "depth_policy": (
-                    "top_5_each_side_reconstructed_from_price_change"
-                ),
+                "depth_policy": ("top_5_each_side_reconstructed_from_price_change"),
                 "source_event_type": "price_change",
             }
             reconstructed = dict(compact)
@@ -443,9 +553,8 @@ class CompactRecorderSink:
                 return None
         if event_type == "market_resolved":
             assets = payload.get("assets_ids")
-            if (
-                not isinstance(assets, list)
-                or not self.allowed_asset_ids.intersection(str(item) for item in assets)
+            if not isinstance(assets, list) or not self.allowed_asset_ids.intersection(
+                str(item) for item in assets
             ):
                 return None
         compact = dict(payload)
@@ -501,9 +610,7 @@ class CompactRecorderSink:
                 canonical_json_bytes(semantic_payload)
             ).hexdigest()
         server_timestamp = (
-            None
-            if server_timestamp_value is None
-            else str(server_timestamp_value)
+            None if server_timestamp_value is None else str(server_timestamp_value)
         )
         return (
             source,
@@ -522,10 +629,7 @@ class CompactRecorderSink:
             self._seen_data_identities.move_to_end(identity)
             return first_connection_id != connection_id
         self._seen_data_identities[identity] = connection_id
-        if (
-            len(self._seen_data_identities)
-            > self.semantic_dedup_max_records
-        ):
+        if len(self._seen_data_identities) > self.semantic_dedup_max_records:
             self._seen_data_identities.popitem(last=False)
         return False
 
@@ -569,13 +673,9 @@ class CompactRecorderSink:
             }
             if compact.get("source") == "rtds_ws" and compact.get("kind") == "data":
                 message = compact.get("payload")
-                topic = (
-                    message.get("topic") if isinstance(message, Mapping) else None
-                )
+                topic = message.get("topic") if isinstance(message, Mapping) else None
                 payload = (
-                    message.get("payload")
-                    if isinstance(message, Mapping)
-                    else None
+                    message.get("payload") if isinstance(message, Mapping) else None
                 )
                 if (
                     topic == "crypto_prices"
@@ -661,6 +761,7 @@ class ContinuousServiceConfig:
     minimum_free_disk_bytes: int
     max_history_roots: int
     decision_tau_seconds: tuple[int, ...] | int
+    clock_sync_source: str = CLOCK_SYNC_SOURCE_SNTP
     seed_report_paths: tuple[Path, ...] = ()
 
     def __post_init__(self) -> None:
@@ -702,6 +803,8 @@ class ContinuousServiceConfig:
                 "decision_tau_seconds must be unique integers inside [45, 240]"
             )
         object.__setattr__(self, "decision_tau_seconds", decision_taus)
+        if self.clock_sync_source not in SUPPORTED_CLOCK_SYNC_SOURCES:
+            raise ValueError("clock_sync_source must be a supported source")
 
 
 @dataclass(frozen=True)
@@ -918,6 +1021,7 @@ def load_service_config(path: Path) -> ContinuousServiceConfig:
         "minimum_free_disk_bytes",
         "max_history_roots",
         "decision_tau_seconds",
+        "clock_sync_source",
         "seed_report_paths",
     }
     unexpected = set(raw) - allowed
@@ -950,14 +1054,10 @@ def load_service_config(path: Path) -> ContinuousServiceConfig:
     if not isinstance(seed, list) or any(not isinstance(item, str) for item in seed):
         raise TypeError("seed_report_paths must be a string array")
     decision_raw = raw.get("decision_tau_seconds", 60)
-    if isinstance(decision_raw, bool) or not isinstance(
-        decision_raw, (int, list)
-    ):
+    if isinstance(decision_raw, bool) or not isinstance(decision_raw, (int, list)):
         raise TypeError("decision_tau_seconds must be an integer or integer array")
     decision_taus = (
-        (decision_raw,)
-        if isinstance(decision_raw, int)
-        else tuple(decision_raw)
+        (decision_raw,) if isinstance(decision_raw, int) else tuple(decision_raw)
     )
     return ContinuousServiceConfig(
         data_root=Path(str(raw.get("data_root", ""))),
@@ -966,11 +1066,10 @@ def load_service_config(path: Path) -> ContinuousServiceConfig:
         settlement_grace_seconds=int(raw.get("settlement_grace_seconds", 360)),
         retry_seconds=int(raw.get("retry_seconds", 30)),
         status_interval_seconds=int(raw.get("status_interval_seconds", 15)),
-        minimum_free_disk_bytes=int(
-            raw.get("minimum_free_disk_bytes", 12 * 1024**3)
-        ),
+        minimum_free_disk_bytes=int(raw.get("minimum_free_disk_bytes", 12 * 1024**3)),
         max_history_roots=int(raw.get("max_history_roots", 1)),
         decision_tau_seconds=decision_taus,
+        clock_sync_source=str(raw.get("clock_sync_source", CLOCK_SYNC_SOURCE_SNTP)),
         seed_report_paths=tuple(Path(item) for item in seed),
     )
 
@@ -1063,11 +1162,7 @@ def build_capture_plan(
     duration_seconds = max(
         60,
         math.ceil(
-            (
-                pair.expires_at_ms
-                + config.settlement_grace_seconds * 1_000
-                - now_ms
-            )
+            (pair.expires_at_ms + config.settlement_grace_seconds * 1_000 - now_ms)
             / 1_000
         ),
     )
@@ -1219,11 +1314,15 @@ def fetch_gamma_market_by_slug(
             code="gamma_slug_json_invalid",
             error_type="JSONDecodeError",
         ) from exc
-    matches = [
-        item
-        for item in payload
-        if isinstance(item, Mapping) and item.get("slug") == slug
-    ] if isinstance(payload, list) else []
+    matches = (
+        [
+            item
+            for item in payload
+            if isinstance(item, Mapping) and item.get("slug") == slug
+        ]
+        if isinstance(payload, list)
+        else []
+    )
     if len(matches) != 1:
         raise PublicSourceError(
             f"Gamma slug lookup expected one exact match, got {len(matches)}",
@@ -1319,10 +1418,7 @@ async def _run_redundant_recorders(
                     failures.append(exc)
             if shared_sink.persistence_error is not None and pending:
                 await asyncio.gather(
-                    *(
-                        task_to_recorder[task].stop()
-                        for task in pending
-                    ),
+                    *(task_to_recorder[task].stop() for task in pending),
                     return_exceptions=True,
                 )
         if shared_sink.persistence_error is not None:
@@ -1371,9 +1467,7 @@ async def run_compact_forward_capture(
         reward_max_pages=config.reward_max_pages,
         rule_market_ids=config.rule_market_ids,
     )
-    primary_config, secondary_config = _build_redundant_recorder_configs(
-        config
-    )
+    primary_config, secondary_config = _build_redundant_recorder_configs(config)
     websocket_factory = DefaultWebSocketFactory(proxy_url=proxy_url)
     primary = PublicRecorder(
         config=primary_config,
@@ -1398,9 +1492,7 @@ async def run_compact_forward_capture(
             shared_sink=sink,
         )
         if len(recorder_failures) == 2:
-            capture_error = RuntimeError(
-                "both redundant public recorder legs failed"
-            )
+            capture_error = RuntimeError("both redundant public recorder legs failed")
     except BaseException as exc:
         capture_error = exc
     finally:
