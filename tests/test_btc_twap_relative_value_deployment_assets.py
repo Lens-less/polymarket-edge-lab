@@ -17,6 +17,13 @@ def _load_json(path: Path) -> dict[str, object]:
     return value
 
 
+def test_linux_deployment_text_is_frozen_to_lf() -> None:
+    attributes = (PROJECT_ROOT / ".gitattributes").read_text(encoding="utf-8")
+
+    for pattern in ("*.sh", "*.service", "*.timer", "*.py", "*.json", "*.md"):
+        assert f"{pattern} text eol=lf" in attributes
+
+
 def test_v04_preregistration_freezes_linux_clock_source_and_scope() -> None:
     prereg = _load_json(RESEARCH_ROOT / "PREREGISTRATION.json")
 
