@@ -11,6 +11,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -48,6 +49,7 @@ _SNTP_SELECTED = re.compile(
     r"time\.apple\.com(?:\s|$)",
     re.MULTILINE,
 )
+_COMPACT_DATA_IDENTITY_MAX = 50_000
 
 
 class DiskCapacityError(RuntimeError):
@@ -141,20 +143,45 @@ def parse_sntp_output(
 def measure_sntp_clock_sync() -> ClockSyncMeasurement:
     """Query public SNTP without setting or slewing the system clock."""
 
-    completed = subprocess.run(
-        ("/usr/bin/sntp", "-d", "-t", "3", "time.apple.com"),
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-    if completed.returncode != 0:
+    best_measurement: ClockSyncMeasurement | None = None
+    best_uncertainty: Decimal | None = None
+    for _ in range(3):
+        try:
+            completed = subprocess.run(
+                ("/usr/bin/sntp", "-d", "-t", "3", "time.apple.com"),
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if completed.returncode != 0:
+            continue
+        measured_at_raw_ms = int(datetime.now(timezone.utc).timestamp() * 1_000)
+        try:
+            measurement = parse_sntp_output(
+                f"{completed.stdout}\n{completed.stderr}",
+                measured_at_raw_ms=measured_at_raw_ms,
+            )
+        except ValueError:
+            continue
+        uncertainty = Decimal(measurement.uncertainty_seconds)
+        if (
+            best_measurement is None
+            or best_uncertainty is None
+            or uncertainty < best_uncertainty
+            or (
+                uncertainty == best_uncertainty
+                and measurement.measured_at_raw_ms
+                > best_measurement.measured_at_raw_ms
+            )
+        ):
+            best_measurement = measurement
+            best_uncertainty = uncertainty
+    if best_measurement is None:
         raise RuntimeError("public SNTP clock measurement failed")
-    measured_at_raw_ms = int(datetime.now(timezone.utc).timestamp() * 1_000)
-    return parse_sntp_output(
-        f"{completed.stdout}\n{completed.stderr}",
-        measured_at_raw_ms=measured_at_raw_ms,
-    )
+    return best_measurement
 
 
 class CompactRecorderSink:
@@ -166,6 +193,7 @@ class CompactRecorderSink:
         *,
         allowed_asset_ids: tuple[str, ...],
         reconstructed_book_interval_ms: int = 250,
+        semantic_dedup_max_records: int = _COMPACT_DATA_IDENTITY_MAX,
     ) -> None:
         if not isinstance(backing, CaptureStoreRecorderSink):
             raise TypeError("backing must be CaptureStoreRecorderSink")
@@ -181,14 +209,28 @@ class CompactRecorderSink:
             or reconstructed_book_interval_ms <= 0
         ):
             raise ValueError("reconstructed_book_interval_ms must be positive")
+        if (
+            isinstance(semantic_dedup_max_records, bool)
+            or not isinstance(semantic_dedup_max_records, int)
+            or semantic_dedup_max_records <= 0
+        ):
+            raise ValueError("semantic_dedup_max_records must be positive")
         self.backing = backing
         self.allowed_asset_ids = frozenset(allowed_asset_ids)
         self.reconstructed_book_interval_ms = reconstructed_book_interval_ms
+        self.semantic_dedup_max_records = semantic_dedup_max_records
         self._depth_by_asset: dict[
             str, tuple[dict[Decimal, Decimal], dict[Decimal, Decimal]]
         ] = {}
         self._depth_timestamp_ms: dict[str, int] = {}
         self._last_emitted_book_ms: dict[str, int] = {}
+        self._seen_data_identities: OrderedDict[
+            tuple[str, str, str | None, str],
+            str,
+        ] = OrderedDict()
+        self._operation_lock = asyncio.Lock()
+        self._closed_manifests: tuple[dict[str, Any], ...] | None = None
+        self._persistence_error: BaseException | None = None
 
     @staticmethod
     def _decimal(value: Any) -> Decimal | None:
@@ -361,7 +403,7 @@ class CompactRecorderSink:
                     "payload": reconstructed_payload,
                 }
             )
-            emitted = await self.backing.emit(reconstructed)
+            emitted = await self._persist_record(reconstructed)
             self._last_emitted_book_ms[token_id] = timestamp_ms
         return emitted
 
@@ -422,68 +464,188 @@ class CompactRecorderSink:
     def load_recorder_checkpoint(self, source: str) -> dict[str, Any] | None:
         return self.backing.load_recorder_checkpoint(source)
 
-    async def emit(self, record: Mapping[str, Any]) -> Any:
-        if record.get("source") in {"gamma_http", "clob_http"}:
+    @property
+    def persistence_error(self) -> BaseException | None:
+        return self._persistence_error
+
+    @staticmethod
+    def _semantic_data_identity(
+        record: Mapping[str, Any],
+    ) -> tuple[str, str, str | None, str] | None:
+        if record.get("kind") != "data":
             return None
-        compact = {
-            key: record[key]
-            for key in (
-                "schema_version",
-                "source",
-                "received_at",
-                "event_at",
-                "event_type",
-                "kind",
-                "sequence",
-                "session_id",
-                "connection_id",
-                "frame_hash",
-                "payload_hash",
-                "server_hash",
-                "server_timestamp",
-                "error_code",
-                "error_type",
-                "detail",
-                "payload",
-            )
-            if key in record
-        }
-        if compact.get("source") == "rtds_ws" and compact.get("kind") == "data":
-            message = compact.get("payload")
-            topic = message.get("topic") if isinstance(message, Mapping) else None
-            payload = (
-                message.get("payload") if isinstance(message, Mapping) else None
-            )
+        source = record.get("source")
+        event_type = record.get("event_type")
+        payload_hash = record.get("payload_hash")
+        if (
+            not isinstance(source, str)
+            or not source
+            or not isinstance(event_type, str)
+            or not event_type
+            or not isinstance(payload_hash, str)
+            or not payload_hash
+        ):
+            return None
+        server_timestamp_value = record.get("server_timestamp")
+        if source == "rtds_ws" and isinstance(record.get("payload"), Mapping):
+            semantic_payload = dict(record["payload"])
+            semantic_payload.pop("connection_id", None)
+            semantic_payload.pop("timestamp", None)
+            observation = semantic_payload.get("payload")
             if (
-                topic == "crypto_prices"
-                and isinstance(payload, Mapping)
-                and payload.get("symbol") != "btcusdt"
+                isinstance(observation, Mapping)
+                and observation.get("timestamp") is not None
             ):
+                server_timestamp_value = observation["timestamp"]
+            payload_hash = hashlib.sha256(
+                canonical_json_bytes(semantic_payload)
+            ).hexdigest()
+        server_timestamp = (
+            None
+            if server_timestamp_value is None
+            else str(server_timestamp_value)
+        )
+        return (
+            source,
+            event_type,
+            server_timestamp,
+            payload_hash,
+        )
+
+    def _is_duplicate_data_record(self, record: Mapping[str, Any]) -> bool:
+        identity = self._semantic_data_identity(record)
+        connection_id = record.get("connection_id")
+        if identity is None or not isinstance(connection_id, str):
+            return False
+        if identity in self._seen_data_identities:
+            first_connection_id = self._seen_data_identities[identity]
+            self._seen_data_identities.move_to_end(identity)
+            return first_connection_id != connection_id
+        self._seen_data_identities[identity] = connection_id
+        if (
+            len(self._seen_data_identities)
+            > self.semantic_dedup_max_records
+        ):
+            self._seen_data_identities.popitem(last=False)
+        return False
+
+    def _remember_persistence_error(self, error: BaseException) -> None:
+        if self._persistence_error is None:
+            self._persistence_error = error
+
+    async def _persist_record(self, record: Mapping[str, Any]) -> Any:
+        try:
+            return await self.backing.emit(record)
+        except Exception as exc:
+            self._remember_persistence_error(exc)
+            raise
+
+    async def emit(self, record: Mapping[str, Any]) -> Any:
+        async with self._operation_lock:
+            if record.get("source") in {"gamma_http", "clob_http"}:
                 return None
-        if compact.get("source") == "clob_market_ws":
-            if (
-                compact.get("kind") == "data"
-                and compact.get("event_type") == "price_change"
-            ):
-                return await self._emit_reconstructed_books(compact)
-            compact_payload = self._compact_clob_payload(
-                compact.get("event_type"), compact.get("payload")
-            )
-            if compact_payload is None and compact.get("kind") == "data":
+            compact = {
+                key: record[key]
+                for key in (
+                    "schema_version",
+                    "source",
+                    "received_at",
+                    "event_at",
+                    "event_type",
+                    "kind",
+                    "sequence",
+                    "session_id",
+                    "connection_id",
+                    "frame_hash",
+                    "payload_hash",
+                    "server_hash",
+                    "server_timestamp",
+                    "error_code",
+                    "error_type",
+                    "detail",
+                    "payload",
+                )
+                if key in record
+            }
+            if compact.get("source") == "rtds_ws" and compact.get("kind") == "data":
+                message = compact.get("payload")
+                topic = (
+                    message.get("topic") if isinstance(message, Mapping) else None
+                )
+                payload = (
+                    message.get("payload")
+                    if isinstance(message, Mapping)
+                    else None
+                )
+                if (
+                    topic == "crypto_prices"
+                    and isinstance(payload, Mapping)
+                    and payload.get("symbol") != "btcusdt"
+                ):
+                    return None
+            if self._is_duplicate_data_record(compact):
                 return None
-            if compact_payload is not None:
-                compact["payload"] = compact_payload
-        return await self.backing.emit(compact)
+            if compact.get("source") == "clob_market_ws":
+                if (
+                    compact.get("kind") == "data"
+                    and compact.get("event_type") == "price_change"
+                ):
+                    return await self._emit_reconstructed_books(compact)
+                compact_payload = self._compact_clob_payload(
+                    compact.get("event_type"), compact.get("payload")
+                )
+                if compact_payload is None and compact.get("kind") == "data":
+                    return None
+                if compact_payload is not None:
+                    compact["payload"] = compact_payload
+            return await self._persist_record(compact)
 
     async def checkpoint(
         self,
         source: str,
         checkpoint: Mapping[str, Any],
     ) -> None:
-        await self.backing.checkpoint(source, checkpoint)
+        async with self._operation_lock:
+            try:
+                await self.backing.checkpoint(source, checkpoint)
+            except Exception as exc:
+                self._remember_persistence_error(exc)
+                raise
 
     async def close(self) -> tuple[dict[str, Any], ...]:
-        return await self.backing.close()
+        async with self._operation_lock:
+            if self._closed_manifests is not None:
+                return self._closed_manifests
+            try:
+                self._closed_manifests = await self.backing.close()
+            except Exception as exc:
+                self._remember_persistence_error(exc)
+                raise
+            return self._closed_manifests
+
+
+class _RecorderSinkView:
+    """Delegate shared emits while restricting checkpoint ownership per leg."""
+
+    def __init__(
+        self,
+        sink: CompactRecorderSink,
+        *,
+        checkpoint_owner: bool,
+    ) -> None:
+        self._sink = sink
+        self._checkpoint_owner = checkpoint_owner
+
+    async def emit(self, record: Mapping[str, Any]) -> Any:
+        return await self._sink.emit(record)
+
+    async def checkpoint(
+        self,
+        source: str,
+        checkpoint: Mapping[str, Any],
+    ) -> None:
+        if self._checkpoint_owner:
+            await self._sink.checkpoint(source, checkpoint)
 
 
 @dataclass(frozen=True)
@@ -843,6 +1005,28 @@ def _next_expiry_seconds(now_ms: int) -> int:
     return (now_seconds // 900 + 1) * 900
 
 
+def _capture_expiry_seconds(
+    now_ms: int,
+    requested_expiry_seconds: int | None,
+) -> int:
+    next_expiry_seconds = _next_expiry_seconds(now_ms)
+    if requested_expiry_seconds is None:
+        return next_expiry_seconds
+    if (
+        isinstance(requested_expiry_seconds, bool)
+        or not isinstance(requested_expiry_seconds, int)
+        or requested_expiry_seconds % 900 != 0
+        or not next_expiry_seconds
+        <= requested_expiry_seconds
+        <= next_expiry_seconds + 1_800
+    ):
+        raise ValueError(
+            "expiry_seconds must be an aligned expiry no more than two "
+            "cycles beyond the next boundary"
+        )
+    return requested_expiry_seconds
+
+
 def build_capture_plan(
     *,
     config: ContinuousServiceConfig,
@@ -853,6 +1037,7 @@ def build_capture_plan(
     clob_5: Mapping[str, Any],
     gamma_15: Mapping[str, Any],
     clob_15: Mapping[str, Any],
+    expiry_seconds: int | None = None,
 ) -> CapturePlan:
     """Validate live public metadata and freeze one capture attempt."""
 
@@ -863,9 +1048,9 @@ def build_capture_plan(
     market_5 = TwapMarketContract.from_public_metadata(gamma_5, clob_5)
     market_15 = TwapMarketContract.from_public_metadata(gamma_15, clob_15)
     pair = SameExpiryPair.from_contracts(market_5, market_15)
-    expiry_seconds = _next_expiry_seconds(now_ms)
+    expiry_seconds = _capture_expiry_seconds(now_ms, expiry_seconds)
     if pair.expires_at_ms != expiry_seconds * 1_000:
-        raise ValueError("public markets do not match the next expiry boundary")
+        raise ValueError("public markets do not match the requested expiry boundary")
     capture_root = (
         config.data_root / "runs" / str(expiry_seconds) / attempt_id
     ).resolve()
@@ -1056,8 +1241,9 @@ def discover_next_pair(
     now_ms: int,
     attempt_id: str,
     clock_sync: ClockSyncMeasurement,
+    expiry_seconds: int | None = None,
 ) -> CapturePlan:
-    expiry_seconds = _next_expiry_seconds(now_ms)
+    expiry_seconds = _capture_expiry_seconds(now_ms, expiry_seconds)
     slug_15 = f"btc-updown-15m-{expiry_seconds - 900}"
     slug_5 = f"btc-updown-5m-{expiry_seconds - 300}"
     gamma_15 = fetch_gamma_market_by_slug(session, slug_15)
@@ -1075,7 +1261,78 @@ def discover_next_pair(
         clob_5=clob_5,
         gamma_15=gamma_15,
         clob_15=clob_15,
+        expiry_seconds=expiry_seconds,
     )
+
+
+def _build_redundant_recorder_configs(
+    config: ForwardCaptureConfig,
+) -> tuple[RecorderConfig, RecorderConfig]:
+    common = {
+        "clob_asset_ids": config.asset_ids,
+        "rtds_subscriptions": config.rtds_subscriptions,
+        "checkpoint_every_records": config.checkpoint_every_records,
+        "sink_timeout_seconds": 60.0,
+        "checkpoint_timeout_seconds": 60.0,
+    }
+    return (
+        RecorderConfig(
+            **common,
+            snapshot_intervals=dict(config.snapshot_intervals),
+        ),
+        RecorderConfig(
+            **common,
+            snapshot_intervals={},
+        ),
+    )
+
+
+async def _run_redundant_recorders(
+    primary: PublicRecorder,
+    secondary: PublicRecorder,
+    *,
+    duration_seconds: float,
+    shared_sink: CompactRecorderSink,
+) -> tuple[BaseException, ...]:
+    recorders = (primary, secondary)
+    task_to_recorder = {
+        asyncio.create_task(
+            recorder.run(run_for_seconds=duration_seconds),
+            name=f"btc-twap-redundant-capture-{index}",
+        ): recorder
+        for index, recorder in enumerate(recorders, start=1)
+    }
+    failures: list[BaseException] = []
+    pending = set(task_to_recorder)
+    try:
+        while pending:
+            done, pending = await asyncio.wait(
+                pending,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in done:
+                try:
+                    task.result()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    failures.append(exc)
+            if shared_sink.persistence_error is not None and pending:
+                await asyncio.gather(
+                    *(
+                        task_to_recorder[task].stop()
+                        for task in pending
+                    ),
+                    return_exceptions=True,
+                )
+        if shared_sink.persistence_error is not None:
+            raise shared_sink.persistence_error
+        return tuple(failures)
+    finally:
+        if pending:
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
 
 
 async def run_compact_forward_capture(
@@ -1114,23 +1371,36 @@ async def run_compact_forward_capture(
         reward_max_pages=config.reward_max_pages,
         rule_market_ids=config.rule_market_ids,
     )
-    recorder = PublicRecorder(
-        config=RecorderConfig(
-            clob_asset_ids=config.asset_ids,
-            rtds_subscriptions=config.rtds_subscriptions,
-            snapshot_intervals=config.snapshot_intervals,
-            checkpoint_every_records=config.checkpoint_every_records,
-            sink_timeout_seconds=60.0,
-            checkpoint_timeout_seconds=60.0,
-        ),
-        sink=sink,
+    primary_config, secondary_config = _build_redundant_recorder_configs(
+        config
+    )
+    websocket_factory = DefaultWebSocketFactory(proxy_url=proxy_url)
+    primary = PublicRecorder(
+        config=primary_config,
+        sink=_RecorderSinkView(sink, checkpoint_owner=True),
         snapshot_client=snapshots,
-        websocket_factory=DefaultWebSocketFactory(proxy_url=proxy_url),
+        websocket_factory=websocket_factory,
+    )
+    secondary = PublicRecorder(
+        config=secondary_config,
+        sink=_RecorderSinkView(sink, checkpoint_owner=False),
+        snapshot_client=snapshots,
+        websocket_factory=websocket_factory,
     )
     capture_error: BaseException | None = None
+    recorder_failures: tuple[BaseException, ...] = ()
     manifests: tuple[dict[str, Any], ...] = ()
     try:
-        await recorder.run(run_for_seconds=duration_seconds)
+        recorder_failures = await _run_redundant_recorders(
+            primary,
+            secondary,
+            duration_seconds=duration_seconds,
+            shared_sink=sink,
+        )
+        if len(recorder_failures) == 2:
+            capture_error = RuntimeError(
+                "both redundant public recorder legs failed"
+            )
     except BaseException as exc:
         capture_error = exc
     finally:
@@ -1143,6 +1413,15 @@ async def run_compact_forward_capture(
         "duration_seconds": str(duration_seconds),
         "target_count": len(config.targets),
         "asset_count": len(config.asset_ids),
+        "recorder_leg_count": 2,
+        "recorder_leg_failures": [
+            safe_error_details(error, code="recorder_leg_failed")
+            for error in recorder_failures
+        ],
+        "websocket_redundancy": {
+            "clob_market_ws": 2,
+            "rtds_ws": 2,
+        },
         "manifest_count": len(manifests),
         "manifest_record_count": sum(
             int(manifest.get("record_count", 0)) for manifest in manifests

@@ -27,7 +27,12 @@ from scripts.build_btc_twap_relative_value_pilot_report import (  # noqa: E402
 from scripts.build_btc_twap_relative_value_validation_summary import (  # noqa: E402
     build_summary,
 )
+from src.edge_lab.btc_twap_relative_value_schedule import (  # noqa: E402
+    bootstrap_clock_refresh_at_ms,
+    next_bootstrap_expiry_seconds,
+)
 from src.edge_lab.btc_twap_relative_value_service import (  # noqa: E402
+    ClockSyncMeasurement,
     ContinuousServiceConfig,
     ServiceStatus,
     discover_next_pair,
@@ -179,7 +184,8 @@ async def _capture_with_heartbeat(
     plan: Any,
     proxy_url: str | None,
     stop_event: asyncio.Event,
-) -> dict[str, Any]:
+    clock_refresh_at_ms: int | None = None,
+) -> tuple[dict[str, Any], ClockSyncMeasurement | None]:
     task = asyncio.create_task(
         run_compact_forward_capture(
             capture_config,
@@ -188,6 +194,29 @@ async def _capture_with_heartbeat(
         ),
         name="btc-twap-relative-value-capture",
     )
+    refresh_task: asyncio.Task[ClockSyncMeasurement] | None = None
+    initial_clock_sync = getattr(capture_config, "clock_sync", None)
+    refresh_context = {
+        "scheduled_at_ms": clock_refresh_at_ms,
+        "initial_evidence": (
+            dict(initial_clock_sync)
+            if isinstance(initial_clock_sync, Mapping)
+            else None
+        ),
+    }
+    if clock_refresh_at_ms is not None:
+        async def refresh_clock() -> ClockSyncMeasurement:
+            delay_seconds = max(
+                0.0,
+                (clock_refresh_at_ms - _epoch_ms()) / 1_000,
+            )
+            await asyncio.sleep(delay_seconds)
+            return await asyncio.to_thread(measure_sntp_clock_sync)
+
+        refresh_task = asyncio.create_task(
+            refresh_clock(),
+            name="btc-twap-bootstrap-clock-refresh",
+        )
     try:
         while not task.done():
             _emit_status(config, phase="capturing", plan=plan)
@@ -198,10 +227,42 @@ async def _capture_with_heartbeat(
                 except asyncio.CancelledError:
                     pass
                 raise ServiceStopRequested
-        return await task
+        capture_summary = await task
+        refreshed_clock_sync: ClockSyncMeasurement | None = None
+        if refresh_task is not None:
+            if refresh_task.done():
+                try:
+                    refreshed_clock_sync = refresh_task.result()
+                except Exception as exc:
+                    capture_summary["clock_sync_refresh"] = {
+                        **refresh_context,
+                        "status": "failed",
+                        "error": safe_error_details(
+                            exc,
+                            code="clock_sync_refresh_failed",
+                        ),
+                    }
+                else:
+                    capture_summary["clock_sync_refresh"] = {
+                        **refresh_context,
+                        "status": "success",
+                        "evidence": refreshed_clock_sync.to_document(),
+                    }
+            else:
+                capture_summary["clock_sync_refresh"] = {
+                    **refresh_context,
+                    "status": "not_reached",
+                }
+        return capture_summary, refreshed_clock_sync
     finally:
+        tasks_to_join: list[asyncio.Task[Any]] = [task]
         if not task.done():
             task.cancel()
+        if refresh_task is not None:
+            tasks_to_join.append(refresh_task)
+            if not refresh_task.done():
+                refresh_task.cancel()
+        await asyncio.gather(*tasks_to_join, return_exceptions=True)
 
 
 def _rebuild_summary(config: ContinuousServiceConfig) -> dict[str, Any]:
@@ -230,6 +291,7 @@ async def run_service(
         min_interval_seconds=0.05,
     )
     _emit_status(config, phase="starting")
+    bootstrap_required = True
     try:
         while not stop_event.is_set():
             plan = None
@@ -246,17 +308,36 @@ async def run_service(
                     now_ms=_epoch_ms(),
                     attempt_id=_attempt_id(),
                     clock_sync=clock_sync,
+                    expiry_seconds=(
+                        next_bootstrap_expiry_seconds(_epoch_ms())
+                        if bootstrap_required
+                        else None
+                    ),
                 )
                 plan.capture_root.mkdir(parents=True, exist_ok=False)
                 write_json_document(plan.capture_config_path, plan.capture_config)
                 capture_config = load_capture_config(plan.capture_config_path)
-                capture_summary = await _capture_with_heartbeat(
+                capture_summary, refreshed_clock_sync = await _capture_with_heartbeat(
                     config=config,
                     capture_config=capture_config,
                     plan=plan,
                     proxy_url=proxy_url,
                     stop_event=stop_event,
+                    clock_refresh_at_ms=(
+                        bootstrap_clock_refresh_at_ms(plan.expiry_seconds)
+                        if bootstrap_required
+                        else None
+                    ),
                 )
+                if refreshed_clock_sync is not None:
+                    refreshed_capture_config = dict(plan.capture_config)
+                    refreshed_capture_config["clock_sync"] = (
+                        refreshed_clock_sync.to_document()
+                    )
+                    write_json_document(
+                        plan.capture_config_path,
+                        refreshed_capture_config,
+                    )
                 write_json_document(
                     plan.capture_root / "capture-summary.json",
                     capture_summary,
@@ -286,6 +367,7 @@ async def run_service(
                     )
                 await asyncio.to_thread(_rebuild_summary, config)
                 _emit_status(config, phase="cycle_complete", plan=plan)
+                bootstrap_required = False
             except ServiceStopRequested:
                 break
             except BaseException as exc:

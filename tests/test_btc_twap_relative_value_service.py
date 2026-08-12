@@ -17,6 +17,7 @@ from src.edge_lab.btc_twap_relative_value_service import (
     evaluate_service_health,
     fetch_gamma_market_by_slug,
     load_service_config,
+    measure_sntp_clock_sync,
     parse_sntp_output,
     public_session,
     require_disk_capacity,
@@ -171,6 +172,46 @@ def test_capture_plan_targets_the_next_same_expiry_pair(tmp_path: Path) -> None:
     assert plan.capture_root.name == "attempt-001"
 
 
+def test_capture_plan_can_bootstrap_a_bounded_future_expiry(tmp_path: Path) -> None:
+    now_seconds = 1_786_531_810
+    expiry_seconds = 1_786_533_300
+    gamma_15, clob_15 = _market_fixture(
+        horizon="15m",
+        opens_at=expiry_seconds - 900,
+        market_id="future-15-market",
+        condition_id="0x" + "15" * 32,
+        up_token="future-15-up",
+        down_token="future-15-down",
+    )
+    gamma_5, clob_5 = _market_fixture(
+        horizon="5m",
+        opens_at=expiry_seconds - 300,
+        market_id="future-5-market",
+        condition_id="0x" + "05" * 32,
+        up_token="future-5-up",
+        down_token="future-5-down",
+    )
+
+    plan = build_capture_plan(
+        config=_config(tmp_path),
+        now_ms=now_seconds * 1_000,
+        attempt_id="bootstrap-attempt",
+        clock_sync=ClockSyncMeasurement(
+            measured_at_raw_ms=now_seconds * 1_000,
+            offset_seconds="0.126401",
+            uncertainty_seconds="0.052",
+        ),
+        gamma_5=gamma_5,
+        clob_5=clob_5,
+        gamma_15=gamma_15,
+        clob_15=clob_15,
+        expiry_seconds=expiry_seconds,
+    )
+
+    assert plan.expiry_seconds == expiry_seconds
+    assert plan.duration_seconds == 1_850
+
+
 def test_sntp_parser_freezes_conservative_causal_receipt_offset() -> None:
     output = """
 selected:
@@ -184,6 +225,67 @@ selected:
     assert measurement.causal_receipt_offset_ms == 343
     assert measurement.uncertainty_ms == 51
     assert measurement.to_document()["system_clock_mutated"] is False
+
+
+def test_sntp_measurement_uses_best_uncertainty_across_bounded_attempts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    outputs = iter(
+        (
+            (0, "+0.126386 +/- 0.102 time.apple.com 17.253.114.35"),
+            (1, "temporary network failure"),
+            (0, "+0.126401 +/- 0.052 time.apple.com 17.253.114.35"),
+        )
+    )
+    calls: list[tuple[object, ...]] = []
+
+    class Completed:
+        def __init__(self, returncode: int, output: str) -> None:
+            self.returncode = returncode
+            self.stdout = output if returncode == 0 else ""
+            self.stderr = output if returncode != 0 else ""
+
+    def fake_run(*args: object, **kwargs: object) -> Completed:
+        calls.append(args)
+        return Completed(*next(outputs))
+
+    monkeypatch.setattr(
+        "src.edge_lab.btc_twap_relative_value_service.subprocess.run",
+        fake_run,
+    )
+
+    measurement = measure_sntp_clock_sync()
+
+    assert len(calls) == 3
+    assert measurement.offset_seconds == "0.126401"
+    assert measurement.uncertainty_seconds == "0.052"
+    assert measurement.uncertainty_ms == 52
+
+
+def test_sntp_measurement_fails_after_three_unsuccessful_attempts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    class Completed:
+        returncode = 1
+        stdout = ""
+        stderr = "temporary network failure"
+
+    def fake_run(*args: object, **kwargs: object) -> Completed:
+        nonlocal calls
+        calls += 1
+        return Completed()
+
+    monkeypatch.setattr(
+        "src.edge_lab.btc_twap_relative_value_service.subprocess.run",
+        fake_run,
+    )
+
+    with pytest.raises(RuntimeError, match="public SNTP clock measurement failed"):
+        measure_sntp_clock_sync()
+
+    assert calls == 3
 
 
 def test_disk_guard_stops_before_the_reserved_free_space_is_consumed(
