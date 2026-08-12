@@ -1,0 +1,31 @@
+[
+  {
+    "analysis_id": "augmented-neg-risk-fail-closed",
+    "constraint_provenance": [
+      {
+        "constraint_id": "augmented-event-at-most-one-unverified",
+        "evidence": [
+          "constraint-claim:augmented-event-at-most-one-unverified:sha256:6449e6a0989c77e4b36a17dbdab9e46c2b9492e30bb280801dc7d40636f580d2",
+          "gamma-event:32224:market-set-sha256:f5befb84198347a547babcbea6895b70c59c02aab4bc153c58369d3b05348eb1",
+          "gamma_event:sha256:38f1d01d62813273dba477f936312e3f3b139ce044772d8114e5903835369688",
+          "gamma:sha256:c562bb63b97337554038c4732e3d81a35a07802592c499e25a6b005e0a38d3b4",
+          "gamma:sha256:a7c8c4eef2cfa1ab5524064b2d4ed1ae452e4dfc40cfa700b208d3fcb3a1a675",
+          "gamma:sha256:a291149f416f5d7081a76826dc81a51f692a8f177e2b58037c804b7f0a27bea1",
+          "gamma:sha256:39e71a5d8eb062dc3243d532b649ce587d5dddd50ab6d3837e57bbf1ebfd6d27",
+          "gamma:sha256:c09c1fadbf013d15709cacc4181950e2cd4d487ad591f35dfb648825854c9bc1",
+          "gamma:sha256:e8e628273b9fb60e2e8a51b9d185055c18989a6250544523c1ff4b65c9cafd22",
+          "gamma:sha256:8d86ae35cb7cb2cf6c41ef60306ee12082b2b53006e2ded4973f0a7d5d3b665d",
+          "gamma:sha256:e89f25c4784d8dd1db5e06050abe43939371f024e20e73618d28e4b930fbc913",
+          "gamma:sha256:19b4b290190eb4a7954fc0c3f50934dc162c3ecd31cf1058a0a17276d9b89c1f"
+        ],
+        "verified": false
+      }
+    ],
+    "failure_codes": [
+      "resolution_source_missing"
+    ],
+    "graph_hash": "5ea13cace265bc4496c188a0e7f11e368f9643543445e15bc508f008e950b60b",
+    "mode": "augmented_neg_risk",
+    "state_count": 0
+  }
+]

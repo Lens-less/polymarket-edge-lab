@@ -1,0 +1,177 @@
+{
+  "analyses": [
+    {
+      "analysis_id": "augmented-neg-risk-fail-closed",
+      "bundles": [
+        {
+          "candidate_id": "augmented-buy-all-yes-depth",
+          "family": "augmented-buy-all-yes",
+          "legs": [
+            {"node_id": "senate-outcome-00", "outcome": "YES", "side": "BUY", "units": "1"},
+            {"node_id": "senate-outcome-01", "outcome": "YES", "side": "BUY", "units": "1"},
+            {"node_id": "senate-outcome-02", "outcome": "YES", "side": "BUY", "units": "1"},
+            {"node_id": "senate-outcome-03", "outcome": "YES", "side": "BUY", "units": "1"},
+            {"node_id": "senate-outcome-04", "outcome": "YES", "side": "BUY", "units": "1"},
+            {"node_id": "senate-outcome-05", "outcome": "YES", "side": "BUY", "units": "1"},
+            {"node_id": "senate-outcome-06", "outcome": "YES", "side": "BUY", "units": "1"},
+            {"node_id": "senate-outcome-07", "outcome": "YES", "side": "BUY", "units": "1"},
+            {"node_id": "senate-outcome-08", "outcome": "YES", "side": "BUY", "units": "1"}
+          ]
+        }
+      ],
+      "conversions": [],
+      "mode": "augmented_neg_risk",
+      "neg_risk_provenance": {}
+    }
+  ],
+  "constraints": [
+    {
+      "constraint_id": "augmented-event-at-most-one-unverified",
+      "evidence": [
+        "constraint-claim:augmented-event-at-most-one-unverified:sha256:6449e6a0989c77e4b36a17dbdab9e46c2b9492e30bb280801dc7d40636f580d2",
+        "gamma-event:32224:market-set-sha256:f5befb84198347a547babcbea6895b70c59c02aab4bc153c58369d3b05348eb1"
+      ],
+      "kind": "mutex",
+      "node_ids": [
+        "senate-outcome-00",
+        "senate-outcome-01",
+        "senate-outcome-02",
+        "senate-outcome-03",
+        "senate-outcome-04",
+        "senate-outcome-05",
+        "senate-outcome-06",
+        "senate-outcome-07",
+        "senate-outcome-08"
+      ],
+      "verified": false
+    }
+  ],
+  "event": {
+    "event_id": "32224",
+    "expected_augmented_neg_risk": true,
+    "expected_market_ids": [
+      "562793",
+      "562794",
+      "562795",
+      "562796",
+      "562797",
+      "562798",
+      "562799",
+      "562800",
+      "562801"
+    ],
+    "expected_neg_risk": true,
+    "require_active": true,
+    "require_open": true
+  },
+  "experiment_id": "senate-2026-augmented-neg-risk-blocked",
+  "markets": [
+    {
+      "condition_id": "0x307a1ed89d60b61002dd5bbf00e1408c5ed2ab3fcdb056191ca7ef9bc34d38f3",
+      "market_id": "562793",
+      "no_token_id": "107118433685650702332040991454078902188473746599223732907923581436160160612542",
+      "node_id": "senate-outcome-00",
+      "question_sha256": "603da4a656fa94729d1ae2e8fa0cf61e4827c8a01759160fe76655f4545a1c4d",
+      "resolution_source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "role": "placeholder",
+      "rules_sha256": "3374a67fd32363532c26d7e3c6833320c3a21a516431e9849fce2c8565c898f5",
+      "yes_token_id": "113287701564209339913693347405685749986285999146352375265161592243948562084773"
+    },
+    {
+      "condition_id": "0x86bfb53af7250a40928975c551d12c185b762fa4ce0b40c6a64a50c946d72587",
+      "market_id": "562794",
+      "no_token_id": "108587038225191871355030577171066853142535232042155117887981453750193713427381",
+      "node_id": "senate-outcome-01",
+      "question_sha256": "2b1fb030ccf9a797f38f5ed736e257464a4f09ef08bcc778e2255589d6a3db09",
+      "resolution_source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "role": "placeholder",
+      "rules_sha256": "3374a67fd32363532c26d7e3c6833320c3a21a516431e9849fce2c8565c898f5",
+      "yes_token_id": "51939490109676186832507970701169130490548061087912630009168726706475001411420"
+    },
+    {
+      "condition_id": "0x75e8380ff28ca9f077a37235d149f782bd859060e4c9e5c4d43742633e9dfcf2",
+      "market_id": "562795",
+      "no_token_id": "79567790673116367761535331050117811143019665137672364070496977107486370387555",
+      "node_id": "senate-outcome-02",
+      "question_sha256": "b6920a90a73fdf8ebea294021e3e08079e2a46a637c0791d70d180605921bf2c",
+      "resolution_source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "role": "placeholder",
+      "rules_sha256": "3374a67fd32363532c26d7e3c6833320c3a21a516431e9849fce2c8565c898f5",
+      "yes_token_id": "101013678279667053072299759176727232476254933885205251482758940017727056216936"
+    },
+    {
+      "condition_id": "0x7ede7e291acb0c557bc00fdf3076de3939bddf3245b7444aa0a72874b7c80871",
+      "market_id": "562796",
+      "no_token_id": "34572373280638988596088361740037656938352639124259370290285102359358076329131",
+      "node_id": "senate-outcome-03",
+      "question_sha256": "33a1b9e1520173bd36643cd11b775c8089d987778306df813d7351c9de2536b0",
+      "resolution_source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "role": "placeholder",
+      "rules_sha256": "3374a67fd32363532c26d7e3c6833320c3a21a516431e9849fce2c8565c898f5",
+      "yes_token_id": "17291306702481518322922293085189440199102471520907223012215450959650015362095"
+    },
+    {
+      "condition_id": "0x5e5c207df9256248e8f0c2a6c4fe767e3ecc8f04d1bedfc41606dd5732c44f32",
+      "market_id": "562797",
+      "no_token_id": "79479315504611025441908044787537239181105589241907112514355477124549496857592",
+      "node_id": "senate-outcome-04",
+      "question_sha256": "11b85c4f8a259d0598821fa6616a75d41c043b6f5162a5f6d71cd818ec37d71a",
+      "resolution_source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "role": "placeholder",
+      "rules_sha256": "3374a67fd32363532c26d7e3c6833320c3a21a516431e9849fce2c8565c898f5",
+      "yes_token_id": "84564220048904518210324803720513259790779599835942746260012094389283820078171"
+    },
+    {
+      "condition_id": "0x8cb80ba706463194218b14ec9402d2fde98986ee15a33843479767ab8a17afb8",
+      "market_id": "562798",
+      "no_token_id": "98327012863381123272872706058809617610672777124162346420842828556078722207673",
+      "node_id": "senate-outcome-05",
+      "question_sha256": "1d83944012848fbb618f9313e6996663eaa6c4331ac3d58ecf4360da8b997395",
+      "resolution_source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "role": "placeholder",
+      "rules_sha256": "3374a67fd32363532c26d7e3c6833320c3a21a516431e9849fce2c8565c898f5",
+      "yes_token_id": "20973107838880033948621714653691397188129037926491564250266623335824655911513"
+    },
+    {
+      "condition_id": "0x86567e2750273cc3cad8614545980b697263b93f860bbfa44e762974dae9a21e",
+      "market_id": "562799",
+      "no_token_id": "8641854181603256723761227994622884007662022997516863533735515560761960593388",
+      "node_id": "senate-outcome-06",
+      "question_sha256": "9e4c6c9bd4a205b1466eb0371a64741c105a490186ea7c58bc74c9db88f446ac",
+      "resolution_source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "role": "placeholder",
+      "rules_sha256": "3374a67fd32363532c26d7e3c6833320c3a21a516431e9849fce2c8565c898f5",
+      "yes_token_id": "37213040687057321509708524169104399446447904137994813725092448952175384806008"
+    },
+    {
+      "condition_id": "0xa797f7270ea01c88112be7a9f5698fe290972f96110fdebd827d569e574257ee",
+      "market_id": "562800",
+      "no_token_id": "53570851542692226651493355560498424203447559629175647580345042095584156342026",
+      "node_id": "senate-outcome-07",
+      "question_sha256": "fadce206dae6aabe89f8740d82c2dd997cf4f92c964b174c4de53a2ab56c0870",
+      "resolution_source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "role": "placeholder",
+      "rules_sha256": "3374a67fd32363532c26d7e3c6833320c3a21a516431e9849fce2c8565c898f5",
+      "yes_token_id": "101373114800278906076148182815886141420716368951991098225092292069317856261450"
+    },
+    {
+      "condition_id": "0x9e856e1f904ce07e3b55c020ae515b031d28230d17274c6d92eaea466334e6a5",
+      "market_id": "562801",
+      "no_token_id": "51408032578973117977309718532991766355947547820544366745734370883632080301772",
+      "node_id": "senate-outcome-08",
+      "question_sha256": "c234c8ecae794d280a20e567efce5ef90c3fb1e98e74e5a30771cb85ac830a35",
+      "resolution_source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "role": "placeholder",
+      "rules_sha256": "3374a67fd32363532c26d7e3c6833320c3a21a516431e9849fce2c8565c898f5",
+      "yes_token_id": "23633932719235142872499908336820535133005906954156117997533824326101321643082"
+    }
+  ],
+  "policy": {
+    "gas": "0.10",
+    "latency_buffer": "0.10",
+    "max_book_age_ms": 5000,
+    "max_book_rtt_ms": 3000,
+    "max_book_skew_ms": 5000
+  },
+  "schema_version": "edge-lab-constraint-experiment-config.v2"
+}

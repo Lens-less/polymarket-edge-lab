@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "polymarket-mm-bot"
 version = "0.1.0"
-description = "Polymarket Market Making Bot"
+description = "Public-data-only Polymarket edge discovery and execution replay lab"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
@@ -28,6 +28,7 @@ dependencies = [
     "py-clob-client",
     "python-dotenv",
     "websockets",
+    "python-socks[asyncio]",
     "pandas",
     "pyarrow",  # For Parquet export
     "certifi",
@@ -43,8 +44,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/polymarket/mm-bot"
-Repository = "https://github.com/polymarket/mm-bot"
+Homepage = "https://github.com/Lens-less/poly-mm"
+Repository = "https://github.com/Lens-less/poly-mm"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -54,7 +55,10 @@ include = ["src*"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 timeout = 30
-addopts = "-v --tb=short"
+addopts = "-v --tb=short -m 'not network'"
+markers = [
+    "network: tests that require live external network access (run explicitly with -m network)",
+]
 
 [tool.isort]
 profile = "black"

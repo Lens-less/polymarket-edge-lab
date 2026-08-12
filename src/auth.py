@@ -8,7 +8,7 @@ from typing import Optional, Dict, Any
 from decimal import Decimal
 
 from src.client import get_auth_client
-from src.config import POLY_SIGNATURE_TYPE, USDC_ADDRESS
+from src.config import POLY_SIGNATURE_TYPE
 from src.utils import setup_logging
 from py_clob_client.clob_types import BalanceAllowanceParams, AssetType
 
@@ -37,7 +37,8 @@ def get_balances() -> Dict[str, Decimal]:
     # This is a placeholder - actual implementation depends on client version
 
     try:
-        # Try to get collateral balance (USDC.e deposited for trading)
+        # Legacy V1 collateral lookup. New orders are blocked until this module
+        # is replaced with a verified pUSD/V2 implementation.
         collateral = client.get_balance_allowance(
             BalanceAllowanceParams(
                 asset_type=AssetType.COLLATERAL,
@@ -133,8 +134,8 @@ def set_allowances() -> bool:
     """
     Set token allowances for trading.
 
-    This approves the Exchange contract to spend USDC.e.
-    Only needs to be done once per wallet.
+    Legacy V1 allowance helper. New live orders are disabled; do not use this
+    as a pUSD/CLOB V2 setup path.
 
     Returns:
         True if successful
@@ -173,7 +174,7 @@ def verify_setup() -> Dict[str, Any]:
         logger.info(f"Balances: {balances}")
 
         if balances.get('usdc_allowance', 0) == 0:
-            issues.append("No USDC.e balance for trading")
+            issues.append("Legacy collateral balance is zero; V2 pUSD is not verified")
     except Exception as e:
         issues.append(f"Cannot check balances: {e}")
 
@@ -183,7 +184,7 @@ def verify_setup() -> Dict[str, Any]:
         logger.info(f"Allowances: {allowances}")
 
         if not allowances.get('usdc_approved', False):
-            issues.append("USDC.e allowance not set - run set_allowances()")
+            issues.append("Legacy allowance absent; V2 pUSD allowance is not verified")
     except Exception as e:
         issues.append(f"Cannot check allowances: {e}")
 

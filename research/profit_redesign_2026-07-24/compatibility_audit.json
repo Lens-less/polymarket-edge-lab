@@ -1,0 +1,33 @@
+{
+  "installed": {
+    "py_clob_client_legacy": "0.34.6",
+    "py_clob_client_v2": null,
+    "polymarket_client_unified_beta": null
+  },
+  "geoblock": {
+    "request_ok": true,
+    "blocked": false,
+    "privacy": "location fields omitted"
+  },
+  "checks": {
+    "legacy_v1_dependency_absent": false,
+    "current_sdk_installed": false,
+    "repository_v2_adapter_implemented": false,
+    "pusd_balance_and_allowance_reconciled": false,
+    "v2_signature_path_verified": false,
+    "trade_terminal_status_reconciled": false,
+    "geoblock_request_ok": true,
+    "geoblock_allows_new_orders": true
+  },
+  "read_only_research_ready": true,
+  "new_live_orders_ready": false,
+  "blocking_reasons": [
+    "legacy_v1_dependency_absent",
+    "current_sdk_installed",
+    "repository_v2_adapter_implemented",
+    "pusd_balance_and_allowance_reconciled",
+    "v2_signature_path_verified",
+    "trade_terminal_status_reconciled"
+  ],
+  "warning": "This audit never reads credentials and cannot verify authenticated order signing or settlement. Those require a separately authorized metered probe."
+}

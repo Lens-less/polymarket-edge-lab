@@ -442,7 +442,11 @@ class BacktestEngine:
         trade_value = fill_size * fill_price
 
         # Calculate and deduct fees
-        fee = self.fee_model.calculate_taker_fee(trade_value)
+        fee = self.fee_model.calculate_taker_fee(
+            trade_value,
+            shares=fill_size,
+            price=fill_price,
+        )
         self.capital -= fee
 
         if order.side == "BUY":

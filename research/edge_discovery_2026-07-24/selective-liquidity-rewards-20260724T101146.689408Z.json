@@ -1,0 +1,43 @@
+{
+  "classification_counts": {},
+  "completed_at": "2026-07-24T10:11:51.365765Z",
+  "config": {
+    "adverse_one_leg_fills_per_day": 1,
+    "competition_multipliers": [
+      "1",
+      "3",
+      "10"
+    ],
+    "max_book_age_ms": 120000,
+    "max_book_skew_ms": 5000,
+    "max_markets": 10,
+    "max_reward_pages": 10,
+    "paired_fills_per_day": 1,
+    "quote_distance_fraction": "0.5"
+  },
+  "experiment_id": "selective-liquidity-rewards-20260724T101146.689408Z",
+  "global_conclusion": "No public-only snapshot can validate reward profitability. Without actual order scoring and confirmed payout evidence, the highest permitted per-market classification is promising_not_validated.",
+  "markets": [],
+  "safety": {
+    "credentials_read": false,
+    "live_order_guard_required": true,
+    "orders_submitted": false,
+    "read_only_public_endpoints_only": true,
+    "transactions_signed": false
+  },
+  "schema_version": "edge-lab-liquidity-reward-experiment-v1",
+  "started_at": "2026-07-24T10:11:46.689408Z",
+  "universe": {
+    "duplicate_condition_ids": [],
+    "not_evaluated_due_to_deterministic_cap": 0,
+    "page_evidence": [],
+    "pagination_complete": false,
+    "reward_pages_fetched": 0,
+    "selected_markets": 0,
+    "selection_rule": "descending total_daily_rate, then ascending condition_id",
+    "source_errors": [
+      "current_rewards_source_error:PublicSourceError"
+    ],
+    "unique_current_reward_markets": 0
+  }
+}

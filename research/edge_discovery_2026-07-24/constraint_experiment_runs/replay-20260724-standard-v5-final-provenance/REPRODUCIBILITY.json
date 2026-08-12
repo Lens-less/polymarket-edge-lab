@@ -1,0 +1,32 @@
+{
+  "artifact_sha256": {
+    "candidates.jsonl": "0adc149c7a7920160443f34a5d4abc2bf0371e3c35eedf95268e13efbee5e34e",
+    "config.snapshot.json": "08c93a15e606c01e3553838b2ecfb8f4fa3e14213cd6471a26a409135be17ca2",
+    "graphs.json": "8178aa81cea9b4eaf1a2169e2ad3aa1157ca7c929f69cb63edac3afd8efb7480",
+    "source_manifest.json": "1d7bc4a6f806bb0f42609942926f6b943b0b369f080a867057e2d5043d0ead3e",
+    "summary.json": "6fc2d29f935a5df86dfc43a51fd15c9bcb9de1b035b940ed16935cfebc514dc9"
+  },
+  "command_shape": "python scripts/run_constraint_experiment.py --config <config> --output-root <new-directory> --run-id replay-20260724-standard-v5-final-provenance [--proxy <loopback-http-url>]",
+  "config_sha256": "b1a12985dc2f943781f734630aaab2ab8e12629ea8dc7ac139c7454ff8459286",
+  "economic_boundary": "snapshot screening only; no atomic-fill, finality, or settlement claim",
+  "implementation_provenance": {
+    "byteorder": "little",
+    "file_sha256": {
+      "scripts/run_constraint_experiment.py": "10e17e9361cfc899844b04492d272a23aae2f03092db06aa20e83b4087bdf02f",
+      "src/edge_lab/compatibility.py": "c023325b1a536c81ffee780d7b4e80964f8ba679f2e41543c28654b9f86ecfe6",
+      "src/edge_lab/constraint_experiment.py": "853bdc9566a4adbcd4c3f203a9278438b591fdfa058dd89acff8e2c5c1172898",
+      "src/edge_lab/constraints.py": "4e881c5df880283a9eebec7f74cbd4d3370b59f1fd88d17350bf41df979f3b10",
+      "src/edge_lab/models.py": "dc88dea62f12307bb97904c4f9b89c933596ac66bf25cb2022033b369be6e511",
+      "src/edge_lab/sources.py": "9b43d98c7ffa7a47a25506385059fa461563c8b4a7215d88833329b318634ad7"
+    },
+    "python_implementation": "CPython",
+    "python_version": "3.12.13",
+    "requests_version": "2.34.2",
+    "schema_version": "edge-lab-implementation-provenance.v1"
+  },
+  "network_boundary": "public Gamma/CLOB HTTPS GET only; no authenticated routes",
+  "network_used": false,
+  "offline_replay_command_shape": "python scripts/run_constraint_experiment.py --config <source-run>/config.snapshot.json --replay-source-run <source-run> --output-root <new-directory> --run-id <new-unique-run-id>",
+  "run_id": "replay-20260724-standard-v5-final-provenance",
+  "schema_version": "edge-lab-constraint-experiment-config.v2"
+}

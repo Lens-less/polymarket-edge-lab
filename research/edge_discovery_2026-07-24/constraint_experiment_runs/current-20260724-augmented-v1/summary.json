@@ -1,0 +1,44 @@
+{
+  "accepted_snapshot_count": 0,
+  "analysis_count": 1,
+  "candidate_count": 89,
+  "classification_counts": {
+    "blocked": 89
+  },
+  "config_sha256": "c09b6defccd9b8717048d7e322be29dd62c8e09ea35b19a314c2b58adfa0dd88",
+  "event_id": "32224",
+  "experiment_id": "senate-2026-augmented-neg-risk-blocked",
+  "failure_counts": {
+    "book_missing": 89,
+    "compact_market_missing": 89,
+    "depth_insufficient": 1,
+    "resolution_source_missing": 89,
+    "source_fetch_failed:clob-market:0x5e5c207df9256248e8f0c2a6c4fe767e3ecc8f04d1bedfc41606dd5732c44f32:clob:sha256:e45014f56e3e1c0dc5aa46d6971493ef9a504d3c259743e6f91bf711d365a5d0": 89,
+    "source_fetch_failed:clob-market:0x75e8380ff28ca9f077a37235d149f782bd859060e4c9e5c4d43742633e9dfcf2:clob:sha256:5475045b076b7bc757f887e94b9c4c55f70230ad47afe6ab6be1575af169a3d5": 89,
+    "source_fetch_failed:clob-market:0x7ede7e291acb0c557bc00fdf3076de3939bddf3245b7444aa0a72874b7c80871:clob:sha256:b26d392538a18eebdfba170f36614aa39d4c8b342c4b4c44a63b3100a6eb402e": 89,
+    "source_fetch_failed:clob-market:0x86567e2750273cc3cad8614545980b697263b93f860bbfa44e762974dae9a21e:clob:sha256:1ee1eea2c95594a0dd9d397b8b8d3b3ae23ed79ec2a99dcd4e77f2f4169b81b6": 89,
+    "source_fetch_failed:clob-market:0x8cb80ba706463194218b14ec9402d2fde98986ee15a33843479767ab8a17afb8:clob:sha256:a5c74e25704debe5f34970ed7dbcafa59fbac34c02686f76436add9c4b46ecec": 89,
+    "source_fetch_failed:clob-market:0x9e856e1f904ce07e3b55c020ae515b031d28230d17274c6d92eaea466334e6a5:clob:sha256:0ecd64301ae6b66e25a94a6a201a651fce47e12f10013b0702a0f8a68662f264": 89,
+    "source_fetch_failed:clob-market:0xa797f7270ea01c88112be7a9f5698fe290972f96110fdebd827d569e574257ee:clob:sha256:142ced1c191622db705cb557d28417bef4cbef7943fc21cb82fea1b681f86035": 89,
+    "stale_or_unsynced_books": 89
+  },
+  "finished_at_ms": 1784888584903,
+  "new_orders_disabled": true,
+  "profit_claim": "none_snapshot_diagnostics_only",
+  "public_get_only": true,
+  "run_id": "current-20260724-augmented-v1",
+  "schema_version": "edge-lab-constraint-experiment-summary.v1",
+  "source_failure_codes": [
+    "source_fetch_failed:clob-market:0x75e8380ff28ca9f077a37235d149f782bd859060e4c9e5c4d43742633e9dfcf2:clob:sha256:5475045b076b7bc757f887e94b9c4c55f70230ad47afe6ab6be1575af169a3d5",
+    "compact_market_missing",
+    "source_fetch_failed:clob-market:0x7ede7e291acb0c557bc00fdf3076de3939bddf3245b7444aa0a72874b7c80871:clob:sha256:b26d392538a18eebdfba170f36614aa39d4c8b342c4b4c44a63b3100a6eb402e",
+    "source_fetch_failed:clob-market:0x5e5c207df9256248e8f0c2a6c4fe767e3ecc8f04d1bedfc41606dd5732c44f32:clob:sha256:e45014f56e3e1c0dc5aa46d6971493ef9a504d3c259743e6f91bf711d365a5d0",
+    "source_fetch_failed:clob-market:0x8cb80ba706463194218b14ec9402d2fde98986ee15a33843479767ab8a17afb8:clob:sha256:a5c74e25704debe5f34970ed7dbcafa59fbac34c02686f76436add9c4b46ecec",
+    "source_fetch_failed:clob-market:0x86567e2750273cc3cad8614545980b697263b93f860bbfa44e762974dae9a21e:clob:sha256:1ee1eea2c95594a0dd9d397b8b8d3b3ae23ed79ec2a99dcd4e77f2f4169b81b6",
+    "source_fetch_failed:clob-market:0xa797f7270ea01c88112be7a9f5698fe290972f96110fdebd827d569e574257ee:clob:sha256:142ced1c191622db705cb557d28417bef4cbef7943fc21cb82fea1b681f86035",
+    "source_fetch_failed:clob-market:0x9e856e1f904ce07e3b55c020ae515b031d28230d17274c6d92eaea466334e6a5:clob:sha256:0ecd64301ae6b66e25a94a6a201a651fce47e12f10013b0702a0f8a68662f264",
+    "resolution_source_missing"
+  ],
+  "source_response_count": 23,
+  "started_at_ms": 1784888579198
+}

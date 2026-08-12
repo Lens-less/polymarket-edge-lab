@@ -1,0 +1,4624 @@
+{
+  "generated_at": "2026-07-24T08:52:36.509641+00:00",
+  "gamma_rows_seen": 100,
+  "binary_markets_prepared": 94,
+  "markets_evaluated": 94,
+  "markets_skipped_for_books": 0,
+  "sizes": [
+    5.0,
+    10.0,
+    25.0,
+    50.0
+  ],
+  "execution_buffer_per_share": 0.002,
+  "positive_market_count": 0,
+  "positive_markets": [],
+  "top_near_edges": [
+    {
+      "condition_id": "0xae70ab9bf1c3726fe430a2ba8b517697ae24e0f0ab554b876a5b521153068882",
+      "question": "Will Tim Walz win the 2028 US Presidential Election?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0156,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.01,
+            "no_cost": 4.995,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.005,
+            "no_proceeds": 4.99,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 9.99,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 9.98,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 24.975,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 24.95,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 49.95,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 49.9,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x3265b10daeb30dbcc3214bd02e488551d0a5d3028392f4152e4750b943fbfc91",
+      "question": "Will Tim Walz win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.016,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.015,
+            "no_cost": 4.99,
+            "fees": 0.001,
+            "buffer": 0.01,
+            "net_edge": -0.016
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 4.985,
+            "fees": 0.001,
+            "buffer": 0.01,
+            "net_edge": -0.016
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.03,
+            "no_cost": 9.98,
+            "fees": 0.002,
+            "buffer": 0.02,
+            "net_edge": -0.032
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.02,
+            "no_proceeds": 9.97,
+            "fees": 0.002,
+            "buffer": 0.02,
+            "net_edge": -0.032
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.075,
+            "no_cost": 24.95,
+            "fees": 0.00499,
+            "buffer": 0.05,
+            "net_edge": -0.07999
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 24.925,
+            "fees": 0.00499,
+            "buffer": 0.05,
+            "net_edge": -0.07999
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.15,
+            "no_cost": 49.9,
+            "fees": 0.00997,
+            "buffer": 0.1,
+            "net_edge": -0.15997
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.1,
+            "no_proceeds": 49.85,
+            "fees": 0.00997,
+            "buffer": 0.1,
+            "net_edge": -0.15997
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x8fbcb151e2c988df5a43abb02298014b7daf34c008f3eed9188dd16a2a19bec1",
+      "question": "Will Jared Polis win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.016,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.015,
+            "no_cost": 4.99,
+            "fees": 0.001,
+            "buffer": 0.01,
+            "net_edge": -0.016
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 4.985,
+            "fees": 0.001,
+            "buffer": 0.01,
+            "net_edge": -0.016
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.03,
+            "no_cost": 9.98,
+            "fees": 0.002,
+            "buffer": 0.02,
+            "net_edge": -0.032
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.02,
+            "no_proceeds": 9.97,
+            "fees": 0.002,
+            "buffer": 0.02,
+            "net_edge": -0.032
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.075,
+            "no_cost": 24.95,
+            "fees": 0.00499,
+            "buffer": 0.05,
+            "net_edge": -0.07999
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 24.925,
+            "fees": 0.00499,
+            "buffer": 0.05,
+            "net_edge": -0.07999
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.15,
+            "no_cost": 49.9,
+            "fees": 0.00997,
+            "buffer": 0.1,
+            "net_edge": -0.15997
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.1,
+            "no_proceeds": 49.85,
+            "fees": 0.00997,
+            "buffer": 0.1,
+            "net_edge": -0.15997
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xc44edcfdedb422bae8ff1803e2178d1ee025fc41efd81400ccbede709e018841",
+      "question": "Will MrBeast win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.016,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.015,
+            "no_cost": 4.99,
+            "fees": 0.001,
+            "buffer": 0.01,
+            "net_edge": -0.016
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 4.985,
+            "fees": 0.001,
+            "buffer": 0.01,
+            "net_edge": -0.016
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.03,
+            "no_cost": 9.98,
+            "fees": 0.002,
+            "buffer": 0.02,
+            "net_edge": -0.032
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.02,
+            "no_proceeds": 9.97,
+            "fees": 0.002,
+            "buffer": 0.02,
+            "net_edge": -0.032
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.075,
+            "no_cost": 24.95,
+            "fees": 0.00499,
+            "buffer": 0.05,
+            "net_edge": -0.07999
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 24.925,
+            "fees": 0.00499,
+            "buffer": 0.05,
+            "net_edge": -0.07999
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.15,
+            "no_cost": 49.9,
+            "fees": 0.00997,
+            "buffer": 0.1,
+            "net_edge": -0.15997
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.1,
+            "no_proceeds": 49.85,
+            "fees": 0.00997,
+            "buffer": 0.1,
+            "net_edge": -0.15997
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x450810ae738a0ff820d3248f2b24937f63fb8c8cf422ed2a915125adb4d9d3c8",
+      "question": "Will Andrew Yang win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.016,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.015,
+            "no_cost": 4.99,
+            "fees": 0.001,
+            "buffer": 0.01,
+            "net_edge": -0.016
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 4.985,
+            "fees": 0.001,
+            "buffer": 0.01,
+            "net_edge": -0.016
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.03,
+            "no_cost": 9.98,
+            "fees": 0.002,
+            "buffer": 0.02,
+            "net_edge": -0.032
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.02,
+            "no_proceeds": 9.97,
+            "fees": 0.002,
+            "buffer": 0.02,
+            "net_edge": -0.032
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.075,
+            "no_cost": 24.95,
+            "fees": 0.00499,
+            "buffer": 0.05,
+            "net_edge": -0.07999
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 24.925,
+            "fees": 0.00499,
+            "buffer": 0.05,
+            "net_edge": -0.07999
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.15,
+            "no_cost": 49.9,
+            "fees": 0.00997,
+            "buffer": 0.1,
+            "net_edge": -0.15997
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.1,
+            "no_proceeds": 49.85,
+            "fees": 0.00997,
+            "buffer": 0.1,
+            "net_edge": -0.15997
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x0f8ef3cc906ba7ba94a44724738df44bdd5f73e59e40c9c8b4ff8569e349643c",
+      "question": "Will Kim Kardashian win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.016,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.015,
+            "no_cost": 4.99,
+            "fees": 0.001,
+            "buffer": 0.01,
+            "net_edge": -0.016
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 4.985,
+            "fees": 0.001,
+            "buffer": 0.01,
+            "net_edge": -0.016
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.03,
+            "no_cost": 9.98,
+            "fees": 0.002,
+            "buffer": 0.02,
+            "net_edge": -0.032
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.02,
+            "no_proceeds": 9.97,
+            "fees": 0.002,
+            "buffer": 0.02,
+            "net_edge": -0.032
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.075,
+            "no_cost": 24.95,
+            "fees": 0.00499,
+            "buffer": 0.05,
+            "net_edge": -0.07999
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 24.925,
+            "fees": 0.00499,
+            "buffer": 0.05,
+            "net_edge": -0.07999
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.15,
+            "no_cost": 49.9,
+            "fees": 0.00997,
+            "buffer": 0.1,
+            "net_edge": -0.15997
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.1,
+            "no_proceeds": 49.85,
+            "fees": 0.00997,
+            "buffer": 0.1,
+            "net_edge": -0.15997
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x7c467744f13d33367f8ef0a34dc8aeb0845de0d1be4f92f7874fc1cd0d36a545",
+      "question": "Will Adam Schiff win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.016,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.015,
+            "no_cost": 4.99,
+            "fees": 0.001,
+            "buffer": 0.01,
+            "net_edge": -0.016
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 4.985,
+            "fees": 0.001,
+            "buffer": 0.01,
+            "net_edge": -0.016
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.03,
+            "no_cost": 9.98,
+            "fees": 0.002,
+            "buffer": 0.02,
+            "net_edge": -0.032
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.02,
+            "no_proceeds": 9.97,
+            "fees": 0.002,
+            "buffer": 0.02,
+            "net_edge": -0.032
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.075,
+            "no_cost": 24.95,
+            "fees": 0.00499,
+            "buffer": 0.05,
+            "net_edge": -0.07999
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 24.925,
+            "fees": 0.00499,
+            "buffer": 0.05,
+            "net_edge": -0.07999
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.15,
+            "no_cost": 49.9,
+            "fees": 0.00997,
+            "buffer": 0.1,
+            "net_edge": -0.15997
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.1,
+            "no_proceeds": 49.85,
+            "fees": 0.00997,
+            "buffer": 0.1,
+            "net_edge": -0.15997
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xcb0aa5d1f9c1a9369859acbd8fceb255ec001224fc25272dc5f0c6a599507bcf",
+      "question": "Will Alex Padilla win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.016,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.015,
+            "no_cost": 4.99,
+            "fees": 0.001,
+            "buffer": 0.01,
+            "net_edge": -0.016
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 4.985,
+            "fees": 0.001,
+            "buffer": 0.01,
+            "net_edge": -0.016
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.03,
+            "no_cost": 9.98,
+            "fees": 0.002,
+            "buffer": 0.02,
+            "net_edge": -0.032
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.02,
+            "no_proceeds": 9.97,
+            "fees": 0.002,
+            "buffer": 0.02,
+            "net_edge": -0.032
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.075,
+            "no_cost": 24.95,
+            "fees": 0.00499,
+            "buffer": 0.05,
+            "net_edge": -0.07999
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 24.925,
+            "fees": 0.00499,
+            "buffer": 0.05,
+            "net_edge": -0.07999
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.15,
+            "no_cost": 49.9,
+            "fees": 0.00997,
+            "buffer": 0.1,
+            "net_edge": -0.15997
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.1,
+            "no_proceeds": 49.85,
+            "fees": 0.00997,
+            "buffer": 0.1,
+            "net_edge": -0.15997
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x66b906b8205f48a26beb8e553bbb1e7954e87e4f6e1d539823441221d1806e8f",
+      "question": "Will Stephen Smith win the 2028 US Presidential Election?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.016,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.015,
+            "no_cost": 4.99,
+            "fees": 0.001,
+            "buffer": 0.01,
+            "net_edge": -0.016
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 4.985,
+            "fees": 0.001,
+            "buffer": 0.01,
+            "net_edge": -0.016
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.03,
+            "no_cost": 9.98,
+            "fees": 0.002,
+            "buffer": 0.02,
+            "net_edge": -0.032
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.02,
+            "no_proceeds": 9.97,
+            "fees": 0.002,
+            "buffer": 0.02,
+            "net_edge": -0.032
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.075,
+            "no_cost": 24.95,
+            "fees": 0.00499,
+            "buffer": 0.05,
+            "net_edge": -0.07999
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 24.925,
+            "fees": 0.00499,
+            "buffer": 0.05,
+            "net_edge": -0.07999
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.15,
+            "no_cost": 49.9,
+            "fees": 0.00997,
+            "buffer": 0.1,
+            "net_edge": -0.15997
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.1,
+            "no_proceeds": 49.85,
+            "fees": 0.00997,
+            "buffer": 0.1,
+            "net_edge": -0.15997
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x836b850fc838195374862551a36f1c8691d96ff01e58b0a071f0fc1a0e357fb1",
+      "question": "Will LeBron James win the 2028 US Presidential Election?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.016,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.015,
+            "no_cost": 4.99,
+            "fees": 0.001,
+            "buffer": 0.01,
+            "net_edge": -0.016
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 4.985,
+            "fees": 0.001,
+            "buffer": 0.01,
+            "net_edge": -0.016
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.03,
+            "no_cost": 9.98,
+            "fees": 0.002,
+            "buffer": 0.02,
+            "net_edge": -0.032
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.02,
+            "no_proceeds": 9.97,
+            "fees": 0.002,
+            "buffer": 0.02,
+            "net_edge": -0.032
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.075,
+            "no_cost": 24.95,
+            "fees": 0.00499,
+            "buffer": 0.05,
+            "net_edge": -0.07999
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 24.925,
+            "fees": 0.00499,
+            "buffer": 0.05,
+            "net_edge": -0.07999
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.15,
+            "no_cost": 49.9,
+            "fees": 0.00997,
+            "buffer": 0.1,
+            "net_edge": -0.15997
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.1,
+            "no_proceeds": 49.85,
+            "fees": 0.00997,
+            "buffer": 0.1,
+            "net_edge": -0.15997
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x7f695758278e6d4d9e63df862afa88d664d3402a3d26e4d32ae05121cdbddba6",
+      "question": "Will Kim Kardashian win the 2028 US Presidential Election?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.016,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.015,
+            "no_cost": 4.99,
+            "fees": 0.001,
+            "buffer": 0.01,
+            "net_edge": -0.016
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 4.985,
+            "fees": 0.001,
+            "buffer": 0.01,
+            "net_edge": -0.016
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.03,
+            "no_cost": 9.98,
+            "fees": 0.002,
+            "buffer": 0.02,
+            "net_edge": -0.032
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.02,
+            "no_proceeds": 9.97,
+            "fees": 0.002,
+            "buffer": 0.02,
+            "net_edge": -0.032
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.075,
+            "no_cost": 24.95,
+            "fees": 0.00499,
+            "buffer": 0.05,
+            "net_edge": -0.07999
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 24.925,
+            "fees": 0.00499,
+            "buffer": 0.05,
+            "net_edge": -0.07999
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.15,
+            "no_cost": 49.9,
+            "fees": 0.00997,
+            "buffer": 0.1,
+            "net_edge": -0.15997
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.1,
+            "no_proceeds": 49.85,
+            "fees": 0.00997,
+            "buffer": 0.1,
+            "net_edge": -0.15997
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xcb239105ed21a2420ba4d85090b9bc32755c56601ffdc528afd17fd6282fe930",
+      "question": "Will Gina Raimondo win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0164,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 4.985,
+            "fees": 0.0014,
+            "buffer": 0.01,
+            "net_edge": -0.0164
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.015,
+            "no_proceeds": 4.98,
+            "fees": 0.0014,
+            "buffer": 0.01,
+            "net_edge": -0.0164
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.04,
+            "no_cost": 9.97,
+            "fees": 0.00279,
+            "buffer": 0.02,
+            "net_edge": -0.03279
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.03,
+            "no_proceeds": 9.96,
+            "fees": 0.00279,
+            "buffer": 0.02,
+            "net_edge": -0.03279
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 24.925,
+            "fees": 0.00697,
+            "buffer": 0.05,
+            "net_edge": -0.08197
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.075,
+            "no_proceeds": 24.9,
+            "fees": 0.00697,
+            "buffer": 0.05,
+            "net_edge": -0.08197
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.2,
+            "no_cost": 49.85,
+            "fees": 0.01395,
+            "buffer": 0.1,
+            "net_edge": -0.16395
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.15,
+            "no_proceeds": 49.8,
+            "fees": 0.01395,
+            "buffer": 0.1,
+            "net_edge": -0.16395
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xca1d1139b0c3a29983407f499476ae642482788e841a277eb86faeeb9fa4a85c",
+      "question": "Will John Fetterman win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0164,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 4.985,
+            "fees": 0.0014,
+            "buffer": 0.01,
+            "net_edge": -0.0164
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.015,
+            "no_proceeds": 4.98,
+            "fees": 0.0014,
+            "buffer": 0.01,
+            "net_edge": -0.0164
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.04,
+            "no_cost": 9.97,
+            "fees": 0.00279,
+            "buffer": 0.02,
+            "net_edge": -0.03279
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.03,
+            "no_proceeds": 9.96,
+            "fees": 0.00279,
+            "buffer": 0.02,
+            "net_edge": -0.03279
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 24.925,
+            "fees": 0.00697,
+            "buffer": 0.05,
+            "net_edge": -0.08197
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.075,
+            "no_proceeds": 24.9,
+            "fees": 0.00697,
+            "buffer": 0.05,
+            "net_edge": -0.08197
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.2,
+            "no_cost": 49.85,
+            "fees": 0.01395,
+            "buffer": 0.1,
+            "net_edge": -0.16395
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.15,
+            "no_proceeds": 49.8,
+            "fees": 0.01395,
+            "buffer": 0.1,
+            "net_edge": -0.16395
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x88d67705780a3d922317ecb0c78a947a306174d0510df2ae89394d5abfb28206",
+      "question": "Will Barack Obama win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0164,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 4.985,
+            "fees": 0.0014,
+            "buffer": 0.01,
+            "net_edge": -0.0164
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.015,
+            "no_proceeds": 4.98,
+            "fees": 0.0014,
+            "buffer": 0.01,
+            "net_edge": -0.0164
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.04,
+            "no_cost": 9.97,
+            "fees": 0.00279,
+            "buffer": 0.02,
+            "net_edge": -0.03279
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.03,
+            "no_proceeds": 9.96,
+            "fees": 0.00279,
+            "buffer": 0.02,
+            "net_edge": -0.03279
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 24.925,
+            "fees": 0.00697,
+            "buffer": 0.05,
+            "net_edge": -0.08197
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.075,
+            "no_proceeds": 24.9,
+            "fees": 0.00697,
+            "buffer": 0.05,
+            "net_edge": -0.08197
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.2,
+            "no_cost": 49.85,
+            "fees": 0.01395,
+            "buffer": 0.1,
+            "net_edge": -0.16395
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.15,
+            "no_proceeds": 49.8,
+            "fees": 0.01395,
+            "buffer": 0.1,
+            "net_edge": -0.16395
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x663b88d3a8f2341bb8d878709dc78632bcaf7512e577bd15521e5d8ed933efbc",
+      "question": "Will Hillary Clinton win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0164,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 4.985,
+            "fees": 0.0014,
+            "buffer": 0.01,
+            "net_edge": -0.0164
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.015,
+            "no_proceeds": 4.98,
+            "fees": 0.0014,
+            "buffer": 0.01,
+            "net_edge": -0.0164
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.04,
+            "no_cost": 9.97,
+            "fees": 0.00279,
+            "buffer": 0.02,
+            "net_edge": -0.03279
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.03,
+            "no_proceeds": 9.96,
+            "fees": 0.00279,
+            "buffer": 0.02,
+            "net_edge": -0.03279
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 24.925,
+            "fees": 0.00697,
+            "buffer": 0.05,
+            "net_edge": -0.08197
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.075,
+            "no_proceeds": 24.9,
+            "fees": 0.00697,
+            "buffer": 0.05,
+            "net_edge": -0.08197
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.2,
+            "no_cost": 49.85,
+            "fees": 0.01395,
+            "buffer": 0.1,
+            "net_edge": -0.16395
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.15,
+            "no_proceeds": 49.8,
+            "fees": 0.01395,
+            "buffer": 0.1,
+            "net_edge": -0.16395
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x46dbd48d6bde5b81edb480e0f676a2cdda6c6b592c4d86a9367c7ad5a9870195",
+      "question": "Will Liz Cheney win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0164,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 4.985,
+            "fees": 0.0014,
+            "buffer": 0.01,
+            "net_edge": -0.0164
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.015,
+            "no_proceeds": 4.98,
+            "fees": 0.0014,
+            "buffer": 0.01,
+            "net_edge": -0.0164
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.04,
+            "no_cost": 9.97,
+            "fees": 0.00279,
+            "buffer": 0.02,
+            "net_edge": -0.03279
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.03,
+            "no_proceeds": 9.96,
+            "fees": 0.00279,
+            "buffer": 0.02,
+            "net_edge": -0.03279
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 24.936,
+            "fees": 0.00653,
+            "buffer": 0.05,
+            "net_edge": -0.09253
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.064,
+            "no_proceeds": 24.9,
+            "fees": 0.00653,
+            "buffer": 0.05,
+            "net_edge": -0.09253
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.2,
+            "no_cost": 49.886,
+            "fees": 0.01251,
+            "buffer": 0.1,
+            "net_edge": -0.19851
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.114,
+            "no_proceeds": 49.8,
+            "fees": 0.01251,
+            "buffer": 0.1,
+            "net_edge": -0.19851
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x29283b56d3eec6d1d89fff51793d9d2e01579d2379b1d3e9ebda175d3561e809",
+      "question": "Will Phil Murphy win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0164,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 4.985,
+            "fees": 0.0014,
+            "buffer": 0.01,
+            "net_edge": -0.0164
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.015,
+            "no_proceeds": 4.98,
+            "fees": 0.0014,
+            "buffer": 0.01,
+            "net_edge": -0.0164
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.04,
+            "no_cost": 9.97,
+            "fees": 0.00279,
+            "buffer": 0.02,
+            "net_edge": -0.03279
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.03,
+            "no_proceeds": 9.96,
+            "fees": 0.00279,
+            "buffer": 0.02,
+            "net_edge": -0.03279
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 24.925,
+            "fees": 0.00697,
+            "buffer": 0.05,
+            "net_edge": -0.08197
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.075,
+            "no_proceeds": 24.9,
+            "fees": 0.00697,
+            "buffer": 0.05,
+            "net_edge": -0.08197
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.2,
+            "no_cost": 49.85,
+            "fees": 0.01395,
+            "buffer": 0.1,
+            "net_edge": -0.16395
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.15,
+            "no_proceeds": 49.8,
+            "fees": 0.01395,
+            "buffer": 0.1,
+            "net_edge": -0.16395
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x822e61527476cabf98927e3aad385c5ecdae7086f945535f2c1fd9ae8dbfa46e",
+      "question": "Will George Clooney win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0164,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 4.985,
+            "fees": 0.0014,
+            "buffer": 0.01,
+            "net_edge": -0.0164
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.015,
+            "no_proceeds": 4.98,
+            "fees": 0.0014,
+            "buffer": 0.01,
+            "net_edge": -0.0164
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.04,
+            "no_cost": 9.97,
+            "fees": 0.00279,
+            "buffer": 0.02,
+            "net_edge": -0.03279
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.03,
+            "no_proceeds": 9.96,
+            "fees": 0.00279,
+            "buffer": 0.02,
+            "net_edge": -0.03279
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 24.925,
+            "fees": 0.00697,
+            "buffer": 0.05,
+            "net_edge": -0.08197
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.075,
+            "no_proceeds": 24.9,
+            "fees": 0.00697,
+            "buffer": 0.05,
+            "net_edge": -0.08197
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.2,
+            "no_cost": 49.85,
+            "fees": 0.01395,
+            "buffer": 0.1,
+            "net_edge": -0.16395
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.15,
+            "no_proceeds": 49.8,
+            "fees": 0.01395,
+            "buffer": 0.1,
+            "net_edge": -0.16395
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x8ecd1d15e521b7d1020ad5596cc981c8764e9dcfbc3648f582e1a5138aee7185",
+      "question": "Will Beto O’Rourke win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0164,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 4.985,
+            "fees": 0.0014,
+            "buffer": 0.01,
+            "net_edge": -0.0164
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.015,
+            "no_proceeds": 4.98,
+            "fees": 0.0014,
+            "buffer": 0.01,
+            "net_edge": -0.0164
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.04,
+            "no_cost": 9.97,
+            "fees": 0.00279,
+            "buffer": 0.02,
+            "net_edge": -0.03279
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.03,
+            "no_proceeds": 9.96,
+            "fees": 0.00279,
+            "buffer": 0.02,
+            "net_edge": -0.03279
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 24.925,
+            "fees": 0.00697,
+            "buffer": 0.05,
+            "net_edge": -0.08197
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.075,
+            "no_proceeds": 24.9,
+            "fees": 0.00697,
+            "buffer": 0.05,
+            "net_edge": -0.08197
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.2,
+            "no_cost": 49.85,
+            "fees": 0.01395,
+            "buffer": 0.1,
+            "net_edge": -0.16395
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.15,
+            "no_proceeds": 49.8,
+            "fees": 0.01395,
+            "buffer": 0.1,
+            "net_edge": -0.16395
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x6685b25cc7c89032efcdf81eb27fdc6bbf04a3e4299bcd99c9f3d62c8471001e",
+      "question": "Will Graham Platner win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0164,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 4.985,
+            "fees": 0.0014,
+            "buffer": 0.01,
+            "net_edge": -0.0164
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.015,
+            "no_proceeds": 4.98,
+            "fees": 0.0014,
+            "buffer": 0.01,
+            "net_edge": -0.0164
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.04,
+            "no_cost": 9.97,
+            "fees": 0.00279,
+            "buffer": 0.02,
+            "net_edge": -0.03279
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.03,
+            "no_proceeds": 9.96,
+            "fees": 0.00279,
+            "buffer": 0.02,
+            "net_edge": -0.03279
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 24.925,
+            "fees": 0.00697,
+            "buffer": 0.05,
+            "net_edge": -0.08197
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.075,
+            "no_proceeds": 24.9,
+            "fees": 0.00697,
+            "buffer": 0.05,
+            "net_edge": -0.08197
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.2,
+            "no_cost": 49.85,
+            "fees": 0.01395,
+            "buffer": 0.1,
+            "net_edge": -0.16395
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.15,
+            "no_proceeds": 49.8,
+            "fees": 0.01395,
+            "buffer": 0.1,
+            "net_edge": -0.16395
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x88c805f8d638bd14c188a67112bc40ae85d5eea4b7370d7586e8f5b8d37da304",
+      "question": "Will Abigail Spanberger win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0164,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 4.985,
+            "fees": 0.0014,
+            "buffer": 0.01,
+            "net_edge": -0.0164
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.015,
+            "no_proceeds": 4.98,
+            "fees": 0.0014,
+            "buffer": 0.01,
+            "net_edge": -0.0164
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.04,
+            "no_cost": 9.97,
+            "fees": 0.00279,
+            "buffer": 0.02,
+            "net_edge": -0.03279
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.03,
+            "no_proceeds": 9.96,
+            "fees": 0.00279,
+            "buffer": 0.02,
+            "net_edge": -0.03279
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 24.925,
+            "fees": 0.00697,
+            "buffer": 0.05,
+            "net_edge": -0.08197
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.075,
+            "no_proceeds": 24.9,
+            "fees": 0.00697,
+            "buffer": 0.05,
+            "net_edge": -0.08197
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.2,
+            "no_cost": 49.85,
+            "fees": 0.01395,
+            "buffer": 0.1,
+            "net_edge": -0.16395
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.15,
+            "no_proceeds": 49.8,
+            "fees": 0.01395,
+            "buffer": 0.1,
+            "net_edge": -0.16395
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x32927476aa07b4ba64858a48799fd5155e0573facb46fdec670134c88b87f696",
+      "question": "Will Hakeem Jeffries win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0164,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 4.985,
+            "fees": 0.0014,
+            "buffer": 0.01,
+            "net_edge": -0.0164
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.015,
+            "no_proceeds": 4.98,
+            "fees": 0.0014,
+            "buffer": 0.01,
+            "net_edge": -0.0164
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.04,
+            "no_cost": 9.97,
+            "fees": 0.00279,
+            "buffer": 0.02,
+            "net_edge": -0.03279
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.03,
+            "no_proceeds": 9.96,
+            "fees": 0.00279,
+            "buffer": 0.02,
+            "net_edge": -0.03279
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 24.933,
+            "fees": 0.00665,
+            "buffer": 0.05,
+            "net_edge": -0.08965
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.067,
+            "no_proceeds": 24.9,
+            "fees": 0.00665,
+            "buffer": 0.05,
+            "net_edge": -0.08965
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.2,
+            "no_cost": 49.883,
+            "fees": 0.01263,
+            "buffer": 0.1,
+            "net_edge": -0.19563
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.117,
+            "no_proceeds": 49.8,
+            "fees": 0.01263,
+            "buffer": 0.1,
+            "net_edge": -0.19563
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x0b4ef8dad7d6d1bc117bf918f09d5d4f99662a0aa375ec9c6a994d1835b3bea9",
+      "question": "Will Josh Stein win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0164,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 4.985,
+            "fees": 0.0014,
+            "buffer": 0.01,
+            "net_edge": -0.0164
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.015,
+            "no_proceeds": 4.98,
+            "fees": 0.0014,
+            "buffer": 0.01,
+            "net_edge": -0.0164
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.04,
+            "no_cost": 9.97,
+            "fees": 0.00279,
+            "buffer": 0.02,
+            "net_edge": -0.03279
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.03,
+            "no_proceeds": 9.96,
+            "fees": 0.00279,
+            "buffer": 0.02,
+            "net_edge": -0.03279
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 24.925,
+            "fees": 0.00697,
+            "buffer": 0.05,
+            "net_edge": -0.08197
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.075,
+            "no_proceeds": 24.9,
+            "fees": 0.00697,
+            "buffer": 0.05,
+            "net_edge": -0.08197
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.2,
+            "no_cost": 49.85,
+            "fees": 0.01395,
+            "buffer": 0.1,
+            "net_edge": -0.16395
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.15,
+            "no_proceeds": 49.8,
+            "fees": 0.01395,
+            "buffer": 0.1,
+            "net_edge": -0.16395
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x64396449b471b10b006285fa49dd9a5df535694de7b4c703fdeb0d88d5c4cd33",
+      "question": "Will Vivek Ramaswamy win the 2028 US Presidential Election?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0164,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 4.985,
+            "fees": 0.0014,
+            "buffer": 0.01,
+            "net_edge": -0.0164
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.015,
+            "no_proceeds": 4.98,
+            "fees": 0.0014,
+            "buffer": 0.01,
+            "net_edge": -0.0164
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.04,
+            "no_cost": 9.97,
+            "fees": 0.00279,
+            "buffer": 0.02,
+            "net_edge": -0.03279
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.03,
+            "no_proceeds": 9.96,
+            "fees": 0.00279,
+            "buffer": 0.02,
+            "net_edge": -0.03279
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 24.925,
+            "fees": 0.00697,
+            "buffer": 0.05,
+            "net_edge": -0.08197
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.075,
+            "no_proceeds": 24.9,
+            "fees": 0.00697,
+            "buffer": 0.05,
+            "net_edge": -0.08197
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.2,
+            "no_cost": 49.85,
+            "fees": 0.01395,
+            "buffer": 0.1,
+            "net_edge": -0.16395
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.15,
+            "no_proceeds": 49.8,
+            "fees": 0.01395,
+            "buffer": 0.1,
+            "net_edge": -0.16395
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xf05b4b55336a4c1c7b44c726911d2b559732cff7bad339084de86ae364dc85f6",
+      "question": "Will Zohran Mamdani win the 2028 US Presidential Election?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0164,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 4.985,
+            "fees": 0.0014,
+            "buffer": 0.01,
+            "net_edge": -0.0164
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.015,
+            "no_proceeds": 4.98,
+            "fees": 0.0014,
+            "buffer": 0.01,
+            "net_edge": -0.0164
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.04,
+            "no_cost": 9.97,
+            "fees": 0.00279,
+            "buffer": 0.02,
+            "net_edge": -0.03279
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.03,
+            "no_proceeds": 9.96,
+            "fees": 0.00279,
+            "buffer": 0.02,
+            "net_edge": -0.03279
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 24.925,
+            "fees": 0.00697,
+            "buffer": 0.05,
+            "net_edge": -0.08197
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.075,
+            "no_proceeds": 24.9,
+            "fees": 0.00697,
+            "buffer": 0.05,
+            "net_edge": -0.08197
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.2,
+            "no_cost": 49.85,
+            "fees": 0.01395,
+            "buffer": 0.1,
+            "net_edge": -0.16395
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.15,
+            "no_proceeds": 49.8,
+            "fees": 0.01395,
+            "buffer": 0.1,
+            "net_edge": -0.16395
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x2d3c4fc5cde6dfb43448402b912e41bd4453e3f030448ed026bff8f1a0bc072e",
+      "question": "Will Eric Trump win the 2028 US Presidential Election?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0164,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 4.985,
+            "fees": 0.0014,
+            "buffer": 0.01,
+            "net_edge": -0.0164
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.015,
+            "no_proceeds": 4.98,
+            "fees": 0.0014,
+            "buffer": 0.01,
+            "net_edge": -0.0164
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.04,
+            "no_cost": 9.97,
+            "fees": 0.00279,
+            "buffer": 0.02,
+            "net_edge": -0.03279
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.03,
+            "no_proceeds": 9.96,
+            "fees": 0.00279,
+            "buffer": 0.02,
+            "net_edge": -0.03279
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 24.925,
+            "fees": 0.00697,
+            "buffer": 0.05,
+            "net_edge": -0.08197
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.075,
+            "no_proceeds": 24.9,
+            "fees": 0.00697,
+            "buffer": 0.05,
+            "net_edge": -0.08197
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.2,
+            "no_cost": 49.85,
+            "fees": 0.01395,
+            "buffer": 0.1,
+            "net_edge": -0.16395
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.15,
+            "no_proceeds": 49.8,
+            "fees": 0.01395,
+            "buffer": 0.1,
+            "net_edge": -0.16395
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x3535fb2f4aef6619dde8b367cb5e5d209526bb496d5d9778428c58a0252435e3",
+      "question": "Will Zohran Mamdani win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0168,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.025,
+            "no_cost": 4.98,
+            "fees": 0.0018,
+            "buffer": 0.01,
+            "net_edge": -0.0168
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.02,
+            "no_proceeds": 4.975,
+            "fees": 0.0018,
+            "buffer": 0.01,
+            "net_edge": -0.0168
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 9.96,
+            "fees": 0.00358,
+            "buffer": 0.02,
+            "net_edge": -0.03358
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.04,
+            "no_proceeds": 9.95,
+            "fees": 0.00358,
+            "buffer": 0.02,
+            "net_edge": -0.03358
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.125,
+            "no_cost": 24.9,
+            "fees": 0.00896,
+            "buffer": 0.05,
+            "net_edge": -0.08396
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.1,
+            "no_proceeds": 24.875,
+            "fees": 0.00896,
+            "buffer": 0.05,
+            "net_edge": -0.08396
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.25,
+            "no_cost": 49.8,
+            "fees": 0.01792,
+            "buffer": 0.1,
+            "net_edge": -0.16792
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.2,
+            "no_proceeds": 49.75,
+            "fees": 0.01792,
+            "buffer": 0.1,
+            "net_edge": -0.16792
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x8b203037c7c0e21b500314f8398d2a8ea294b7ce1f4f9185f426425a3505bc45",
+      "question": "Will LeBron James win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0168,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.025,
+            "no_cost": 4.98,
+            "fees": 0.0018,
+            "buffer": 0.01,
+            "net_edge": -0.0168
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.02,
+            "no_proceeds": 4.975,
+            "fees": 0.0018,
+            "buffer": 0.01,
+            "net_edge": -0.0168
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 9.96,
+            "fees": 0.00358,
+            "buffer": 0.02,
+            "net_edge": -0.03358
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.04,
+            "no_proceeds": 9.95,
+            "fees": 0.00358,
+            "buffer": 0.02,
+            "net_edge": -0.03358
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.125,
+            "no_cost": 24.9,
+            "fees": 0.00896,
+            "buffer": 0.05,
+            "net_edge": -0.08396
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.1,
+            "no_proceeds": 24.875,
+            "fees": 0.00896,
+            "buffer": 0.05,
+            "net_edge": -0.08396
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.25,
+            "no_cost": 49.8,
+            "fees": 0.01792,
+            "buffer": 0.1,
+            "net_edge": -0.16792
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.2,
+            "no_proceeds": 49.75,
+            "fees": 0.01792,
+            "buffer": 0.1,
+            "net_edge": -0.16792
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xe06a7e94cf2fa8dc2085b7610fe16e9be1cde6654f34d365c13da1149b276c61",
+      "question": "Will Oprah Winfrey win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0168,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.025,
+            "no_cost": 4.98,
+            "fees": 0.0018,
+            "buffer": 0.01,
+            "net_edge": -0.0168
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.02,
+            "no_proceeds": 4.975,
+            "fees": 0.0018,
+            "buffer": 0.01,
+            "net_edge": -0.0168
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 9.96,
+            "fees": 0.00358,
+            "buffer": 0.02,
+            "net_edge": -0.03358
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.04,
+            "no_proceeds": 9.95,
+            "fees": 0.00358,
+            "buffer": 0.02,
+            "net_edge": -0.03358
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.125,
+            "no_cost": 24.9,
+            "fees": 0.00896,
+            "buffer": 0.05,
+            "net_edge": -0.08396
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.1,
+            "no_proceeds": 24.875,
+            "fees": 0.00896,
+            "buffer": 0.05,
+            "net_edge": -0.08396
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.25,
+            "no_cost": 49.8,
+            "fees": 0.01792,
+            "buffer": 0.1,
+            "net_edge": -0.16792
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.2,
+            "no_proceeds": 49.75,
+            "fees": 0.01792,
+            "buffer": 0.1,
+            "net_edge": -0.16792
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x98933c78b5e277b62d91a6c174b412218de000b54c4c67ec8673bf561cec6e81",
+      "question": "Will Ruben Gallego win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0168,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.025,
+            "no_cost": 4.98,
+            "fees": 0.0018,
+            "buffer": 0.01,
+            "net_edge": -0.0168
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.02,
+            "no_proceeds": 4.975,
+            "fees": 0.0018,
+            "buffer": 0.01,
+            "net_edge": -0.0168
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 9.96,
+            "fees": 0.00358,
+            "buffer": 0.02,
+            "net_edge": -0.03358
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.04,
+            "no_proceeds": 9.95,
+            "fees": 0.00358,
+            "buffer": 0.02,
+            "net_edge": -0.03358
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.125,
+            "no_cost": 24.9,
+            "fees": 0.00896,
+            "buffer": 0.05,
+            "net_edge": -0.08396
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.1,
+            "no_proceeds": 24.875,
+            "fees": 0.00896,
+            "buffer": 0.05,
+            "net_edge": -0.08396
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.25,
+            "no_cost": 49.8,
+            "fees": 0.01792,
+            "buffer": 0.1,
+            "net_edge": -0.16792
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.2,
+            "no_proceeds": 49.75,
+            "fees": 0.01792,
+            "buffer": 0.1,
+            "net_edge": -0.16792
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xe50c71cc5e2372bf0f6194a02e51459dd03b2c7b2d78a0d4650e5f36c425338b",
+      "question": "Will Elissa Slotkin win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0168,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.025,
+            "no_cost": 4.98,
+            "fees": 0.0018,
+            "buffer": 0.01,
+            "net_edge": -0.0168
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.02,
+            "no_proceeds": 4.975,
+            "fees": 0.0018,
+            "buffer": 0.01,
+            "net_edge": -0.0168
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 9.96,
+            "fees": 0.00358,
+            "buffer": 0.02,
+            "net_edge": -0.03358
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.04,
+            "no_proceeds": 9.95,
+            "fees": 0.00358,
+            "buffer": 0.02,
+            "net_edge": -0.03358
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.125,
+            "no_cost": 24.9,
+            "fees": 0.00896,
+            "buffer": 0.05,
+            "net_edge": -0.08396
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.1,
+            "no_proceeds": 24.875,
+            "fees": 0.00896,
+            "buffer": 0.05,
+            "net_edge": -0.08396
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.25,
+            "no_cost": 49.8,
+            "fees": 0.01792,
+            "buffer": 0.1,
+            "net_edge": -0.16792
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.2,
+            "no_proceeds": 49.75,
+            "fees": 0.01792,
+            "buffer": 0.1,
+            "net_edge": -0.16792
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xc586d15be76278848a26c761c2fcf70f8cebca71815cfab83e656ff5c6ec13a9",
+      "question": "Will Ivanka Trump win the 2028 US Presidential Election?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0168,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.025,
+            "no_cost": 4.98,
+            "fees": 0.0018,
+            "buffer": 0.01,
+            "net_edge": -0.0168
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.02,
+            "no_proceeds": 4.975,
+            "fees": 0.0018,
+            "buffer": 0.01,
+            "net_edge": -0.0168
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 9.96,
+            "fees": 0.00358,
+            "buffer": 0.02,
+            "net_edge": -0.03358
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.04,
+            "no_proceeds": 9.95,
+            "fees": 0.00358,
+            "buffer": 0.02,
+            "net_edge": -0.03358
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.125,
+            "no_cost": 24.9,
+            "fees": 0.00896,
+            "buffer": 0.05,
+            "net_edge": -0.08396
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.1,
+            "no_proceeds": 24.875,
+            "fees": 0.00896,
+            "buffer": 0.05,
+            "net_edge": -0.08396
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.25,
+            "no_cost": 49.8,
+            "fees": 0.01792,
+            "buffer": 0.1,
+            "net_edge": -0.16792
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.2,
+            "no_proceeds": 49.75,
+            "fees": 0.01792,
+            "buffer": 0.1,
+            "net_edge": -0.16792
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x1970bcce75e3674660917ae4685b433a9b1e0152d810a8d7c346dfd5e00694c2",
+      "question": "Will Cory Booker win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.01719,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.03,
+            "no_cost": 4.975,
+            "fees": 0.00219,
+            "buffer": 0.01,
+            "net_edge": -0.01719
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 4.97,
+            "fees": 0.00219,
+            "buffer": 0.01,
+            "net_edge": -0.01719
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.06,
+            "no_cost": 9.95,
+            "fees": 0.00438,
+            "buffer": 0.02,
+            "net_edge": -0.03438
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 9.94,
+            "fees": 0.00438,
+            "buffer": 0.02,
+            "net_edge": -0.03438
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.15,
+            "no_cost": 24.875,
+            "fees": 0.01094,
+            "buffer": 0.05,
+            "net_edge": -0.08594
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.125,
+            "no_proceeds": 24.85,
+            "fees": 0.01094,
+            "buffer": 0.05,
+            "net_edge": -0.08594
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.3,
+            "no_cost": 49.75,
+            "fees": 0.02188,
+            "buffer": 0.1,
+            "net_edge": -0.17188
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.25,
+            "no_proceeds": 49.7,
+            "fees": 0.02188,
+            "buffer": 0.1,
+            "net_edge": -0.17188
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x1945a8b23e313ed7423b6b6fd556f9ab5578900376b565a61dc480a5f4f35d21",
+      "question": "Will Hunter Biden win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.01719,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.03,
+            "no_cost": 4.975,
+            "fees": 0.00219,
+            "buffer": 0.01,
+            "net_edge": -0.01719
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 4.97,
+            "fees": 0.00219,
+            "buffer": 0.01,
+            "net_edge": -0.01719
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.06,
+            "no_cost": 9.95,
+            "fees": 0.00438,
+            "buffer": 0.02,
+            "net_edge": -0.03438
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 9.94,
+            "fees": 0.00438,
+            "buffer": 0.02,
+            "net_edge": -0.03438
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.15,
+            "no_cost": 24.875,
+            "fees": 0.01094,
+            "buffer": 0.05,
+            "net_edge": -0.08594
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.125,
+            "no_proceeds": 24.85,
+            "fees": 0.01094,
+            "buffer": 0.05,
+            "net_edge": -0.08594
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.3,
+            "no_cost": 49.75,
+            "fees": 0.02188,
+            "buffer": 0.1,
+            "net_edge": -0.17188
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.25,
+            "no_proceeds": 49.7,
+            "fees": 0.02188,
+            "buffer": 0.1,
+            "net_edge": -0.17188
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xc720fcfa9e29346a976902f87e0f0f3bdc31d43af501b4fdef4f1780a30dd359",
+      "question": "Will Chris Murphy win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.01719,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.03,
+            "no_cost": 4.975,
+            "fees": 0.00219,
+            "buffer": 0.01,
+            "net_edge": -0.01719
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 4.97,
+            "fees": 0.00219,
+            "buffer": 0.01,
+            "net_edge": -0.01719
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.06,
+            "no_cost": 9.95,
+            "fees": 0.00438,
+            "buffer": 0.02,
+            "net_edge": -0.03438
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 9.94,
+            "fees": 0.00438,
+            "buffer": 0.02,
+            "net_edge": -0.03438
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.15,
+            "no_cost": 24.875,
+            "fees": 0.01094,
+            "buffer": 0.05,
+            "net_edge": -0.08594
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.125,
+            "no_proceeds": 24.85,
+            "fees": 0.01094,
+            "buffer": 0.05,
+            "net_edge": -0.08594
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.3,
+            "no_cost": 49.75,
+            "fees": 0.02188,
+            "buffer": 0.1,
+            "net_edge": -0.17188
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.25,
+            "no_proceeds": 49.7,
+            "fees": 0.02188,
+            "buffer": 0.1,
+            "net_edge": -0.17188
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xefe6300fd8a053cca53df8f1bd536c5f571a136392c0516e7b16e39f1addecb0",
+      "question": "Will JB Pritzker win the 2028 US Presidential Election?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.01719,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.03,
+            "no_cost": 4.975,
+            "fees": 0.00219,
+            "buffer": 0.01,
+            "net_edge": -0.01719
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 4.97,
+            "fees": 0.00219,
+            "buffer": 0.01,
+            "net_edge": -0.01719
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.06,
+            "no_cost": 9.95,
+            "fees": 0.00438,
+            "buffer": 0.02,
+            "net_edge": -0.03438
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 9.94,
+            "fees": 0.00438,
+            "buffer": 0.02,
+            "net_edge": -0.03438
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.15,
+            "no_cost": 24.875,
+            "fees": 0.01094,
+            "buffer": 0.05,
+            "net_edge": -0.08594
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.125,
+            "no_proceeds": 24.85,
+            "fees": 0.01094,
+            "buffer": 0.05,
+            "net_edge": -0.08594
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.3,
+            "no_cost": 49.75,
+            "fees": 0.02188,
+            "buffer": 0.1,
+            "net_edge": -0.17188
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.25,
+            "no_proceeds": 49.7,
+            "fees": 0.02188,
+            "buffer": 0.1,
+            "net_edge": -0.17188
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xe0173375b7eaccb836f7b92d28a9a2d1cc69e54e5a65fae89a5d7e49aadd332e",
+      "question": "Will Nikki Haley win the 2028 US Presidential Election?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.01719,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.03,
+            "no_cost": 4.975,
+            "fees": 0.00219,
+            "buffer": 0.01,
+            "net_edge": -0.01719
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 4.97,
+            "fees": 0.00219,
+            "buffer": 0.01,
+            "net_edge": -0.01719
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.06,
+            "no_cost": 9.95,
+            "fees": 0.00438,
+            "buffer": 0.02,
+            "net_edge": -0.03438
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 9.94,
+            "fees": 0.00438,
+            "buffer": 0.02,
+            "net_edge": -0.03438
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.15,
+            "no_cost": 24.875,
+            "fees": 0.01094,
+            "buffer": 0.05,
+            "net_edge": -0.08594
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.125,
+            "no_proceeds": 24.85,
+            "fees": 0.01094,
+            "buffer": 0.05,
+            "net_edge": -0.08594
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.3,
+            "no_cost": 49.75,
+            "fees": 0.02188,
+            "buffer": 0.1,
+            "net_edge": -0.17188
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.25,
+            "no_proceeds": 49.7,
+            "fees": 0.02188,
+            "buffer": 0.1,
+            "net_edge": -0.17188
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xc8f1cf5d4f26e0fd9c8fe89f2a7b3263b902cf14fde7bfccef525753bb492e47",
+      "question": "Will Stephen A. Smith win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.01758,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.035,
+            "no_cost": 4.97,
+            "fees": 0.00258,
+            "buffer": 0.01,
+            "net_edge": -0.01758
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.03,
+            "no_proceeds": 4.965,
+            "fees": 0.00258,
+            "buffer": 0.01,
+            "net_edge": -0.01758
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.07,
+            "no_cost": 9.94,
+            "fees": 0.00517,
+            "buffer": 0.02,
+            "net_edge": -0.03517
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.06,
+            "no_proceeds": 9.93,
+            "fees": 0.00517,
+            "buffer": 0.02,
+            "net_edge": -0.03517
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.175,
+            "no_cost": 24.85,
+            "fees": 0.01291,
+            "buffer": 0.05,
+            "net_edge": -0.08791
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.15,
+            "no_proceeds": 24.825,
+            "fees": 0.01291,
+            "buffer": 0.05,
+            "net_edge": -0.08791
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.35,
+            "no_cost": 49.7,
+            "fees": 0.02583,
+            "buffer": 0.1,
+            "net_edge": -0.17583
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.3,
+            "no_proceeds": 49.65,
+            "fees": 0.02583,
+            "buffer": 0.1,
+            "net_edge": -0.17583
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x9d4f94f82de9d13ff1d3318639ab9000ee2533949e525343156f374fb00bd9b1",
+      "question": "Will Mark Cuban win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.01758,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.035,
+            "no_cost": 4.97,
+            "fees": 0.00258,
+            "buffer": 0.01,
+            "net_edge": -0.01758
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.03,
+            "no_proceeds": 4.965,
+            "fees": 0.00258,
+            "buffer": 0.01,
+            "net_edge": -0.01758
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.07,
+            "no_cost": 9.94,
+            "fees": 0.00517,
+            "buffer": 0.02,
+            "net_edge": -0.03517
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.06,
+            "no_proceeds": 9.93,
+            "fees": 0.00517,
+            "buffer": 0.02,
+            "net_edge": -0.03517
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.175,
+            "no_cost": 24.85,
+            "fees": 0.01291,
+            "buffer": 0.05,
+            "net_edge": -0.08791
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.15,
+            "no_proceeds": 24.825,
+            "fees": 0.01291,
+            "buffer": 0.05,
+            "net_edge": -0.08791
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.35,
+            "no_cost": 49.7,
+            "fees": 0.02583,
+            "buffer": 0.1,
+            "net_edge": -0.17583
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.3,
+            "no_proceeds": 49.65,
+            "fees": 0.02583,
+            "buffer": 0.1,
+            "net_edge": -0.17583
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xdce84960dce38aa4a5800a5eba7c9ac34d2ce49ba9d44c42572c472d468af264",
+      "question": "Will Raphael Warnock win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.01758,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.035,
+            "no_cost": 4.97,
+            "fees": 0.00258,
+            "buffer": 0.01,
+            "net_edge": -0.01758
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.03,
+            "no_proceeds": 4.965,
+            "fees": 0.00258,
+            "buffer": 0.01,
+            "net_edge": -0.01758
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.07,
+            "no_cost": 9.94,
+            "fees": 0.00517,
+            "buffer": 0.02,
+            "net_edge": -0.03517
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.06,
+            "no_proceeds": 9.93,
+            "fees": 0.00517,
+            "buffer": 0.02,
+            "net_edge": -0.03517
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.175,
+            "no_cost": 24.85,
+            "fees": 0.01291,
+            "buffer": 0.05,
+            "net_edge": -0.08791
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.15,
+            "no_proceeds": 24.825,
+            "fees": 0.01291,
+            "buffer": 0.05,
+            "net_edge": -0.08791
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.35,
+            "no_cost": 49.7,
+            "fees": 0.02583,
+            "buffer": 0.1,
+            "net_edge": -0.17583
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.3,
+            "no_proceeds": 49.65,
+            "fees": 0.02583,
+            "buffer": 0.1,
+            "net_edge": -0.17583
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x939eeb2dea216749bd409bedde483c3f2bfb0e24d4f2d34461c0b21c6e91f010",
+      "question": "Will Roy Cooper win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.01758,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.035,
+            "no_cost": 4.97,
+            "fees": 0.00258,
+            "buffer": 0.01,
+            "net_edge": -0.01758
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.03,
+            "no_proceeds": 4.965,
+            "fees": 0.00258,
+            "buffer": 0.01,
+            "net_edge": -0.01758
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.07,
+            "no_cost": 9.94,
+            "fees": 0.00517,
+            "buffer": 0.02,
+            "net_edge": -0.03517
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.06,
+            "no_proceeds": 9.93,
+            "fees": 0.00517,
+            "buffer": 0.02,
+            "net_edge": -0.03517
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.175,
+            "no_cost": 24.85,
+            "fees": 0.01291,
+            "buffer": 0.05,
+            "net_edge": -0.08791
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.15,
+            "no_proceeds": 24.825,
+            "fees": 0.01291,
+            "buffer": 0.05,
+            "net_edge": -0.08791
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.35,
+            "no_cost": 49.7,
+            "fees": 0.02583,
+            "buffer": 0.1,
+            "net_edge": -0.17583
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.3,
+            "no_proceeds": 49.65,
+            "fees": 0.02583,
+            "buffer": 0.1,
+            "net_edge": -0.17583
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x30cfb887558b20373a984da60c372fe5a90c0296aa6d8bb413a8aa7543846da2",
+      "question": "Will Bernie Sanders win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.01758,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.035,
+            "no_cost": 4.97,
+            "fees": 0.00258,
+            "buffer": 0.01,
+            "net_edge": -0.01758
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.03,
+            "no_proceeds": 4.965,
+            "fees": 0.00258,
+            "buffer": 0.01,
+            "net_edge": -0.01758
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.07,
+            "no_cost": 9.94,
+            "fees": 0.00517,
+            "buffer": 0.02,
+            "net_edge": -0.03517
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.06,
+            "no_proceeds": 9.93,
+            "fees": 0.00517,
+            "buffer": 0.02,
+            "net_edge": -0.03517
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.175,
+            "no_cost": 24.85,
+            "fees": 0.01291,
+            "buffer": 0.05,
+            "net_edge": -0.08791
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.15,
+            "no_proceeds": 24.825,
+            "fees": 0.01291,
+            "buffer": 0.05,
+            "net_edge": -0.08791
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.35,
+            "no_cost": 49.7,
+            "fees": 0.02583,
+            "buffer": 0.1,
+            "net_edge": -0.17583
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.3,
+            "no_proceeds": 49.65,
+            "fees": 0.02583,
+            "buffer": 0.1,
+            "net_edge": -0.17583
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x3cd6e52603d80ddbbdac9b1a4d43f9b7faa6aae4fae4d0fdfad3bd58454da7d3",
+      "question": "Will Jasmine Crockett win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.01758,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.035,
+            "no_cost": 4.97,
+            "fees": 0.00258,
+            "buffer": 0.01,
+            "net_edge": -0.01758
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.03,
+            "no_proceeds": 4.965,
+            "fees": 0.00258,
+            "buffer": 0.01,
+            "net_edge": -0.01758
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.07,
+            "no_cost": 9.94,
+            "fees": 0.00517,
+            "buffer": 0.02,
+            "net_edge": -0.03517
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.06,
+            "no_proceeds": 9.93,
+            "fees": 0.00517,
+            "buffer": 0.02,
+            "net_edge": -0.03517
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.175,
+            "no_cost": 24.85,
+            "fees": 0.01291,
+            "buffer": 0.05,
+            "net_edge": -0.08791
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.15,
+            "no_proceeds": 24.825,
+            "fees": 0.01291,
+            "buffer": 0.05,
+            "net_edge": -0.08791
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.35,
+            "no_cost": 49.7,
+            "fees": 0.02583,
+            "buffer": 0.1,
+            "net_edge": -0.17583
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.3,
+            "no_proceeds": 49.65,
+            "fees": 0.02583,
+            "buffer": 0.1,
+            "net_edge": -0.17583
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xc4435df23facee8c4cd86090310c7835c2a0425646b2588b0a02e67fa42f444e",
+      "question": "Will Glenn Youngkin win the 2028 US Presidential Election?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.01758,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.035,
+            "no_cost": 4.97,
+            "fees": 0.00258,
+            "buffer": 0.01,
+            "net_edge": -0.01758
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.03,
+            "no_proceeds": 4.965,
+            "fees": 0.00258,
+            "buffer": 0.01,
+            "net_edge": -0.01758
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.07,
+            "no_cost": 9.94,
+            "fees": 0.00517,
+            "buffer": 0.02,
+            "net_edge": -0.03517
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.06,
+            "no_proceeds": 9.93,
+            "fees": 0.00517,
+            "buffer": 0.02,
+            "net_edge": -0.03517
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.175,
+            "no_cost": 24.85,
+            "fees": 0.01291,
+            "buffer": 0.05,
+            "net_edge": -0.08791
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.15,
+            "no_proceeds": 24.825,
+            "fees": 0.01291,
+            "buffer": 0.05,
+            "net_edge": -0.08791
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.35,
+            "no_cost": 49.7,
+            "fees": 0.02583,
+            "buffer": 0.1,
+            "net_edge": -0.17583
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.3,
+            "no_proceeds": 49.65,
+            "fees": 0.02583,
+            "buffer": 0.1,
+            "net_edge": -0.17583
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x8fc141205ebce5adf437bfdf4d0c5ff58ff24293b79c9431991346c208bb48ed",
+      "question": "Will Tulsi Gabbard win the 2028 US Presidential Election?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.01758,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.035,
+            "no_cost": 4.97,
+            "fees": 0.00258,
+            "buffer": 0.01,
+            "net_edge": -0.01758
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.03,
+            "no_proceeds": 4.965,
+            "fees": 0.00258,
+            "buffer": 0.01,
+            "net_edge": -0.01758
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.07,
+            "no_cost": 9.94,
+            "fees": 0.00517,
+            "buffer": 0.02,
+            "net_edge": -0.03517
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.06,
+            "no_proceeds": 9.93,
+            "fees": 0.00517,
+            "buffer": 0.02,
+            "net_edge": -0.03517
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.175,
+            "no_cost": 24.85,
+            "fees": 0.01291,
+            "buffer": 0.05,
+            "net_edge": -0.08791
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.15,
+            "no_proceeds": 24.825,
+            "fees": 0.01291,
+            "buffer": 0.05,
+            "net_edge": -0.08791
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.35,
+            "no_cost": 49.7,
+            "fees": 0.02583,
+            "buffer": 0.1,
+            "net_edge": -0.17583
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.3,
+            "no_proceeds": 49.65,
+            "fees": 0.02583,
+            "buffer": 0.1,
+            "net_edge": -0.17583
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x68e3c4e0dd8f82d010060032006fd157401b0bd8e04bd2953ae293e31eb99bf6",
+      "question": "Will Elon Musk win the 2028 US Presidential Election?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.01758,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.035,
+            "no_cost": 4.97,
+            "fees": 0.00258,
+            "buffer": 0.01,
+            "net_edge": -0.01758
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.03,
+            "no_proceeds": 4.965,
+            "fees": 0.00258,
+            "buffer": 0.01,
+            "net_edge": -0.01758
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.07,
+            "no_cost": 9.94,
+            "fees": 0.00517,
+            "buffer": 0.02,
+            "net_edge": -0.03517
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.06,
+            "no_proceeds": 9.93,
+            "fees": 0.00517,
+            "buffer": 0.02,
+            "net_edge": -0.03517
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.175,
+            "no_cost": 24.85,
+            "fees": 0.01291,
+            "buffer": 0.05,
+            "net_edge": -0.08791
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.15,
+            "no_proceeds": 24.825,
+            "fees": 0.01291,
+            "buffer": 0.05,
+            "net_edge": -0.08791
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.35,
+            "no_cost": 49.7,
+            "fees": 0.02583,
+            "buffer": 0.1,
+            "net_edge": -0.17583
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.3,
+            "no_proceeds": 49.65,
+            "fees": 0.02583,
+            "buffer": 0.1,
+            "net_edge": -0.17583
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xbbbece074c2d4010e39e39c85ed67b1131180fcea616073c893fb6beaf51d783",
+      "question": "Will Michelle Obama win the 2028 US Presidential Election?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.01758,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.035,
+            "no_cost": 4.97,
+            "fees": 0.00258,
+            "buffer": 0.01,
+            "net_edge": -0.01758
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.03,
+            "no_proceeds": 4.965,
+            "fees": 0.00258,
+            "buffer": 0.01,
+            "net_edge": -0.01758
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.07,
+            "no_cost": 9.94,
+            "fees": 0.00517,
+            "buffer": 0.02,
+            "net_edge": -0.03517
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.06,
+            "no_proceeds": 9.93,
+            "fees": 0.00517,
+            "buffer": 0.02,
+            "net_edge": -0.03517
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.175,
+            "no_cost": 24.85,
+            "fees": 0.01291,
+            "buffer": 0.05,
+            "net_edge": -0.08791
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.15,
+            "no_proceeds": 24.825,
+            "fees": 0.01291,
+            "buffer": 0.05,
+            "net_edge": -0.08791
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.35,
+            "no_cost": 49.7,
+            "fees": 0.02583,
+            "buffer": 0.1,
+            "net_edge": -0.17583
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.3,
+            "no_proceeds": 49.65,
+            "fees": 0.02583,
+            "buffer": 0.1,
+            "net_edge": -0.17583
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xa9549c44687993a9a154347c6907092341459b927efaa3f2b49009ca2c4e40a1",
+      "question": "Will Jamie Dimon win the 2028 US Presidential Election?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.01758,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.035,
+            "no_cost": 4.97,
+            "fees": 0.00258,
+            "buffer": 0.01,
+            "net_edge": -0.01758
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.03,
+            "no_proceeds": 4.965,
+            "fees": 0.00258,
+            "buffer": 0.01,
+            "net_edge": -0.01758
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.07,
+            "no_cost": 9.94,
+            "fees": 0.00517,
+            "buffer": 0.02,
+            "net_edge": -0.03517
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.06,
+            "no_proceeds": 9.93,
+            "fees": 0.00517,
+            "buffer": 0.02,
+            "net_edge": -0.03517
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.175,
+            "no_cost": 24.85,
+            "fees": 0.01291,
+            "buffer": 0.05,
+            "net_edge": -0.08791
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.15,
+            "no_proceeds": 24.825,
+            "fees": 0.01291,
+            "buffer": 0.05,
+            "net_edge": -0.08791
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.35,
+            "no_cost": 49.7,
+            "fees": 0.02583,
+            "buffer": 0.1,
+            "net_edge": -0.17583
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.3,
+            "no_proceeds": 49.65,
+            "fees": 0.02583,
+            "buffer": 0.1,
+            "net_edge": -0.17583
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x9eb7ac1524fdacb46ceb8758454f0004c7b117eae76e6295852643644bb862c1",
+      "question": "Will James Talarico win the 2028 US Presidential Election?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.01758,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.035,
+            "no_cost": 4.97,
+            "fees": 0.00258,
+            "buffer": 0.01,
+            "net_edge": -0.01758
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.03,
+            "no_proceeds": 4.965,
+            "fees": 0.00258,
+            "buffer": 0.01,
+            "net_edge": -0.01758
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.07,
+            "no_cost": 9.94,
+            "fees": 0.00517,
+            "buffer": 0.02,
+            "net_edge": -0.03517
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.06,
+            "no_proceeds": 9.93,
+            "fees": 0.00517,
+            "buffer": 0.02,
+            "net_edge": -0.03517
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.175,
+            "no_cost": 24.85,
+            "fees": 0.01291,
+            "buffer": 0.05,
+            "net_edge": -0.08791
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.15,
+            "no_proceeds": 24.825,
+            "fees": 0.01291,
+            "buffer": 0.05,
+            "net_edge": -0.08791
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.35,
+            "no_cost": 49.7,
+            "fees": 0.02583,
+            "buffer": 0.1,
+            "net_edge": -0.17583
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.3,
+            "no_proceeds": 49.65,
+            "fees": 0.02583,
+            "buffer": 0.1,
+            "net_edge": -0.17583
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xf2e51acfbb6d0414dc2ace81b7dc2af7c165e443dcb91f6caa7aab6d6ab4f06d",
+      "question": "Will Chelsea Clinton win the 2028 Democratic presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.01837,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.045,
+            "no_cost": 4.96,
+            "fees": 0.00337,
+            "buffer": 0.01,
+            "net_edge": -0.01837
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.04,
+            "no_proceeds": 4.955,
+            "fees": 0.00337,
+            "buffer": 0.01,
+            "net_edge": -0.01837
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.09,
+            "no_cost": 9.92,
+            "fees": 0.00674,
+            "buffer": 0.02,
+            "net_edge": -0.03674
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.08,
+            "no_proceeds": 9.91,
+            "fees": 0.00674,
+            "buffer": 0.02,
+            "net_edge": -0.03674
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.225,
+            "no_cost": 24.8,
+            "fees": 0.01686,
+            "buffer": 0.05,
+            "net_edge": -0.09186
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.2,
+            "no_proceeds": 24.775,
+            "fees": 0.01686,
+            "buffer": 0.05,
+            "net_edge": -0.09186
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.45,
+            "no_cost": 49.6,
+            "fees": 0.03371,
+            "buffer": 0.1,
+            "net_edge": -0.18371
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.4,
+            "no_proceeds": 49.55,
+            "fees": 0.03371,
+            "buffer": 0.1,
+            "net_edge": -0.18371
+          }
+        }
+      ]
+    }
+  ],
+  "warnings": [
+    "Two CLOB legs are non-atomic even when both are FOK.",
+    "A positive snapshot is only an observed opportunity, not a fill.",
+    "The execution buffer is a scenario and must be replaced by measured latency.",
+    "No order was submitted and no credential was read."
+  ]
+}

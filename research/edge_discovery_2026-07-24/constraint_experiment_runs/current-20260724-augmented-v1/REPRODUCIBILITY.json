@@ -1,0 +1,8 @@
+{
+  "command_shape": "python scripts/run_constraint_experiment.py --config <config> --output-root <new-directory> --run-id current-20260724-augmented-v1 [--proxy <loopback-http-url>]",
+  "config_sha256": "c09b6defccd9b8717048d7e322be29dd62c8e09ea35b19a314c2b58adfa0dd88",
+  "economic_boundary": "snapshot screening only; no atomic-fill, finality, or settlement claim",
+  "network_boundary": "public Gamma/CLOB HTTPS GET only; no authenticated routes",
+  "run_id": "current-20260724-augmented-v1",
+  "schema_version": "edge-lab-constraint-experiment-config.v1"
+}

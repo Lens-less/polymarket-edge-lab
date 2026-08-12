@@ -1,0 +1,30 @@
+[
+  {
+    "asset": "11866110555495951633661793493234198760714743866421175130577619510964118146114",
+    "avgPrice": 0.3588,
+    "cashPnl": -106374.4579,
+    "conditionId": "0x1f54c5d06e9e7a7a11ed24123ab5743ba5b525745cf1338b7ec23d371e6f55ea",
+    "curPrice": 0,
+    "currentValue": 0,
+    "endDate": "2026-07-01",
+    "eventId": "643861",
+    "eventSlug": "fifwc-mex-ecu-2026-06-30",
+    "icon": "https://polymarket-upload.s3.us-east-2.amazonaws.com/soccer ball-bba4025f77.png",
+    "initialValue": 106374.4579,
+    "mergeable": false,
+    "negativeRisk": true,
+    "oppositeAsset": "43985168130182870755247732543601334469951988015446982760628774484167514869810",
+    "oppositeOutcome": "No",
+    "outcome": "Yes",
+    "outcomeIndex": 0,
+    "percentPnl": -99.9999,
+    "percentRealizedPnl": -100,
+    "proxyWallet": "0x095fbca2e0eaf0c9841005135427e1e0117190b2",
+    "realizedPnl": 0,
+    "redeemable": true,
+    "size": 296416.6712,
+    "slug": "fifwc-mex-ecu-2026-06-30-draw",
+    "title": "Will Mexico vs. Ecuador end in a draw?",
+    "totalBought": 296416.6712
+  }
+]

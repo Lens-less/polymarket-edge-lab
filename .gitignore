@@ -39,3 +39,21 @@ logs/
 # Handoffs (optional - include if you want to track session history)
 # thoughts/
 autoresearch-results.tsv
+
+# Runtime captures and service state
+#
+# These append-only public-data captures are large (tens of GB), contain live
+# writer-owned partials, and are verified through the compact manifests kept
+# under research/. They belong in external/object storage, not normal Git.
+/data/
+
+# Reproducible acquisition cache. The immutable run manifest and experiment
+# outputs remain tracked; individual Gamma cache responses can exceed GitHub's
+# regular 100 MiB file limit.
+/research/edge_discovery_2026-07-24/weather_public_run/cache/
+
+# Large, reproducible constraint scan rows and cached source responses. Keep
+# each run's config, summary, graphs, source manifest, and reproducibility
+# metadata in Git.
+/research/edge_discovery_2026-07-24/constraint_experiment_runs/**/candidates.jsonl
+/research/edge_discovery_2026-07-24/constraint_experiment_runs/**/raw/

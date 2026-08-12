@@ -1,0 +1,236 @@
+{
+  "analyses": [
+    {
+      "analysis_id": "standard-neg-risk-buy-all-yes",
+      "bundles": [
+        {
+          "candidate_id": "buy-all-yes-depth",
+          "family": "weather-buy-all-yes",
+          "legs": [
+            {"node_id": "weather-bin-00", "outcome": "YES", "side": "BUY", "units": "1"},
+            {"node_id": "weather-bin-01", "outcome": "YES", "side": "BUY", "units": "1"},
+            {"node_id": "weather-bin-02", "outcome": "YES", "side": "BUY", "units": "1"},
+            {"node_id": "weather-bin-03", "outcome": "YES", "side": "BUY", "units": "1"},
+            {"node_id": "weather-bin-04", "outcome": "YES", "side": "BUY", "units": "1"},
+            {"node_id": "weather-bin-05", "outcome": "YES", "side": "BUY", "units": "1"},
+            {"node_id": "weather-bin-06", "outcome": "YES", "side": "BUY", "units": "1"},
+            {"node_id": "weather-bin-07", "outcome": "YES", "side": "BUY", "units": "1"},
+            {"node_id": "weather-bin-08", "outcome": "YES", "side": "BUY", "units": "1"},
+            {"node_id": "weather-bin-09", "outcome": "YES", "side": "BUY", "units": "1"},
+            {"node_id": "weather-bin-10", "outcome": "YES", "side": "BUY", "units": "1"}
+          ]
+        }
+      ],
+      "conversions": [
+        {
+          "candidate_id": "convert-first-no-diagnostic",
+          "quantities": ["5"],
+          "selected_node_ids": ["weather-bin-00"]
+        }
+      ],
+      "mode": "standard_neg_risk",
+      "neg_risk_provenance": {}
+    },
+    {
+      "analysis_id": "cross-market-logic-buy-all-yes",
+      "bundles": [
+        {
+          "candidate_id": "logic-buy-all-yes-depth",
+          "family": "weather-cross-market-exactly-one",
+          "legs": [
+            {"node_id": "weather-bin-00", "outcome": "YES", "side": "BUY", "units": "1"},
+            {"node_id": "weather-bin-01", "outcome": "YES", "side": "BUY", "units": "1"},
+            {"node_id": "weather-bin-02", "outcome": "YES", "side": "BUY", "units": "1"},
+            {"node_id": "weather-bin-03", "outcome": "YES", "side": "BUY", "units": "1"},
+            {"node_id": "weather-bin-04", "outcome": "YES", "side": "BUY", "units": "1"},
+            {"node_id": "weather-bin-05", "outcome": "YES", "side": "BUY", "units": "1"},
+            {"node_id": "weather-bin-06", "outcome": "YES", "side": "BUY", "units": "1"},
+            {"node_id": "weather-bin-07", "outcome": "YES", "side": "BUY", "units": "1"},
+            {"node_id": "weather-bin-08", "outcome": "YES", "side": "BUY", "units": "1"},
+            {"node_id": "weather-bin-09", "outcome": "YES", "side": "BUY", "units": "1"},
+            {"node_id": "weather-bin-10", "outcome": "YES", "side": "BUY", "units": "1"}
+          ]
+        }
+      ],
+      "conversions": [],
+      "mode": "logic",
+      "neg_risk_provenance": {}
+    }
+  ],
+  "constraints": [
+    {
+      "constraint_id": "weather-exactly-one-range",
+      "evidence": [
+        "constraint-claim:weather-exactly-one-range:sha256:a501a1ff6549d5c26a12cc93d1cb38a8d5cfe38e28e1113472730a5ff6bce435",
+        "gamma-event:741266:market-set-sha256:fd521566eeee927c5feac4fb764101318e9e5d44f9900d3b026ae4b2d8129fd2"
+      ],
+      "kind": "exactly_one",
+      "node_ids": [
+        "weather-bin-00",
+        "weather-bin-01",
+        "weather-bin-02",
+        "weather-bin-03",
+        "weather-bin-04",
+        "weather-bin-05",
+        "weather-bin-06",
+        "weather-bin-07",
+        "weather-bin-08",
+        "weather-bin-09",
+        "weather-bin-10"
+      ],
+      "verified": true
+    }
+  ],
+  "event": {
+    "event_id": "741266",
+    "expected_augmented_neg_risk": false,
+    "expected_market_ids": [
+      "3074120",
+      "3074121",
+      "3074122",
+      "3074123",
+      "3074124",
+      "3074125",
+      "3074126",
+      "3074127",
+      "3074128",
+      "3074129",
+      "3074130"
+    ],
+    "expected_neg_risk": true,
+    "require_active": true,
+    "require_open": true
+  },
+  "experiment_id": "weather-nyc-2026-07-25-standard-neg-risk",
+  "markets": [
+    {
+      "condition_id": "0xf5c1ad6b533e31b7156c48d12276744433a7dd1829938850a73717cea9d53821",
+      "market_id": "3074120",
+      "no_token_id": "17984242239730438865135655538589475203118151844342180615256685234465965850727",
+      "node_id": "weather-bin-00",
+      "question_sha256": "7d93ce5c5ddc753e8bede62ab184a752338e6ccc5e06c7f7793eecced35fda97",
+      "resolution_source_sha256": "36ba15659cacf4ab4f577c8d76edce2b93dc399775205a3c5345797a731b032b",
+      "role": "named",
+      "rules_sha256": "04ceb97e43bccadbef79bc8b72dd144af3bc093335b34fab2dfa3f7bc8601f4c",
+      "yes_token_id": "34600602296599885071917717676988207363957952958012665255891266571657806817559"
+    },
+    {
+      "condition_id": "0x37b4e66ed76a1ae459bf10d847a67f8b177df9e948837bb216db7f0ddeeb0a8f",
+      "market_id": "3074121",
+      "no_token_id": "9589024508471284927421067800380793227060508852978748836190721804896525288035",
+      "node_id": "weather-bin-01",
+      "question_sha256": "22e1f461240f16c8f1abfceeb9b013a309380b68c2cd1858f8ec68aa82fbdc54",
+      "resolution_source_sha256": "36ba15659cacf4ab4f577c8d76edce2b93dc399775205a3c5345797a731b032b",
+      "role": "named",
+      "rules_sha256": "04ceb97e43bccadbef79bc8b72dd144af3bc093335b34fab2dfa3f7bc8601f4c",
+      "yes_token_id": "108872501708701256232360833975340759490903762166970350300622728710669503400981"
+    },
+    {
+      "condition_id": "0x7dfcb186ea5222309816d212c280cfe57df6a299d7e840a57513af736efcb380",
+      "market_id": "3074122",
+      "no_token_id": "64960047344419948449373964361309511405083649947247398874004033894218146956779",
+      "node_id": "weather-bin-02",
+      "question_sha256": "3243115a14dd37a2fbce8edec9872f013ccdcd9a4c00d1db6b31683b3c460e20",
+      "resolution_source_sha256": "36ba15659cacf4ab4f577c8d76edce2b93dc399775205a3c5345797a731b032b",
+      "role": "named",
+      "rules_sha256": "04ceb97e43bccadbef79bc8b72dd144af3bc093335b34fab2dfa3f7bc8601f4c",
+      "yes_token_id": "99519376569262038288079272550839094868134216507114640443225424234014353307505"
+    },
+    {
+      "condition_id": "0x4ece6ea8e71e48e1a06bc1f3afae28b8cf1f4c02da84e063e897ee2934579fb7",
+      "market_id": "3074123",
+      "no_token_id": "42849131213114758080260198350962549519803211945339841540212854265574993410571",
+      "node_id": "weather-bin-03",
+      "question_sha256": "30b6beb09d7a15403b2a44b4b45ad4b8d31bfbebf7c01b051fba7eb8951ca5a0",
+      "resolution_source_sha256": "36ba15659cacf4ab4f577c8d76edce2b93dc399775205a3c5345797a731b032b",
+      "role": "named",
+      "rules_sha256": "04ceb97e43bccadbef79bc8b72dd144af3bc093335b34fab2dfa3f7bc8601f4c",
+      "yes_token_id": "54181442874099068684888188755958127023688250733698219741890813802447465352698"
+    },
+    {
+      "condition_id": "0x4f7bb99fa88e37cd204323612dca2423ccee7c140d19f44093d4d1adcf27fdf7",
+      "market_id": "3074124",
+      "no_token_id": "95847249919904294072471178171035539617409558482780426832770341014371538661232",
+      "node_id": "weather-bin-04",
+      "question_sha256": "99e892f8a9d555614cd321910914d265f5b9e77b2bcfe9ca0d27d256d1d21232",
+      "resolution_source_sha256": "36ba15659cacf4ab4f577c8d76edce2b93dc399775205a3c5345797a731b032b",
+      "role": "named",
+      "rules_sha256": "04ceb97e43bccadbef79bc8b72dd144af3bc093335b34fab2dfa3f7bc8601f4c",
+      "yes_token_id": "1923518016398999518136007811889921567129080908852989072953967143136020177408"
+    },
+    {
+      "condition_id": "0x840d10a687b9d904f0bf0438cc1e3efde9c136d3910237ea962cb6ae5dab7b15",
+      "market_id": "3074125",
+      "no_token_id": "5208301978342706314195836880942783576414604650566111363417976413678173657852",
+      "node_id": "weather-bin-05",
+      "question_sha256": "7d0323c6a7f373e957a4ed591e54861084255b6192ef243a136cc79349509b3d",
+      "resolution_source_sha256": "36ba15659cacf4ab4f577c8d76edce2b93dc399775205a3c5345797a731b032b",
+      "role": "named",
+      "rules_sha256": "04ceb97e43bccadbef79bc8b72dd144af3bc093335b34fab2dfa3f7bc8601f4c",
+      "yes_token_id": "49378428368928623117745857824232787959873693975148273856505045380423982178451"
+    },
+    {
+      "condition_id": "0x4f38d51fa4a5a6ee7bef3839663f1ba6781f805620a00656a1ac78971ff65f94",
+      "market_id": "3074126",
+      "no_token_id": "44664371028109261969095768944878691828121031685263777021740408906309606948679",
+      "node_id": "weather-bin-06",
+      "question_sha256": "3ff09c5539795bb50858b36da5b307ab8c57c10e5d81bcef39739fd7d50d1ac9",
+      "resolution_source_sha256": "36ba15659cacf4ab4f577c8d76edce2b93dc399775205a3c5345797a731b032b",
+      "role": "named",
+      "rules_sha256": "04ceb97e43bccadbef79bc8b72dd144af3bc093335b34fab2dfa3f7bc8601f4c",
+      "yes_token_id": "60846176734025071834155023520866063850736009438184221594765130197435585627848"
+    },
+    {
+      "condition_id": "0xd34d11638850161b49d343af579b355a91a40625a1cb324b89da0ec34316ce0d",
+      "market_id": "3074127",
+      "no_token_id": "23304427590407806052073703058430344447294483314513948492296568658168726366081",
+      "node_id": "weather-bin-07",
+      "question_sha256": "a3d2516df83e026350cf5e147f8824037d3ef7b148f582dc339895968be7baf1",
+      "resolution_source_sha256": "36ba15659cacf4ab4f577c8d76edce2b93dc399775205a3c5345797a731b032b",
+      "role": "named",
+      "rules_sha256": "04ceb97e43bccadbef79bc8b72dd144af3bc093335b34fab2dfa3f7bc8601f4c",
+      "yes_token_id": "72412292208263882620567760335223208281592684887840447866591915373071557986157"
+    },
+    {
+      "condition_id": "0x8c323abb1ede2f2619000d6a23ac35b5168d91d791d7f66b1ca85c76e0067cb2",
+      "market_id": "3074128",
+      "no_token_id": "21528271602641370669107334886285049226470476823971040418410401833791672433390",
+      "node_id": "weather-bin-08",
+      "question_sha256": "0ca349125704903e4a00dbea98d61f2856cc0172a74ea4471955141de051a71c",
+      "resolution_source_sha256": "36ba15659cacf4ab4f577c8d76edce2b93dc399775205a3c5345797a731b032b",
+      "role": "named",
+      "rules_sha256": "04ceb97e43bccadbef79bc8b72dd144af3bc093335b34fab2dfa3f7bc8601f4c",
+      "yes_token_id": "99984412512137939403884906462112387899264398613764835397028075776778837165349"
+    },
+    {
+      "condition_id": "0x9c381c628d4d7f50c84fe33ed2e6034c9e95a38fe2bbaf0839e0045ed6ebb00a",
+      "market_id": "3074129",
+      "no_token_id": "54242839679678573772031723750101159478558866523031929268633860829634800562410",
+      "node_id": "weather-bin-09",
+      "question_sha256": "889ff9ed18ed1b21bbefd48e0a0a08c592d6e6d9e73f40b54c6482915c4a1dfe",
+      "resolution_source_sha256": "36ba15659cacf4ab4f577c8d76edce2b93dc399775205a3c5345797a731b032b",
+      "role": "named",
+      "rules_sha256": "04ceb97e43bccadbef79bc8b72dd144af3bc093335b34fab2dfa3f7bc8601f4c",
+      "yes_token_id": "65498980163493839080617380002950766616985632732897237936946030803559673024127"
+    },
+    {
+      "condition_id": "0x529e20dbcafea98019b83fb73d95438060842c1755b5da85f84dd470bcf4b6e7",
+      "market_id": "3074130",
+      "no_token_id": "59690684605978199241259738837409754535439173706362879570036366520913988351920",
+      "node_id": "weather-bin-10",
+      "question_sha256": "10485bc9f494e1eab280c6739af01e444b6f41ddd1c57e9ffe42963044e236c9",
+      "resolution_source_sha256": "36ba15659cacf4ab4f577c8d76edce2b93dc399775205a3c5345797a731b032b",
+      "role": "named",
+      "rules_sha256": "04ceb97e43bccadbef79bc8b72dd144af3bc093335b34fab2dfa3f7bc8601f4c",
+      "yes_token_id": "8751464955595067927363468221457794220960058706401173909132456942616242167659"
+    }
+  ],
+  "policy": {
+    "gas": "0.10",
+    "latency_buffer": "0.10",
+    "max_book_age_ms": 30000,
+    "max_book_rtt_ms": 3000,
+    "max_book_skew_ms": 30000
+  },
+  "schema_version": "edge-lab-constraint-experiment-config.v2"
+}

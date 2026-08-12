@@ -1,0 +1,57 @@
+[
+  {
+    "address": "0xa31441e058492bc7cfffda9aa7623c407ae83a81",
+    "error": "HTTPError: HTTP Error 429: Too Many Requests",
+    "scope": "hl_clearinghouse_state"
+  },
+  {
+    "address": "0x3dc908374e11623d8eb9f07dfc7a2e5e803a54b0",
+    "error": "HTTPError: HTTP Error 429: Too Many Requests",
+    "scope": "hl_clearinghouse_state"
+  },
+  {
+    "address": "0x3dc908374e11623d8eb9f07dfc7a2e5e803a54b0",
+    "error": "HTTPError: HTTP Error 429: Too Many Requests",
+    "scope": "hl_user_fills"
+  },
+  {
+    "address": "0x091159a8106b077c13e89bc09701117e8b5f129a",
+    "error": "HTTPError: HTTP Error 429: Too Many Requests",
+    "scope": "hl_clearinghouse_state"
+  },
+  {
+    "address": "0x091159a8106b077c13e89bc09701117e8b5f129a",
+    "error": "HTTPError: HTTP Error 429: Too Many Requests",
+    "scope": "hl_user_fills"
+  },
+  {
+    "address": "0xb798aef79972ce8f73d47b9ebbcda6bbb7ec4fbf",
+    "error": "HTTPError: HTTP Error 429: Too Many Requests",
+    "scope": "hl_clearinghouse_state"
+  },
+  {
+    "address": "0xb798aef79972ce8f73d47b9ebbcda6bbb7ec4fbf",
+    "error": "HTTPError: HTTP Error 429: Too Many Requests",
+    "scope": "hl_user_fills"
+  },
+  {
+    "address": "0xefd3ab65915e35105caa462442c9ecc1346728df",
+    "error": "HTTPError: HTTP Error 429: Too Many Requests",
+    "scope": "hl_clearinghouse_state"
+  },
+  {
+    "address": "0xefd3ab65915e35105caa462442c9ecc1346728df",
+    "error": "HTTPError: HTTP Error 429: Too Many Requests",
+    "scope": "hl_user_fills"
+  },
+  {
+    "address": "0x9cd0a696c7cbb9d44de99268194cb08e5684e5fe",
+    "error": "HTTPError: HTTP Error 429: Too Many Requests",
+    "scope": "hl_clearinghouse_state"
+  },
+  {
+    "address": "0x9cd0a696c7cbb9d44de99268194cb08e5684e5fe",
+    "error": "HTTPError: HTTP Error 429: Too Many Requests",
+    "scope": "hl_user_fills"
+  }
+]

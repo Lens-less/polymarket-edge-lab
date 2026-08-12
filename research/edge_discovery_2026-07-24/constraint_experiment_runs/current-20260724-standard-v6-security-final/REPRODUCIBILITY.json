@@ -1,0 +1,34 @@
+{
+  "artifact_sha256": {
+    "candidates.jsonl": "f5ec6551da598a4f16fddbf44c19b96f63d571549209992c50f8a6cfa24c24f6",
+    "config.snapshot.json": "08c93a15e606c01e3553838b2ecfb8f4fa3e14213cd6471a26a409135be17ca2",
+    "graphs.json": "049043db7ad93d2abaa0a3e79acf58eb4e6b6d43f27db244829faa1c332ffc7c",
+    "source_manifest.json": "5664b3c2f66509b2c844328fb016b0b22d925a034a1cd200d8943dfb092f4ccf",
+    "summary.json": "5b93edb71a57d2360dc53269012cca5e7e759fec6a9cc149d3d99be2f74c270f"
+  },
+  "command_shape": "python scripts/run_constraint_experiment.py --config <config> --output-root <new-directory> --run-id current-20260724-standard-v6-security-final [--proxy <loopback-http-url>]",
+  "config_sha256": "b1a12985dc2f943781f734630aaab2ab8e12629ea8dc7ac139c7454ff8459286",
+  "economic_boundary": "snapshot screening only; no atomic-fill, finality, or settlement claim",
+  "implementation_provenance": {
+    "byteorder": "little",
+    "file_sha256": {
+      "scripts/run_constraint_experiment.py": "cd8c76342f8ee594d94b7729112886787d99b21ba906b15ea8304fa42d07bde2",
+      "src/edge_lab/compatibility.py": "8945c207603d176cc0d21de2448e63bf315c6626ded32b2727efe47ec7ec06a3",
+      "src/edge_lab/constraint_experiment.py": "09df82ba3955f59420023aff9dc4b2029ffd849b66bf020dfdbe178a3712236d",
+      "src/edge_lab/constraints.py": "4e881c5df880283a9eebec7f74cbd4d3370b59f1fd88d17350bf41df979f3b10",
+      "src/edge_lab/models.py": "dc88dea62f12307bb97904c4f9b89c933596ac66bf25cb2022033b369be6e511",
+      "src/edge_lab/network_safety.py": "f22f783b784b3bc27ca6f206f17f914194b3fe21ae72f2ed7d3f9b9cacaa5946",
+      "src/edge_lab/sources.py": "36d413a517ee95c06a274ccdf5bedd6d6eff4ae5bc2af080a9dc38ff1c959966"
+    },
+    "python_implementation": "CPython",
+    "python_version": "3.12.13",
+    "requests_version": "2.34.2",
+    "schema_version": "edge-lab-implementation-provenance.v1"
+  },
+  "network_boundary": "public Gamma/CLOB HTTPS GET only; no authenticated routes",
+  "network_used": true,
+  "offline_replay_command_shape": "python scripts/run_constraint_experiment.py --config <source-run>/config.snapshot.json --replay-source-run <source-run> --replay-source-repro-sha256 <trusted-sha256> --output-root <new-directory> --run-id <new-unique-run-id>",
+  "replay_lineage": null,
+  "run_id": "current-20260724-standard-v6-security-final",
+  "schema_version": "edge-lab-constraint-experiment-config.v2"
+}

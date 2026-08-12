@@ -209,9 +209,23 @@ def place_order(
     Raises:
         OrderError: If validation fails or order rejected
     """
+    # Pure local validation still runs first so callers receive the normal
+    # domain errors without touching credentials or the network.
+    if price <= Decimal("0") or price >= Decimal("1"):
+        raise OrderError(f"Price must be between 0 and 1, got {price}")
+    validate_size(size)
+
+    if not DRY_RUN:
+        # CLOB V2 became mandatory in production on 2026-04-28.  This
+        # repository's existing adapter still uses the archived V1 SDK, so fail
+        # closed before any credential, balance, or signing path is touched.
+        # Cancellation remains available as a best-effort recovery path.
+        from src.edge_lab.compatibility import assert_new_orders_disabled
+
+        assert_new_orders_disabled()
+
     # Validate
     price = validate_price(price, token_id)
-    validate_size(size)
     check_position_limit(token_id, side, size)
     if side == OrderSide.BUY:
         check_balance_for_order(price, size)  # SAFETY: Verify collateral balance

@@ -1,0 +1,90 @@
+{
+  "candidate": {
+    "condition_id": "0x17d443efcce8fbbd3f445eeb531c76efe38f600e599191f1dd0ac4cbdc97fbf4",
+    "question": "Will the lowest temperature in Shanghai be 28°C on July 26?",
+    "yes_token_id": "66901597204139633474652419678478676800491780058681033117635820595476445591771",
+    "no_token_id": "21639837734904290295667397480778566474183856209549685788105931333509212140811",
+    "daily_reward": 34.0,
+    "reward_min_size": 20.0,
+    "reward_max_spread_cents": 4.5,
+    "reported_competitiveness": 0.0,
+    "end_date": "2026-07-26T12:00:00Z",
+    "seconds_delay": 0,
+    "tick_size": 0.01,
+    "min_order_size": 5.0,
+    "neg_risk": true,
+    "tags": [
+      "Weather",
+      "Recurring",
+      "Hide From New",
+      "Shanghai",
+      "Daily Temperature",
+      "Lowest temperature"
+    ],
+    "volume_24h": 44.297296,
+    "liquidity": 758.0249,
+    "displayed_spread": 0.16,
+    "fee_schedule": {
+      "rate": 0.05,
+      "exponent": 1.0,
+      "taker_only": true,
+      "rebate_rate": 0.25
+    }
+  },
+  "book": {
+    "yes_best_bid": 0.22,
+    "yes_best_ask": 0.38,
+    "no_best_bid": 0.62,
+    "no_best_ask": 0.78,
+    "yes_depth_levels": 23,
+    "no_depth_levels": 23
+  },
+  "economics": {
+    "quote": {
+      "yes_bid": 0.27,
+      "no_bid": 0.67,
+      "size": 20.0,
+      "reference_yes_mid": 0.3,
+      "distance_cents": 3.0,
+      "capital": 18.8
+    },
+    "paired_fill": {
+      "margin_per_share": 0.06,
+      "margin": 1.2
+    },
+    "one_leg_hedges": {
+      "yes_fills_first": {
+        "complete": true,
+        "filled_size": 20.0,
+        "average_hedge_price": 0.8,
+        "taker_fee": 0.16,
+        "merge_pnl": -1.56
+      },
+      "no_fills_first": {
+        "complete": true,
+        "filled_size": 20.0,
+        "average_hedge_price": 0.479,
+        "taker_fee": 0.24956,
+        "merge_pnl": -3.22956
+      },
+      "stress_ticks": 2,
+      "worst_completed_pnl": -3.22956,
+      "worst_loss": 3.22956,
+      "required_paired_fills_per_single_fill": 2.6913
+    },
+    "liquidity_reward_scenario": {
+      "own_yes_score": 2.2222222222222223,
+      "own_no_score": 2.2222222222222223,
+      "own_q_min": 2.2222222222222223,
+      "visible_competition_proxy": {
+        "yes_side": 0.0,
+        "no_side": 0.0,
+        "q_min_proxy": 0.0
+      },
+      "competition_multiplier": 3.0,
+      "static_share": 1.0,
+      "daily_reward_if_static": 34.0,
+      "warning": "Scenario only: public books omit maker identity and future competition; reward is sampled and not guaranteed."
+    }
+  }
+}

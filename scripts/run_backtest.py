@@ -183,6 +183,13 @@ def main():
 
     args = parser.parse_args()
 
+    print(
+        "WARNING: legacy diagnostic only. The mock path is synthetic and the "
+        "example strategy deliberately crosses the spread to force fills; its "
+        "Sharpe/return must not be used as profitability evidence.",
+        file=sys.stderr,
+    )
+
     # Determine data source
     if args.mock:
         print(f"Generating mock data: {args.snapshots} snapshots...")

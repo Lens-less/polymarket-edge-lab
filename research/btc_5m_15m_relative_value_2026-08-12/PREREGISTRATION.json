@@ -1,0 +1,74 @@
+{
+  "schema_version": "btc-5m-15m-relative-value-preregistration.v1",
+  "frozen_at": "2026-08-12T09:52:04Z",
+  "strategy_spec": {
+    "path": "/Users/lens/Downloads/polymarket_btc_5m_15m_volatility_relative_value_paper_strategy.md",
+    "sha256": "706abcfd725b3411db2e6c74073553721db8d1d201f36e3b62d8a253b10b53b4"
+  },
+  "repository_head": "7384299ec7f33c86c0f37d58f594dacdb59cdd5d",
+  "scope": {
+    "asset": "BTC",
+    "horizons": ["5m", "15m"],
+    "pair_rule": "same_expiry_only",
+    "settlement_regime": "chainlink_twap_30s_5m_and_60s_15m",
+    "paper_only": true,
+    "live_orders_disabled": true
+  },
+  "frozen_strategy": {
+    "tau_min_seconds": 45,
+    "tau_max_seconds": 240,
+    "max_spread_each_leg": "0.03",
+    "max_chainlink_staleness_ms": 1500,
+    "max_book_staleness_ms": 750,
+    "max_clock_drift_ms": 100,
+    "forward_vol_method": "ewma_regime",
+    "distribution_method": "standardized_residual_bootstrap",
+    "monte_carlo_paths": 20000,
+    "calibration": "isotonic_train_only",
+    "execution_mode": "conservative_taker",
+    "taker_delay_ms_when_itode": 250,
+    "max_leg_delay_ms": 750,
+    "minimum_net_expected_pnl_per_pair": "0.015",
+    "uncertainty_multiplier": "1.25",
+    "pair_risk_usdc": "25",
+    "primary_exit": "hold_to_settlement"
+  },
+  "split_policy": {
+    "method": "chronological_walk_forward",
+    "shuffle": false,
+    "train_days": 5,
+    "validation_days": 1,
+    "test_days": 1,
+    "parameters_selected_on": "train_and_validation_only",
+    "test_is_locked": true
+  },
+  "promotion_gates": {
+    "minimum_resolved_markets": 2000,
+    "minimum_simulated_trades": 500,
+    "minimum_explainable_fills": 500,
+    "phase0_market_coverage_minimum": "0.995",
+    "unknown_resolution_mapping_count": 0,
+    "oos_brier_must_beat_market_probability": true,
+    "oos_expected_calibration_error_maximum": "0.05",
+    "oos_net_pnl_must_be_positive": true,
+    "bootstrap_confidence": "0.95",
+    "bootstrap_mean_net_pnl_lower_bound_must_exceed": "0",
+    "maximum_single_event_pnl_share": "0.20",
+    "fees_depth_delay_partial_fills_and_legging_required": true,
+    "direction_exposure_must_be_below_single_leg": true,
+    "signal_strength_net_ev_monotonicity_required": true
+  },
+  "classification": [
+    "validated_profitable",
+    "promising_not_validated",
+    "insufficient_data",
+    "rejected"
+  ],
+  "fail_closed": [
+    "No midpoint fills.",
+    "No old settlement regime mixed into scoring.",
+    "No missing fee, delay, depth, Chainlink boundary, or settlement value is imputed.",
+    "No live orders, credentials, signing, authenticated endpoint, or chain write.",
+    "Tests passing is not profitability evidence."
+  ]
+}

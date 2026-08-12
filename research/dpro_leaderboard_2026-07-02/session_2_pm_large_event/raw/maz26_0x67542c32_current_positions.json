@@ -1,0 +1,30 @@
+[
+  {
+    "asset": "38360977878076822550112952904850300542743817271403962305807057357925378533274",
+    "avgPrice": 0.5171,
+    "cashPnl": -256956.0625,
+    "conditionId": "0xab186f403a2260444ccc536fce775670e1a851d8ceff6b7fff3f5f3d240ba412",
+    "curPrice": 0,
+    "currentValue": 0,
+    "endDate": "2026-07-02",
+    "eventId": "640447",
+    "eventSlug": "fifwc-usa-bih-2026-07-01-more-markets",
+    "icon": "https://polymarket-upload.s3.us-east-2.amazonaws.com/soccer ball-bba4025f77.png",
+    "initialValue": 256956.0625,
+    "mergeable": false,
+    "negativeRisk": false,
+    "oppositeAsset": "58928083379586687546313037980189051468005007749671917254111043647303299821864",
+    "oppositeOutcome": "United States",
+    "outcome": "Bosnia and Herzegovina",
+    "outcomeIndex": 1,
+    "percentPnl": -99.9999,
+    "percentRealizedPnl": -100,
+    "proxyWallet": "0x67542c3219b37fd1610aad290676ff91cdbfe3bc",
+    "realizedPnl": 0,
+    "redeemable": true,
+    "size": 496870.4619,
+    "slug": "fifwc-usa-bih-2026-07-01-spread-home-1pt5",
+    "title": "Spread: United States (-1.5)",
+    "totalBought": 496870.4619
+  }
+]

@@ -1,6 +1,7 @@
 py-clob-client
 python-dotenv
 websockets
+python-socks[asyncio]
 pandas
 pytest
 pytest-asyncio

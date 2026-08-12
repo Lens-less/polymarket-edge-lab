@@ -1,0 +1,216 @@
+{
+  "candidate": {
+    "condition_id": "0xb74cb4e8fade8482cf47bfe716c7af7568dcea790b2a19cbc874de422df4f45f",
+    "question": "Will the highest temperature in Singapore be 28°C on July 26?",
+    "yes_token_id": "4563986153909234408942783434085072712085784241341748207512713582597784578290",
+    "no_token_id": "86201619305935123306817826188680178563916545281646070819564392535291199719658",
+    "daily_reward": 10.0,
+    "reward_min_size": 20.0,
+    "reward_max_spread_cents": 4.5,
+    "reported_competitiveness": 0.251112,
+    "end_date": "2026-07-26T12:00:00Z",
+    "seconds_delay": 0,
+    "tick_size": 0.01,
+    "min_order_size": 5.0,
+    "neg_risk": true,
+    "tags": [
+      "Weather",
+      "singapore",
+      "Recurring",
+      "Hide From New",
+      "Daily Temperature",
+      "Highest temperature"
+    ],
+    "volume_24h": 798.6127180000001,
+    "liquidity": 1322.6789,
+    "displayed_spread": 0.07,
+    "fee_schedule": {
+      "rate": 0.05,
+      "exponent": 1.0,
+      "taker_only": true,
+      "rebate_rate": 0.25
+    }
+  },
+  "book": {
+    "yes_best_bid": 0.1,
+    "yes_best_ask": 0.16,
+    "no_best_bid": 0.84,
+    "no_best_ask": 0.9,
+    "yes_depth_levels": 42,
+    "no_depth_levels": 42
+  },
+  "economics": {
+    "quote": {
+      "yes_bid": 0.1,
+      "no_bid": 0.84,
+      "size": 20.0,
+      "reference_yes_mid": 0.13,
+      "distance_cents": 3.0,
+      "capital": 18.8
+    },
+    "paired_fill": {
+      "margin_per_share": 0.06,
+      "margin": 1.2
+    },
+    "one_leg_hedges": {
+      "yes_fills_first": {
+        "complete": true,
+        "filled_size": 20.0,
+        "average_hedge_price": 0.92,
+        "taker_fee": 0.0736,
+        "merge_pnl": -0.4736
+      },
+      "no_fills_first": {
+        "complete": true,
+        "filled_size": 20.0,
+        "average_hedge_price": 0.18,
+        "taker_fee": 0.1476,
+        "merge_pnl": -0.5476
+      },
+      "stress_ticks": 2,
+      "worst_completed_pnl": -0.5476,
+      "worst_loss": 0.5476,
+      "required_paired_fills_per_single_fill": 0.4563333333333333
+    },
+    "liquidity_reward_scenario": {
+      "own_yes_score": 2.2222222222222223,
+      "own_no_score": 2.2222222222222223,
+      "own_q_min": 2.2222222222222223,
+      "visible_competition_proxy": {
+        "yes_side": 8.325555555555555,
+        "no_side": 2.2222222222222223,
+        "q_min_proxy": 2.775185185185185
+      },
+      "competition_multiplier": 3.0,
+      "static_share": 0.21068155482987463,
+      "daily_reward_if_static": 2.1068155482987465,
+      "warning": "Scenario only: public books omit maker identity and future competition; reward is sampled and not guaranteed."
+    },
+    "paired_asks": {
+      "quote": {
+        "yes_ask": 0.16,
+        "no_ask": 0.9,
+        "size": 20.0,
+        "reference_yes_mid": 0.13,
+        "distance_cents": 3.0,
+        "capital_for_split_inventory": 20.0
+      },
+      "paired_fill": {
+        "margin_per_share": 0.06,
+        "margin": 1.2
+      },
+      "one_leg_hedges": {
+        "yes_sells_first": {
+          "complete": true,
+          "filled_size": 20.0,
+          "average_hedge_price": 0.82,
+          "taker_fee": 0.1476,
+          "complete_set_pnl": -0.5476
+        },
+        "no_sells_first": {
+          "complete": true,
+          "filled_size": 20.0,
+          "average_hedge_price": 0.08,
+          "taker_fee": 0.0736,
+          "complete_set_pnl": -0.4736
+        },
+        "stress_ticks": 2,
+        "worst_completed_pnl": -0.5476,
+        "worst_loss": 0.5476,
+        "required_paired_fills_per_single_fill": 0.4563333333333333
+      },
+      "liquidity_reward_scenario": {
+        "own_yes_score": 2.2222222222222223,
+        "own_no_score": 2.2222222222222223,
+        "own_q_min": 2.2222222222222223,
+        "visible_competition_proxy": {
+          "yes_side": 8.325555555555555,
+          "no_side": 2.2222222222222223,
+          "q_min_proxy": 2.775185185185185
+        },
+        "competition_multiplier": 3.0,
+        "static_share": 0.21068155482987463,
+        "daily_reward_if_static": 2.1068155482987465,
+        "warning": "Scenario only: public books omit maker identity and future competition; reward is sampled and not guaranteed."
+      }
+    },
+    "taker_complete_sets": [
+      {
+        "size": 5.0,
+        "buy_both": {
+          "executable": true,
+          "yes_cost": 0.8,
+          "no_cost": 4.5,
+          "fees": 0.0561,
+          "buffer": 0.01,
+          "net_edge": -0.3661
+        },
+        "sell_both_from_split_inventory": {
+          "executable": true,
+          "yes_proceeds": 0.5,
+          "no_proceeds": 4.2,
+          "fees": 0.0561,
+          "buffer": 0.01,
+          "net_edge": -0.3661
+        }
+      },
+      {
+        "size": 10.0,
+        "buy_both": {
+          "executable": true,
+          "yes_cost": 1.6,
+          "no_cost": 9.0,
+          "fees": 0.1122,
+          "buffer": 0.02,
+          "net_edge": -0.7322
+        },
+        "sell_both_from_split_inventory": {
+          "executable": true,
+          "yes_proceeds": 1.0,
+          "no_proceeds": 8.4,
+          "fees": 0.1122,
+          "buffer": 0.02,
+          "net_edge": -0.7322
+        }
+      },
+      {
+        "size": 25.0,
+        "buy_both": {
+          "executable": true,
+          "yes_cost": 4.05,
+          "no_cost": 22.5,
+          "fees": 0.28218,
+          "buffer": 0.05,
+          "net_edge": -1.88218
+        },
+        "sell_both_from_split_inventory": {
+          "executable": true,
+          "yes_proceeds": 2.5,
+          "no_proceeds": 20.95,
+          "fees": 0.28218,
+          "buffer": 0.05,
+          "net_edge": -1.88218
+        }
+      },
+      {
+        "size": 50.0,
+        "buy_both": {
+          "executable": true,
+          "yes_cost": 8.4289,
+          "no_cost": 45.0,
+          "fees": 0.57524,
+          "buffer": 0.1,
+          "net_edge": -4.10414
+        },
+        "sell_both_from_split_inventory": {
+          "executable": true,
+          "yes_proceeds": 5.0,
+          "no_proceeds": 41.5711,
+          "fees": 0.57524,
+          "buffer": 0.1,
+          "net_edge": -4.10414
+        }
+      }
+    ]
+  }
+}

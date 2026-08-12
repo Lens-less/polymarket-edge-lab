@@ -2,6 +2,7 @@
 py-clob-client
 python-dotenv
 websockets
+python-socks[asyncio]
 pandas
 pyarrow  # For Parquet export
 certifi

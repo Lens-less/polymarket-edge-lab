@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.lens.polymarket-edge-lab-capture</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/lens/Downloads/polymarket-mm-bot/.venv/bin/python</string>
+    <string>/Users/lens/Downloads/polymarket-mm-bot/scripts/run_edge_capture.py</string>
+    <string>--config</string>
+    <string>/Users/lens/Downloads/polymarket-mm-bot/research/edge_discovery_2026-07-24/FORWARD_CAPTURE_CONFIG.json</string>
+    <string>--duration</string>
+    <string>3600</string>
+    <string>--proxy</string>
+    <string>http://127.0.0.1:7897</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/lens/Downloads/polymarket-mm-bot</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PYTHONUNBUFFERED</key>
+    <string>1</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>LowPriorityIO</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/lens/Downloads/polymarket-mm-bot/data/edge_discovery_2026-07-24/service/recorder.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/lens/Downloads/polymarket-mm-bot/data/edge_discovery_2026-07-24/service/recorder.stderr.log</string>
+</dict>
+</plist>

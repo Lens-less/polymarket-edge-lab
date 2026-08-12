@@ -38,8 +38,11 @@ WS_RECONNECT_MAX_DELAY = float(os.getenv("WS_RECONNECT_MAX_DELAY", "60.0"))
 WS_HEARTBEAT_INTERVAL = float(os.getenv("WS_HEARTBEAT_INTERVAL", "30.0"))
 WS_STALE_DATA_THRESHOLD = float(os.getenv("WS_STALE_DATA_THRESHOLD", "60.0"))
 
-# === Contract Addresses (Polygon) ===
-USDC_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+# === Legacy Contract Context ===
+# The old adapter used Polygon USDC.e at the address below.  CLOB V2 uses pUSD;
+# a future V2 adapter must resolve current official contract roles instead of
+# importing this legacy address into an order path.
+LEGACY_USDC_E_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
 
 # === Trading ===
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"

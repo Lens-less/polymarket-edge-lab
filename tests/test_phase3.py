@@ -3,9 +3,7 @@ Phase 3 Verification Tests
 Run with: pytest tests/test_phase3.py -v
 
 Phase 3 is ONLY complete when all tests pass.
-
-Note: These tests require network access to Polymarket's WebSocket server.
-Some tests may take up to 60 seconds to complete as they wait for real market data.
+The default suite uses a deterministic fake at the external WebSocket dialer.
 """
 
 import pytest
@@ -14,19 +12,62 @@ import json
 from typing import List, Dict, Any
 
 
+FIXED_TOKEN_ID = "99020283867209289889119738709824148614345922887757122199903300146152690995270"
+FIXED_TOKEN_IDS = [
+    FIXED_TOKEN_ID,
+    "93407877955114874013681720453737167910717495090774867631160491764908235156561",
+    "27219179698102068655351512215340723346847782831365166146109682870856219066167",
+]
+
+
+class FakeWebSocketConnection:
+    """Deterministic stand-in for the external WebSocket system boundary."""
+
+    def __init__(self) -> None:
+        self.sent_messages: List[str] = []
+        self.closed = False
+        self.connect_args = ()
+        self.connect_kwargs: Dict[str, Any] = {}
+        self._incoming: asyncio.Queue[str] = asyncio.Queue()
+
+    async def send(self, message: str) -> None:
+        self.sent_messages.append(message)
+
+    async def recv(self) -> str:
+        return await self._incoming.get()
+
+    async def close(self) -> None:
+        self.closed = True
+
+    async def feed(self, message: str) -> None:
+        await self._incoming.put(message)
+
+
+@pytest.fixture
+def fake_websocket(monkeypatch: pytest.MonkeyPatch) -> FakeWebSocketConnection:
+    """Replace only the external WebSocket dialer; exercise MarketWebSocket itself."""
+    import src.websocket_client as websocket_client
+
+    connection = FakeWebSocketConnection()
+
+    async def fake_connect(
+        *args: Any,
+        **kwargs: Any,
+    ) -> FakeWebSocketConnection:
+        connection.connect_args = args
+        connection.connect_kwargs = kwargs
+        return connection
+
+    monkeypatch.setattr(websocket_client.websockets, "connect", fake_connect)
+    return connection
+
+
 class TestWebSocketClient:
     """Test WebSocket client functionality"""
 
     def _get_test_token_id(self) -> str:
-        """Helper to get a valid token ID for testing"""
-        from src.markets import fetch_active_markets
-
-        markets = fetch_active_markets(limit=10)
-        for m in markets:
-            if m.token_ids:
-                return m.token_ids[0]
-        pytest.skip("No markets with token IDs found")
-        return ""  # Never reached, but satisfies type checker
+        """Return a stable token identifier without performing market discovery."""
+        return FIXED_TOKEN_ID
 
     def test_import_websocket_client(self):
         """Verify WebSocket client can be imported"""
@@ -50,8 +91,8 @@ class TestWebSocketClient:
         print(f"  Initial state: {ws.state.value}")
 
     @pytest.mark.asyncio
-    async def test_connect_disconnect(self):
-        """Verify WebSocket can connect and disconnect"""
+    async def test_connect_disconnect(self, fake_websocket):
+        """Verify connection state and close behavior without external I/O."""
         from src.websocket_client import MarketWebSocket, ConnectionState
 
         ws = MarketWebSocket()
@@ -60,16 +101,18 @@ class TestWebSocketClient:
         result = await ws.connect()
         assert result == True, "Connection should succeed"
         assert ws.state == ConnectionState.CONNECTED
+        assert fake_websocket.connect_args == (ws.url,)
         print("✓ Connected to WebSocket server")
 
         # Disconnect
         await ws.disconnect()
         assert ws.state == ConnectionState.DISCONNECTED
+        assert fake_websocket.closed is True
         print("✓ Disconnected from WebSocket server")
 
     @pytest.mark.asyncio
-    async def test_subscribe_to_market(self):
-        """Verify we can subscribe to market data"""
+    async def test_subscribe_to_market(self, fake_websocket):
+        """Verify subscription payload and observable state."""
         from src.websocket_client import MarketWebSocket, ConnectionState
 
         ws = MarketWebSocket()
@@ -85,11 +128,16 @@ class TestWebSocketClient:
             assert result == True, "Subscription should succeed"
             assert ws.state == ConnectionState.SUBSCRIBED
             assert token_id in ws.subscribed_tokens
+            assert json.loads(fake_websocket.sent_messages[-1]) == {
+                "type": "market",
+                "assets_ids": [token_id],
+            }
 
             print(f"✓ Subscribed to token: {token_id[:20]}...")
 
         finally:
             await ws.disconnect()
+            assert fake_websocket.closed is True
 
     @pytest.mark.skip(reason="Legacy Phase 3 WebSocket - superseded by Phase 3.5 MarketFeed")
     @pytest.mark.asyncio
@@ -167,8 +215,8 @@ class TestWebSocketClient:
             await ws.disconnect()
 
     @pytest.mark.asyncio
-    async def test_callbacks_are_called(self):
-        """Verify callbacks are invoked correctly"""
+    async def test_callbacks_are_called(self, fake_websocket):
+        """Verify callbacks are invoked through the receive loop."""
         from src.websocket_client import MarketWebSocket
 
         ws = MarketWebSocket()
@@ -181,12 +229,19 @@ class TestWebSocketClient:
             "book_update": False,
             "trade": False
         }
+        data_callbacks_done = asyncio.Event()
 
         ws.on_connect = lambda: callback_events.update({"connect": True})
         ws.on_disconnect = lambda: callback_events.update({"disconnect": True})
-        ws.on_price_change = lambda d: callback_events.update({"price_change": True})
-        ws.on_book_update = lambda d: callback_events.update({"book_update": True})
-        ws.on_trade = lambda d: callback_events.update({"trade": True})
+
+        def record_callback(name):
+            callback_events[name] = True
+            if all(callback_events[key] for key in ("price_change", "book_update", "trade")):
+                data_callbacks_done.set()
+
+        ws.on_price_change = lambda d: record_callback("price_change")
+        ws.on_book_update = lambda d: record_callback("book_update")
+        ws.on_trade = lambda d: record_callback("trade")
 
         try:
             await ws.connect()
@@ -195,9 +250,8 @@ class TestWebSocketClient:
 
             await ws.subscribe([token_id])
 
-            # Drive callbacks with a deterministic Polymarket-style payload so
-            # this test is robust even on high-latency VPN links.
-            await ws._handle_message(json.dumps([
+            # Feed the external boundary so the public receive loop drives callbacks.
+            await fake_websocket.feed(json.dumps([
                 {
                     "event_type": "book",
                     "asset_id": token_id,
@@ -218,6 +272,7 @@ class TestWebSocketClient:
                     "side": "BUY",
                 }
             ]))
+            await asyncio.wait_for(data_callbacks_done.wait(), timeout=1)
 
             assert callback_events["book_update"], "on_book_update should be called"
             assert callback_events["price_change"], "on_price_change should be called"
@@ -231,22 +286,11 @@ class TestWebSocketClient:
         print(f"✓ Callback status: {callback_events}")
 
     @pytest.mark.asyncio
-    async def test_multiple_subscriptions(self):
-        """Verify we can subscribe to multiple tokens"""
+    async def test_multiple_subscriptions(self, fake_websocket):
+        """Verify one subscription can carry multiple stable token IDs."""
         from src.websocket_client import MarketWebSocket
-        from src.markets import fetch_active_markets
 
-        # Get multiple token IDs
-        markets = fetch_active_markets(limit=5)
-        token_ids = []
-        for m in markets:
-            if m.token_ids:
-                token_ids.append(m.token_ids[0])
-                if len(token_ids) >= 3:
-                    break
-
-        if len(token_ids) < 2:
-            pytest.skip("Need at least 2 tokens for this test")
+        token_ids = FIXED_TOKEN_IDS
 
         ws = MarketWebSocket()
 
@@ -256,11 +300,16 @@ class TestWebSocketClient:
 
             assert result == True
             assert len(ws.subscribed_tokens) == len(token_ids)
+            assert json.loads(fake_websocket.sent_messages[-1]) == {
+                "type": "market",
+                "assets_ids": token_ids,
+            }
 
             print(f"✓ Subscribed to {len(token_ids)} tokens simultaneously")
 
         finally:
             await ws.disconnect()
+            assert fake_websocket.closed is True
 
 
 class TestConnectionState:
@@ -322,31 +371,22 @@ class TestIntegration:
     """Integration tests for Phase 3"""
 
     @pytest.mark.asyncio
-    async def test_full_websocket_flow(self):
-        """Test complete WebSocket flow: connect, subscribe, receive, disconnect"""
+    async def test_full_websocket_flow(self, fake_websocket):
+        """Test complete deterministic WebSocket flow through public behavior."""
         from src.websocket_client import MarketWebSocket, ConnectionState
-        from src.markets import fetch_active_markets
 
-        # 1. Get a market
-        markets = fetch_active_markets(limit=3)
-        test_market = None
-        for m in markets:
-            if m.token_ids:
-                test_market = m
-                break
-
-        assert test_market is not None, "Need a market with tokens"
-        token_id = test_market.token_ids[0]
-
-        print(f"Testing with market: {test_market.question[:40]}...")
+        token_id = FIXED_TOKEN_ID
 
         # 2. Set up WebSocket
         ws = MarketWebSocket()
         message_count = 0
+        processed = asyncio.Event()
 
         def count_messages(data):
             nonlocal message_count
             message_count += 1
+            if message_count >= 2:
+                processed.set()
 
         ws.on_price_change = count_messages
         ws.on_book_update = count_messages
@@ -365,9 +405,9 @@ class TestIntegration:
             assert ws.state == ConnectionState.SUBSCRIBED
             print("  ✓ Subscribed")
 
-            # 5. Verify end-to-end processing on a deterministic payload.
+            # 5. Verify end-to-end processing on a deterministic boundary payload.
             print("  Processing sample market data...")
-            await ws._handle_message(json.dumps([
+            await fake_websocket.feed(json.dumps([
                 {
                     "event_type": "book",
                     "asset_id": token_id,
@@ -381,6 +421,7 @@ class TestIntegration:
                     ]
                 }
             ]))
+            await asyncio.wait_for(processed.wait(), timeout=1)
 
             # 6. Check we got something
             market_data = ws.get_market_data(token_id)
@@ -397,6 +438,7 @@ class TestIntegration:
             # 7. Disconnect
             await ws.disconnect()
             assert ws.state == ConnectionState.DISCONNECTED
+            assert fake_websocket.closed is True
             print("  ✓ Disconnected")
 
         print("✓ Full WebSocket flow completed successfully")

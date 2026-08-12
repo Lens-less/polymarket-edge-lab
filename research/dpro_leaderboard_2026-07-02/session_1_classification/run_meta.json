@@ -1,0 +1,13 @@
+{
+  "generated_at": "2026-07-02T10:21:01+00:00",
+  "hl": {
+    "fresh_rows": 100,
+    "local_rows": 10,
+    "source": "fresh_api"
+  },
+  "pm": {
+    "fresh_rows": 50,
+    "local_rows": 20,
+    "source": "fresh_api"
+  }
+}

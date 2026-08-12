@@ -1,0 +1,88 @@
+{
+  "accepted_snapshot_count": 0,
+  "analyses": [
+    {
+      "accepted_snapshot_count": 0,
+      "analysis_id": "standard-neg-risk-buy-all-yes",
+      "candidate_count": 595,
+      "classification_counts": {
+        "blocked": 595
+      },
+      "duration_ms": 1588,
+      "failure_counts": {
+        "conversion_output_unavailable": 1,
+        "depth_insufficient": 29,
+        "index_mapping_missing": 595,
+        "standard_neg_risk_provenance_unverified": 595
+      },
+      "finished_at_ms": 1784890248676,
+      "mode": "standard_neg_risk",
+      "started_at_ms": 1784890247088
+    },
+    {
+      "accepted_snapshot_count": 0,
+      "analysis_id": "cross-market-logic-buy-all-yes",
+      "candidate_count": 594,
+      "classification_counts": {
+        "blocked": 594
+      },
+      "duration_ms": 766,
+      "failure_counts": {
+        "book_neg_risk_mismatch": 594
+      },
+      "finished_at_ms": 1784890249443,
+      "mode": "logic",
+      "started_at_ms": 1784890248677
+    }
+  ],
+  "analysis_count": 2,
+  "book_acquisition": {
+    "book_count": 22,
+    "evidence_receipt_window_ms": "2626",
+    "future_server_timestamp_count": 0,
+    "max_rtt_ms": "522.7692000",
+    "observed_at_ms": 1784890247085,
+    "receipt_window_ms": "2626.499000",
+    "request_window_ms": "2634.8349000",
+    "server_timestamp_window_ms": "13592"
+  },
+  "candidate_count": 1189,
+  "classification_counts": {
+    "blocked": 1189
+  },
+  "config_sha256": "b1a12985dc2f943781f734630aaab2ab8e12629ea8dc7ac139c7454ff8459286",
+  "event_id": "741266",
+  "experiment_id": "weather-nyc-2026-07-25-standard-neg-risk",
+  "failure_counts": {
+    "book_neg_risk_mismatch": 594,
+    "conversion_output_unavailable": 1,
+    "depth_insufficient": 29,
+    "index_mapping_missing": 595,
+    "standard_neg_risk_provenance_unverified": 595
+  },
+  "finished_at_ms": 1784890249444,
+  "implementation_provenance": {
+    "byteorder": "little",
+    "file_sha256": {
+      "scripts/run_constraint_experiment.py": "10e17e9361cfc899844b04492d272a23aae2f03092db06aa20e83b4087bdf02f",
+      "src/edge_lab/compatibility.py": "c023325b1a536c81ffee780d7b4e80964f8ba679f2e41543c28654b9f86ecfe6",
+      "src/edge_lab/constraint_experiment.py": "51cea33c99cd436b029946ab464d717b49e382a3de0ebf6517e06fc98f15c340",
+      "src/edge_lab/constraints.py": "4e881c5df880283a9eebec7f74cbd4d3370b59f1fd88d17350bf41df979f3b10",
+      "src/edge_lab/models.py": "dc88dea62f12307bb97904c4f9b89c933596ac66bf25cb2022033b369be6e511",
+      "src/edge_lab/sources.py": "9b43d98c7ffa7a47a25506385059fa461563c8b4a7215d88833329b318634ad7"
+    },
+    "python_implementation": "CPython",
+    "python_version": "3.12.13",
+    "requests_version": "2.34.2",
+    "schema_version": "edge-lab-implementation-provenance.v1"
+  },
+  "network_used": true,
+  "new_orders_disabled": true,
+  "profit_claim": "none_snapshot_diagnostics_only",
+  "public_get_only": true,
+  "run_id": "current-20260724-standard-v4-provenance",
+  "schema_version": "edge-lab-constraint-experiment-summary.v2",
+  "source_failure_codes": [],
+  "source_response_count": 45,
+  "started_at_ms": 1784890239260
+}

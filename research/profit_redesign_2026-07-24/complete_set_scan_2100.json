@@ -1,0 +1,4624 @@
+{
+  "generated_at": "2026-07-24T08:54:33.963770+00:00",
+  "gamma_rows_seen": 2100,
+  "binary_markets_prepared": 1978,
+  "markets_evaluated": 1821,
+  "markets_skipped_for_books": 157,
+  "sizes": [
+    5.0,
+    10.0,
+    25.0,
+    50.0
+  ],
+  "execution_buffer_per_share": 0.002,
+  "positive_market_count": 0,
+  "positive_markets": [],
+  "top_near_edges": [
+    {
+      "condition_id": "0xd9fb1184af0064e5e34b129f5b79afa5a17b7e32f2953ab05efed82315fee6d4",
+      "question": "Will China invade Taiwan by end of 2026?",
+      "end_date": "2026-12-31T00:00:00Z",
+      "fees_enabled": false,
+      "fee_schedule": {
+        "rate": 0.0,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.0
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.015,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.19,
+            "no_cost": 4.815,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.185,
+            "no_proceeds": 4.81,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.38,
+            "no_cost": 9.63,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.37,
+            "no_proceeds": 9.62,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.95,
+            "no_cost": 24.075,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.925,
+            "no_proceeds": 24.05,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 1.9,
+            "no_cost": 48.15,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 1.85,
+            "no_proceeds": 48.1,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xc1bd3bfadea871e846ad2e7a09cdf56da632137a4d5e96da08b0134975ce4237",
+      "question": "Will Oman join the Abraham Accords before 2027?",
+      "end_date": "2026-12-31T00:00:00Z",
+      "fees_enabled": false,
+      "fee_schedule": {
+        "rate": 0.0,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.0
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.015,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.16,
+            "no_cost": 4.845,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.155,
+            "no_proceeds": 4.84,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.32,
+            "no_cost": 9.69,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.31,
+            "no_proceeds": 9.68,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.8,
+            "no_cost": 24.225,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.775,
+            "no_proceeds": 24.2,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 1.6,
+            "no_cost": 48.45,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 1.55,
+            "no_proceeds": 48.4,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x09bd898af149ff142f72abd30709dadf4fedafcce3b00ef37fd62a733063d7c9",
+      "question": "Will US withdraw from NATO before 2027?",
+      "end_date": "2026-12-31T00:00:00Z",
+      "fees_enabled": false,
+      "fee_schedule": {
+        "rate": 0.0,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.0
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.015,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.155,
+            "no_cost": 4.85,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.15,
+            "no_proceeds": 4.845,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.31,
+            "no_cost": 9.7,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.3,
+            "no_proceeds": 9.69,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.775,
+            "no_cost": 24.25,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.75,
+            "no_proceeds": 24.225,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 1.55,
+            "no_cost": 48.5,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 1.5,
+            "no_proceeds": 48.45,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x55ad441bdaa0391bcdb47bdd939d995f3b6b51531904f0207c3b7316ecde5e13",
+      "question": "Nord Stream pipeline turned on before 2027?",
+      "end_date": "2026-12-31T00:00:00Z",
+      "fees_enabled": false,
+      "fee_schedule": {
+        "rate": 0.0,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.0
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.015,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.13,
+            "no_cost": 4.875,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.125,
+            "no_proceeds": 4.87,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.26,
+            "no_cost": 9.75,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.25,
+            "no_proceeds": 9.74,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.65,
+            "no_cost": 24.375,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.625,
+            "no_proceeds": 24.35,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 1.3,
+            "no_cost": 48.75,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 1.25,
+            "no_proceeds": 48.7,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xcaa2b510d78465a714297b9f7ef577f4556ea08013173f18d5e9e58c6c18430b",
+      "question": "Will Zelenskyy and Putin meet next in Qatar / UAE before 2027?",
+      "end_date": "2026-12-31T00:00:00Z",
+      "fees_enabled": false,
+      "fee_schedule": {
+        "rate": 0.0,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.0
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.015,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.07,
+            "no_cost": 4.935,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.065,
+            "no_proceeds": 4.93,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.14,
+            "no_cost": 9.87,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.13,
+            "no_proceeds": 9.86,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.35,
+            "no_cost": 24.675,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.325,
+            "no_proceeds": 24.65,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.7,
+            "no_cost": 49.35,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.65,
+            "no_proceeds": 49.3,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x845a789f597c2cb7d77ca8423923136a455b55b96fefa1fc6d270f5588e7f733",
+      "question": "Will Zelenskyy and Putin meet next in Hungary before 2027?",
+      "end_date": "2026-12-31T00:00:00Z",
+      "fees_enabled": false,
+      "fee_schedule": {
+        "rate": 0.0,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.0
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.015,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 4.985,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.015,
+            "no_proceeds": 4.98,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.04,
+            "no_cost": 9.97,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.03,
+            "no_proceeds": 9.96,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 24.925,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.075,
+            "no_proceeds": 24.9,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.2,
+            "no_cost": 49.85,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.15,
+            "no_proceeds": 49.8,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x674c0894f8992fd36943cc88b4cbcc90cbd8fac9ae3b78a09df634632c23d393",
+      "question": "Will Zelenskyy and Putin meet next in Switzerland before 2027?",
+      "end_date": "2026-12-31T00:00:00Z",
+      "fees_enabled": false,
+      "fee_schedule": {
+        "rate": 0.0,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.0
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.015,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.13,
+            "no_cost": 4.875,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.125,
+            "no_proceeds": 4.87,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.26,
+            "no_cost": 9.75,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.25,
+            "no_proceeds": 9.74,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.65,
+            "no_cost": 24.375,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.625,
+            "no_proceeds": 24.35,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 1.3,
+            "no_cost": 48.75,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 1.25,
+            "no_proceeds": 48.7,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x31377dfc28f477c6f1ce5f6badec3edd66fc27c8fa67af6c5f8a37e94fb113e9",
+      "question": "Anthropic acquired before 2027?",
+      "end_date": "2026-12-31T00:00:00Z",
+      "fees_enabled": false,
+      "fee_schedule": {
+        "rate": 0.0,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.0
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.015,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.155,
+            "no_cost": 4.85,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.15,
+            "no_proceeds": 4.845,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.31,
+            "no_cost": 9.7,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.3,
+            "no_proceeds": 9.69,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.775,
+            "no_cost": 24.25,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.75,
+            "no_proceeds": 24.225,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 1.55,
+            "no_cost": 48.5,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 1.5,
+            "no_proceeds": 48.45,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xb5fb3fd4dbc7fdc70e3666ed4193e3171ecc257dcd43e01b36dbd4efa01d777e",
+      "question": "Will Russia rejoin the G7 before 2027?",
+      "end_date": "2026-12-31T00:00:00Z",
+      "fees_enabled": false,
+      "fee_schedule": {
+        "rate": 0.0,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.0
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.015,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.11,
+            "no_cost": 4.895,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.105,
+            "no_proceeds": 4.89,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.22,
+            "no_cost": 9.795,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.035
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.205,
+            "no_proceeds": 9.78,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.035
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.55,
+            "no_cost": 24.508,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.108
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.492,
+            "no_proceeds": 24.45,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.108
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 1.1,
+            "no_cost": 49.033,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.233
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.967,
+            "no_proceeds": 48.9,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.233
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x4c80df6f557bb0b9de08c0301ebdce500dd9bdc58400d9269fb8fab1709ed584",
+      "question": "China x Taiwan military clash before 2027?",
+      "end_date": "2026-12-31T00:00:00Z",
+      "fees_enabled": false,
+      "fee_schedule": {
+        "rate": 0.0,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.0
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.015,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.345,
+            "no_cost": 4.66,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.34,
+            "no_proceeds": 4.655,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.69,
+            "no_cost": 9.32,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.68,
+            "no_proceeds": 9.31,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 1.725,
+            "no_cost": 23.3,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 1.7,
+            "no_proceeds": 23.275,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 3.45,
+            "no_cost": 46.6,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 3.4,
+            "no_proceeds": 46.55,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x4437c8690e2edae1ab7acb0dcb40e536109ae6366e630d97f0bd764c9545ae57",
+      "question": "Will Israel strike 4 countries in 2026?",
+      "end_date": "2026-12-31T00:00:00Z",
+      "fees_enabled": false,
+      "fee_schedule": {
+        "rate": 0.0,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.0
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.015,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 1.88,
+            "no_cost": 3.125,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 1.875,
+            "no_proceeds": 3.12,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 3.76,
+            "no_cost": 6.25,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 3.75,
+            "no_proceeds": 6.24,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 9.4,
+            "no_cost": 15.713,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.163
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 9.287,
+            "no_proceeds": 15.6,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.163
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 18.8,
+            "no_cost": 31.912,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.812
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 18.088,
+            "no_proceeds": 31.2,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.812
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x17ba5a7a08bd3f7f87487285c5713e305b8fc98ec4849d5a05ecdf111856c428",
+      "question": "Will a US ally get a nuke before 2027?",
+      "end_date": "2026-12-31T00:00:00Z",
+      "fees_enabled": false,
+      "fee_schedule": {
+        "rate": 0.0,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.0
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.015,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.37,
+            "no_cost": 4.635,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.365,
+            "no_proceeds": 4.63,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.74,
+            "no_cost": 9.27,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.73,
+            "no_proceeds": 9.26,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 1.85,
+            "no_cost": 23.18061,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.08061
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 1.81939,
+            "no_proceeds": 23.15,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.08061
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 3.7,
+            "no_cost": 46.38061,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.18061
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 3.61939,
+            "no_proceeds": 46.3,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.18061
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x45a79193a66e5078a29c625e78e0d4b9a059edef8e206097c48bbfe7eaf9590e",
+      "question": "Will Yair Lapid be the next Prime Minister of Israel?",
+      "end_date": "2026-12-31T00:00:00Z",
+      "fees_enabled": false,
+      "fee_schedule": {
+        "rate": 0.0,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.0
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.015,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.01,
+            "no_cost": 4.995,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.005,
+            "no_proceeds": 4.99,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 9.99,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 9.98,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 24.975,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 24.95,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 49.95,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 49.9,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xdbe93b5a701f36076a560fa4b9ba59e365a6e8e2ea6a83764640010657277ca4",
+      "question": "Will Gadi Eizenkot be the next Prime Minister of Israel?",
+      "end_date": "2026-12-31T00:00:00Z",
+      "fees_enabled": false,
+      "fee_schedule": {
+        "rate": 0.0,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.0
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.015,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 2.45,
+            "no_cost": 2.555,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 2.445,
+            "no_proceeds": 2.55,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 4.9,
+            "no_cost": 5.11,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 4.89,
+            "no_proceeds": 5.1,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 12.25,
+            "no_cost": 12.775,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 12.225,
+            "no_proceeds": 12.75,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 24.5,
+            "no_cost": 25.55,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 24.45,
+            "no_proceeds": 25.5,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xf773a12cc13214fc493ec398f96c4ea5ec87ea4ff3b29795041d5498e314ad1e",
+      "question": "Will Benny Gantz be the next Prime Minister of Israel?",
+      "end_date": "2026-12-31T00:00:00Z",
+      "fees_enabled": false,
+      "fee_schedule": {
+        "rate": 0.0,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.0
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.015,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.015,
+            "no_cost": 4.99,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 4.985,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.03,
+            "no_cost": 9.98,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.02,
+            "no_proceeds": 9.97,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.075,
+            "no_cost": 24.95,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 24.925,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.15,
+            "no_cost": 49.9,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.1,
+            "no_proceeds": 49.85,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xa653be0f150dbe055a532ea02977338bb31f49d1f723b2a48c1f67847a73cb7d",
+      "question": "Will Yossi Cohen be the next Prime Minister of Israel?",
+      "end_date": "2026-12-31T00:00:00Z",
+      "fees_enabled": false,
+      "fee_schedule": {
+        "rate": 0.0,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.0
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.015,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.01,
+            "no_cost": 4.995,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.005,
+            "no_proceeds": 4.99,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 9.99,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 9.98,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 24.975,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 24.95,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 49.95,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 49.9,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xfcd53c97fef81c4ecad8a97c8c47fdf1ce0a54a0daeff7bae53eaa3a9af343f2",
+      "question": "Will Yair Golan be the next Prime Minister of Israel?",
+      "end_date": "2026-12-31T00:00:00Z",
+      "fees_enabled": false,
+      "fee_schedule": {
+        "rate": 0.0,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.0
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.015,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.01,
+            "no_cost": 4.995,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.005,
+            "no_proceeds": 4.99,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02389,
+            "no_cost": 9.99,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03389
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 9.97611,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03389
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.06889,
+            "no_cost": 24.975,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.09389
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 24.93111,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.09389
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.14389,
+            "no_cost": 49.95,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.19389
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 49.85611,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.19389
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x4bf44e9885ee8f43148458d5c9537d96c940cf48414557528358d65870131517",
+      "question": "Will Itamar Ben Gvir be the next Prime Minister of Israel?",
+      "end_date": "2026-12-31T00:00:00Z",
+      "fees_enabled": false,
+      "fee_schedule": {
+        "rate": 0.0,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.0
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.015,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.03,
+            "no_cost": 4.975,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 4.97,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.06,
+            "no_cost": 9.95,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 9.94,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.15,
+            "no_cost": 24.875,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.125,
+            "no_proceeds": 24.85,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.3,
+            "no_cost": 49.75,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.25,
+            "no_proceeds": 49.7,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xfb2cb634e693b1758fc78b38b02754472edd728bd22eb4a7023c6f49419c73d6",
+      "question": "Will Gideon Sa’ar be the next Prime Minister of Israel?",
+      "end_date": "2026-12-31T00:00:00Z",
+      "fees_enabled": false,
+      "fee_schedule": {
+        "rate": 0.0,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.0
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.015,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 4.985,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.015,
+            "no_proceeds": 4.98,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.04,
+            "no_cost": 9.97,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.03,
+            "no_proceeds": 9.96,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 24.925,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.075,
+            "no_proceeds": 24.9,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.2,
+            "no_cost": 49.85,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.15,
+            "no_proceeds": 49.8,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x93d07ffcf5c243b98e655380eb876d4a3393351b7325059064cb5a4b1ff6ceb2",
+      "question": "Will Yariv Levin be the next Prime Minister of Israel?",
+      "end_date": "2026-12-31T00:00:00Z",
+      "fees_enabled": false,
+      "fee_schedule": {
+        "rate": 0.0,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.0
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.015,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.015,
+            "no_cost": 4.99,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 4.985,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.03,
+            "no_cost": 9.98,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.02,
+            "no_proceeds": 9.97,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.075,
+            "no_cost": 24.95,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 24.925,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.15,
+            "no_cost": 49.9,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.1,
+            "no_proceeds": 49.85,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x673db99d92473e9ee854b8a0ec0cff15d156e5c33a13e1e12db7266d33fde4d3",
+      "question": "Will Moshe Feiglin be the next Prime Minister of Israel?",
+      "end_date": "2026-12-31T00:00:00Z",
+      "fees_enabled": false,
+      "fee_schedule": {
+        "rate": 0.0,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.0
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.015,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.01,
+            "no_cost": 4.995,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.005,
+            "no_proceeds": 4.99,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 9.99,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 9.98,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 24.975,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 24.95,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 49.95,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 49.9,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x80a849ac73eefe56d4d613e44b45e32b9f91f0bfc77173b732cffac7daab3b3b",
+      "question": "Will Ayelet Shaked be the next Prime Minister of Israel?",
+      "end_date": "2026-12-31T00:00:00Z",
+      "fees_enabled": false,
+      "fee_schedule": {
+        "rate": 0.0,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.0
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.015,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.01,
+            "no_cost": 4.995,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.005,
+            "no_proceeds": 4.99,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 9.99,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 9.98,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 24.975,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 24.95,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 49.95,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 49.9,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x641ee08666fd2c37f890d59b4fd32ad8a23e8500e1ad070e112a90219a4d4bfa",
+      "question": "Will Yoaz Hendel be the next Prime Minister of Israel?",
+      "end_date": "2026-12-31T00:00:00Z",
+      "fees_enabled": false,
+      "fee_schedule": {
+        "rate": 0.0,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.0
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.015,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.015,
+            "no_cost": 4.99,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 4.985,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.03,
+            "no_cost": 9.98,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.02,
+            "no_proceeds": 9.97,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.075,
+            "no_cost": 24.95,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 24.925,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.15,
+            "no_cost": 49.9,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.1,
+            "no_proceeds": 49.85,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xb25a93dc8c0f28dc404f7ee41cf6788a9de054418bd068740849b4a2995486e9",
+      "question": "Will Israel Katz be the next Prime Minister of Israel?",
+      "end_date": "2026-12-31T00:00:00Z",
+      "fees_enabled": false,
+      "fee_schedule": {
+        "rate": 0.0,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.0
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.015,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.015,
+            "no_cost": 4.99,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 4.985,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.03,
+            "no_cost": 9.98,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.02,
+            "no_proceeds": 9.97,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.075,
+            "no_cost": 24.95,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 24.925,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.15,
+            "no_cost": 49.9,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.1,
+            "no_proceeds": 49.85,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xd8625515585b5bf81d9c1262a1d2b0212a6f2a7a5c5f6ef6c993f7cc269f92dd",
+      "question": "Will Nir Barkat be the next Prime Minister of Israel?",
+      "end_date": "2026-12-31T00:00:00Z",
+      "fees_enabled": false,
+      "fee_schedule": {
+        "rate": 0.0,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.0
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.015,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.01,
+            "no_cost": 4.995,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.005,
+            "no_proceeds": 4.99,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 9.99,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 9.98,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 24.975,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 24.95,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 49.95,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 49.9,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x8cbdd0c4c6061c9e5c5a94d4a474c1880d0f2ab5ee4704a64af1e77c6d0e18d0",
+      "question": "Will Amir Ohana be the next Prime Minister of Israel?",
+      "end_date": "2026-12-31T00:00:00Z",
+      "fees_enabled": false,
+      "fee_schedule": {
+        "rate": 0.0,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.0
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.015,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.015,
+            "no_cost": 4.99,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 4.985,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.03,
+            "no_cost": 9.98,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.02,
+            "no_proceeds": 9.97,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.075,
+            "no_cost": 24.95,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 24.925,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.15,
+            "no_cost": 49.9,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.1,
+            "no_proceeds": 49.85,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xea653dbacdb5b0ba21c9b745f5fb463fe654b988129093ce471d3b3652650cba",
+      "question": "Will Gilad Erdan be the next Prime Minister of Israel?",
+      "end_date": "2026-12-31T00:00:00Z",
+      "fees_enabled": false,
+      "fee_schedule": {
+        "rate": 0.0,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.0
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.015,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.01,
+            "no_cost": 4.995,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.005,
+            "no_proceeds": 4.99,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 9.99,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 9.98,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 24.975,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 24.95,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 49.95,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 49.9,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x0a706801ddd761794258687cb07c6697e4a38dfc34aa96032e928740119f1905",
+      "question": "EU dissolves before 2027?",
+      "end_date": "2026-12-31T00:00:00Z",
+      "fees_enabled": false,
+      "fee_schedule": {
+        "rate": 0.0,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.0
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.015,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.105,
+            "no_cost": 4.9,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.1,
+            "no_proceeds": 4.895,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.21,
+            "no_cost": 9.8,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.2,
+            "no_proceeds": 9.79,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.525,
+            "no_cost": 24.5,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.5,
+            "no_proceeds": 24.475,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 1.05,
+            "no_cost": 49.0,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 1.0,
+            "no_proceeds": 48.95,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xffb0723660bcaa860192fe58e950e3a54157093c84083180e77893499f405d18",
+      "question": "Any country withdraws from EU before 2027?",
+      "end_date": "2026-12-31T00:00:00Z",
+      "fees_enabled": false,
+      "fee_schedule": {
+        "rate": 0.0,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.0
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.015,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.17,
+            "no_cost": 4.835,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.165,
+            "no_proceeds": 4.83,
+            "fees": 0.0,
+            "buffer": 0.01,
+            "net_edge": -0.015
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.34,
+            "no_cost": 9.67,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.33,
+            "no_proceeds": 9.66,
+            "fees": 0.0,
+            "buffer": 0.02,
+            "net_edge": -0.03
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.85,
+            "no_cost": 24.175,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.825,
+            "no_proceeds": 24.15,
+            "fees": 0.0,
+            "buffer": 0.05,
+            "net_edge": -0.075
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 1.7,
+            "no_cost": 48.35,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 1.65,
+            "no_proceeds": 48.3,
+            "fees": 0.0,
+            "buffer": 0.1,
+            "net_edge": -0.15
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xae70ab9bf1c3726fe430a2ba8b517697ae24e0f0ab554b876a5b521153068882",
+      "question": "Will Tim Walz win the 2028 US Presidential Election?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0156,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.01,
+            "no_cost": 4.995,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.005,
+            "no_proceeds": 4.99,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 9.99,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 9.98,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 24.975,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 24.95,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 49.95,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 49.9,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x7d6b6b452ba0f0f401067fd690a1aecc3059362ff5a7b6401d0b975db890d3c3",
+      "question": "Will Jalen Brunson win the 2028 US Presidential Election?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0156,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.01,
+            "no_cost": 4.995,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.005,
+            "no_proceeds": 4.99,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 9.99,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 9.98,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 24.975,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 24.95,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 49.95,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 49.9,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x117a68f1c6135b13ffc450f152dd92bc5d99dcbf8f561672c8a7e115f48e5d90",
+      "question": "Will Hakeem Jeffries win the 2028 US Presidential Election?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0156,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.01,
+            "no_cost": 4.995,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.005,
+            "no_proceeds": 4.99,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 9.99,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 9.98,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 24.975,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 24.95,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 49.95,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 49.9,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x63fbf0f40d2ca6b5efa75f5f9fe3474ab7fdd5d3611499295857401cbe17a4b8",
+      "question": "Will Adam Schiff win the 2028 US Presidential Election?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0156,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.01,
+            "no_cost": 4.995,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.005,
+            "no_proceeds": 4.99,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 9.99,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 9.98,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 24.975,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 24.95,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 49.95,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 49.9,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xc53955c1303b0ea1d676f99c52ea3b28961fb41d4f04c8cecd0b96d79c0d3bf5",
+      "question": "Will Josh Stein win the 2028 US Presidential Election?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0156,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.01,
+            "no_cost": 4.995,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.005,
+            "no_proceeds": 4.99,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 9.99,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 9.98,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 24.975,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 24.95,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 49.95,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 49.9,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x12a98db4530e8a53479293dd717f589f8729a461a2196e8bcf9553c8db283812",
+      "question": "Will Alex Padilla win the 2028 US Presidential Election?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0156,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.01,
+            "no_cost": 4.995,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.005,
+            "no_proceeds": 4.99,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 9.99,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 9.98,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 24.975,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 24.95,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 49.95,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 49.9,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x76c494f8c0cd626537f81f265efbe40d4be2acd326a56342a65363200460f538",
+      "question": "Will Candace Owens win the 2028 US Presidential Election?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0156,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.01,
+            "no_cost": 4.995,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.005,
+            "no_proceeds": 4.99,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 9.99,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 9.98,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 24.975,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 24.95,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 49.95,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 49.9,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xa2a4f26f3c60dc5b8003b6aac4d26eeace243672996be2dc57d4539b242e5100",
+      "question": "Will Mike Johnson win the 2028 US Presidential Election?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0156,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.01,
+            "no_cost": 4.995,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.005,
+            "no_proceeds": 4.99,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 9.99,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 9.98,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 24.975,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 24.95,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 49.95,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 49.9,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x472463b541ca2cd7296af4bc6113952db01fce277045207eb23c680a53ed288d",
+      "question": "Will John N. Kennedy win the 2028 US Presidential Election?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0156,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.01,
+            "no_cost": 4.995,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.005,
+            "no_proceeds": 4.99,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 9.99,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 9.98,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 24.975,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 24.95,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 49.95,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 49.9,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x8aff3e755f44bfea1baa433b2a175341204b0f85427e82f31c9c44d38b5a6ec7",
+      "question": "Will John N. Kennedy win the 2028 Republican presidential nomination?",
+      "end_date": "2028-11-07T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0156,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.01,
+            "no_cost": 4.995,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.005,
+            "no_proceeds": 4.99,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 9.99,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 9.98,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 24.975,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 24.95,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 49.95,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 49.9,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x81a537b379a35e4e17c286d3b37394e94bd74c1779bbe9a13670eb991b201a3a",
+      "question": "Will Tarcisio de Freitas win the 2026 Brazilian presidential election?",
+      "end_date": "2026-10-04T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0156,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.01,
+            "no_cost": 4.995,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.005,
+            "no_proceeds": 4.99,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 9.99,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 9.98,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 24.975,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 24.95,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 49.95,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 49.9,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xae7dd99bf126b033b77af2553a98b97e1190fd7bdddd5a792ca2791ae23e4d13",
+      "question": "Will Tereza Cristina win the 2026 Brazilian presidential election?",
+      "end_date": "2026-10-04T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0156,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.01,
+            "no_cost": 4.995,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.005,
+            "no_proceeds": 4.99,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 9.99,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 9.98,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 24.975,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 24.95,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 49.95,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 49.9,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x4ff66babd9440e4ca4097607aafa868bf734c5411463e14bffc5c330d7d0f524",
+      "question": "Will an independent win the Rhode Island governor race in 2026?",
+      "end_date": null,
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0156,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.01,
+            "no_cost": 4.995,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.005,
+            "no_proceeds": 4.99,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.054,
+            "no_cost": 9.99,
+            "fees": 0.00251,
+            "buffer": 0.02,
+            "net_edge": -0.06651
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 9.946,
+            "fees": 0.00251,
+            "buffer": 0.02,
+            "net_edge": -0.06651
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.594,
+            "no_cost": 24.975,
+            "fees": 0.02393,
+            "buffer": 0.05,
+            "net_edge": -0.64293
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 24.406,
+            "fees": 0.02393,
+            "buffer": 0.05,
+            "net_edge": -0.64293
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 1.51802,
+            "no_cost": 49.95,
+            "fees": 0.06052,
+            "buffer": 0.1,
+            "net_edge": -1.62854
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 48.48198,
+            "fees": 0.06052,
+            "buffer": 0.1,
+            "net_edge": -1.62854
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x0d87ce304cab9d63b941d93b7d8052d0b8c9033ef5383a2436ede5117f029dae",
+      "question": "Will Bruce Walden win the 2026 Alaska governor election?",
+      "end_date": "2026-11-03T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0156,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.01,
+            "no_cost": 4.995,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.005,
+            "no_proceeds": 4.99,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 9.99,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 9.98,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 24.975,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 24.95,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 49.95,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 49.9,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x4fd145201e8036b8c040dd9797c4d79c8eb7f1053fef07920d8b2a7bdf6f8170",
+      "question": "Will Gregg Brelsford win the 2026 Alaska governor election?",
+      "end_date": "2026-11-03T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0156,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.01,
+            "no_cost": 4.995,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.005,
+            "no_proceeds": 4.99,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 9.99,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 9.98,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 24.975,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 24.95,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 49.95,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 49.9,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x3742856e68e342615e2a4ffbbd53e47b631f2d7097ef0713e41fb2fa2bc9d901",
+      "question": "Will Jessica Faircloth win the 2026 Alaska governor election?",
+      "end_date": "2026-11-03T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0156,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.01,
+            "no_cost": 4.995,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.005,
+            "no_proceeds": 4.99,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 9.99,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 9.98,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 24.975,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 24.95,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 49.95,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 49.9,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x13aa3adfac590cb337445b0a96faef834cc27d3a4d417c397b43b96a4d54e751",
+      "question": "Will Destry J. Payne Sr. win the 2026 Alaska governor election?",
+      "end_date": "2026-11-03T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0156,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.01,
+            "no_cost": 4.995,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.005,
+            "no_proceeds": 4.99,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 9.99,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 9.98,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 24.975,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 24.95,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 49.95,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 49.9,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x06a27c2810eaca94b53e7a17f15ad47761399ba445a6b02039b2679da203262d",
+      "question": "Will Xavier Bertrand win the 2027 French presidential election?",
+      "end_date": "2027-04-30T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0156,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.01,
+            "no_cost": 4.995,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.005,
+            "no_proceeds": 4.99,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 9.99,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 9.98,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 24.975,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 24.95,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 49.95,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 49.9,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x6ad63235931f80951a48f2338956dea7bb70c97f99a7bd03f5f501d6e4673842",
+      "question": "Will Fabien Roussel win the 2027 French presidential election?",
+      "end_date": "2027-04-30T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0156,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.01,
+            "no_cost": 4.995,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.005,
+            "no_proceeds": 4.99,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 9.99,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 9.98,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 24.975,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 24.95,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 49.95,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 49.9,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0xaba4bb720c6c1b2e48087f5af4a57fd1e9f05814a936e9f6b1c37f10436a34fc",
+      "question": "Will François Asselineau win the 2027 French presidential election?",
+      "end_date": "2027-04-30T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0156,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.01,
+            "no_cost": 4.995,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.005,
+            "no_proceeds": 4.99,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 9.99,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 9.98,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 24.975,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 24.95,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 49.95,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 49.9,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          }
+        }
+      ]
+    },
+    {
+      "condition_id": "0x2bf80d93be42dac6c1b03298b5ec329a4b9f87b689c7892d544d1029f3a0caf0",
+      "question": "Will Clémentine Autain win the 2027 French presidential election?",
+      "end_date": "2027-04-30T00:00:00Z",
+      "fees_enabled": true,
+      "fee_schedule": {
+        "rate": 0.04,
+        "exponent": 1.0,
+        "taker_only": true,
+        "rebate_rate": 0.25
+      },
+      "min_order_size": 5.0,
+      "best_net_edge": -0.0156,
+      "results": [
+        {
+          "size": 5.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.01,
+            "no_cost": 4.995,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.005,
+            "no_proceeds": 4.99,
+            "fees": 0.0006,
+            "buffer": 0.01,
+            "net_edge": -0.0156
+          }
+        },
+        {
+          "size": 10.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.02,
+            "no_cost": 9.99,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.01,
+            "no_proceeds": 9.98,
+            "fees": 0.0012,
+            "buffer": 0.02,
+            "net_edge": -0.0312
+          }
+        },
+        {
+          "size": 25.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.05,
+            "no_cost": 24.975,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.025,
+            "no_proceeds": 24.95,
+            "fees": 0.003,
+            "buffer": 0.05,
+            "net_edge": -0.078
+          }
+        },
+        {
+          "size": 50.0,
+          "buy_both": {
+            "executable": true,
+            "yes_cost": 0.1,
+            "no_cost": 49.95,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          },
+          "sell_both_from_split_inventory": {
+            "executable": true,
+            "yes_proceeds": 0.05,
+            "no_proceeds": 49.9,
+            "fees": 0.00599,
+            "buffer": 0.1,
+            "net_edge": -0.15599
+          }
+        }
+      ]
+    }
+  ],
+  "warnings": [
+    "Two CLOB legs are non-atomic even when both are FOK.",
+    "A positive snapshot is only an observed opportunity, not a fill.",
+    "The execution buffer is a scenario and must be replaced by measured latency.",
+    "No order was submitted and no credential was read."
+  ]
+}

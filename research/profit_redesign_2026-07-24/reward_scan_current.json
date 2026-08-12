@@ -1,0 +1,1769 @@
+{
+  "generated_at": "2026-07-24T08:33:44.331100+00:00",
+  "config": {
+    "pages": 4,
+    "page_size": 500,
+    "max_evaluations": 80,
+    "min_daily_reward": 1.0,
+    "min_volume_24h": 1.0,
+    "quote_size": 20.0,
+    "distance_fraction": 0.5,
+    "stress_ticks": 2,
+    "competition_multiplier": 3.0
+  },
+  "reward_rows_seen": 2000,
+  "reward_rows_prefiltered": 60,
+  "evaluated": 19,
+  "rejected_count": 41,
+  "results": [
+    {
+      "candidate": {
+        "condition_id": "0xb74cb4e8fade8482cf47bfe716c7af7568dcea790b2a19cbc874de422df4f45f",
+        "question": "Will the highest temperature in Singapore be 28°C on July 26?",
+        "yes_token_id": "4563986153909234408942783434085072712085784241341748207512713582597784578290",
+        "no_token_id": "86201619305935123306817826188680178563916545281646070819564392535291199719658",
+        "daily_reward": 15.0,
+        "reward_min_size": 20.0,
+        "reward_max_spread_cents": 4.5,
+        "reported_competitiveness": 0.0,
+        "end_date": "2026-07-26T12:00:00Z",
+        "seconds_delay": 0,
+        "tick_size": 0.01,
+        "min_order_size": 5.0,
+        "neg_risk": true,
+        "tags": [],
+        "volume_24h": 675.3667680000001,
+        "liquidity": 1295.3202,
+        "displayed_spread": 0.09,
+        "fee_schedule": {
+          "rate": 0.05,
+          "exponent": 1.0,
+          "taker_only": true,
+          "rebate_rate": 0.25
+        }
+      },
+      "book": {
+        "yes_best_bid": 0.06,
+        "yes_best_ask": 0.17,
+        "no_best_bid": 0.83,
+        "no_best_ask": 0.94,
+        "yes_depth_levels": 36,
+        "no_depth_levels": 36
+      },
+      "economics": {
+        "quote": {
+          "yes_bid": 0.09,
+          "no_bid": 0.86,
+          "size": 20.0,
+          "reference_yes_mid": 0.115,
+          "distance_cents": 2.5,
+          "capital": 19.0
+        },
+        "paired_fill": {
+          "margin_per_share": 0.05,
+          "margin": 1.0
+        },
+        "one_leg_hedges": {
+          "yes_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.966,
+            "taker_fee": 0.03284,
+            "merge_pnl": -1.15284
+          },
+          "no_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.19,
+            "taker_fee": 0.1539,
+            "merge_pnl": -1.1539
+          },
+          "stress_ticks": 2,
+          "worst_completed_pnl": -1.1539,
+          "worst_loss": 1.1539,
+          "required_paired_fills_per_single_fill": 1.1539
+        },
+        "liquidity_reward_scenario": {
+          "own_yes_score": 3.950617283950617,
+          "own_no_score": 3.950617283950617,
+          "own_q_min": 3.950617283950617,
+          "visible_competition_proxy": {
+            "yes_side": 0.0,
+            "no_side": 0.0,
+            "q_min_proxy": 0.0
+          },
+          "competition_multiplier": 3.0,
+          "static_share": 1.0,
+          "daily_reward_if_static": 15.0,
+          "warning": "Scenario only: public books omit maker identity and future competition; reward is sampled and not guaranteed."
+        }
+      }
+    },
+    {
+      "candidate": {
+        "condition_id": "0x19c9d336ceb9052a1eff290b66a73172b44d854b71ab693ffc86452a097581cd",
+        "question": "Will the highest temperature in Moscow be 21°C on July 26?",
+        "yes_token_id": "23845351898707905237333809204203557080851870139625363196053447235972641741385",
+        "no_token_id": "103868835781381647323929706017594854364446822352415763813569826759251947207318",
+        "daily_reward": 18.0,
+        "reward_min_size": 20.0,
+        "reward_max_spread_cents": 4.5,
+        "reported_competitiveness": 0.0,
+        "end_date": "2026-07-26T12:00:00Z",
+        "seconds_delay": 0,
+        "tick_size": 0.01,
+        "min_order_size": 5.0,
+        "neg_risk": true,
+        "tags": [],
+        "volume_24h": 3.2258,
+        "liquidity": 864.0957,
+        "displayed_spread": 0.21,
+        "fee_schedule": {
+          "rate": 0.05,
+          "exponent": 1.0,
+          "taker_only": true,
+          "rebate_rate": 0.25
+        }
+      },
+      "book": {
+        "yes_best_bid": 0.08,
+        "yes_best_ask": 0.29,
+        "no_best_bid": 0.71,
+        "no_best_ask": 0.92,
+        "yes_depth_levels": 40,
+        "no_depth_levels": 40
+      },
+      "economics": {
+        "quote": {
+          "yes_bid": 0.16,
+          "no_bid": 0.79,
+          "size": 20.0,
+          "reference_yes_mid": 0.185,
+          "distance_cents": 2.5,
+          "capital": 19.0
+        },
+        "paired_fill": {
+          "margin_per_share": 0.05,
+          "margin": 1.0
+        },
+        "one_leg_hedges": {
+          "yes_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.94,
+            "taker_fee": 0.0564,
+            "merge_pnl": -2.0564
+          },
+          "no_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.31,
+            "taker_fee": 0.2139,
+            "merge_pnl": -2.2139
+          },
+          "stress_ticks": 2,
+          "worst_completed_pnl": -2.2139,
+          "worst_loss": 2.2139,
+          "required_paired_fills_per_single_fill": 2.2139
+        },
+        "liquidity_reward_scenario": {
+          "own_yes_score": 3.950617283950617,
+          "own_no_score": 3.950617283950617,
+          "own_q_min": 3.950617283950617,
+          "visible_competition_proxy": {
+            "yes_side": 0.0,
+            "no_side": 0.0,
+            "q_min_proxy": 0.0
+          },
+          "competition_multiplier": 3.0,
+          "static_share": 1.0,
+          "daily_reward_if_static": 18.0,
+          "warning": "Scenario only: public books omit maker identity and future competition; reward is sampled and not guaranteed."
+        }
+      }
+    },
+    {
+      "candidate": {
+        "condition_id": "0x0c0c4efe1d24b1cf1284f1af27180caf309cbfedeac75ddb0ad9b220643d55ac",
+        "question": "Will the highest temperature in Beijing be 34°C on July 26?",
+        "yes_token_id": "12956496639408126329398760430283940488064473596957081806926551540804789737754",
+        "no_token_id": "35445458351344880210196476606439068595122287399690245950680255213971570765901",
+        "daily_reward": 30.0,
+        "reward_min_size": 20.0,
+        "reward_max_spread_cents": 4.5,
+        "reported_competitiveness": 0.0,
+        "end_date": "2026-07-26T12:00:00Z",
+        "seconds_delay": 0,
+        "tick_size": 0.01,
+        "min_order_size": 5.0,
+        "neg_risk": true,
+        "tags": [],
+        "volume_24h": 487.56388300000003,
+        "liquidity": 1339.6126,
+        "displayed_spread": 0.06,
+        "fee_schedule": {
+          "rate": 0.05,
+          "exponent": 1.0,
+          "taker_only": true,
+          "rebate_rate": 0.25
+        }
+      },
+      "book": {
+        "yes_best_bid": 0.25,
+        "yes_best_ask": 0.3,
+        "no_best_bid": 0.7,
+        "no_best_ask": 0.75,
+        "yes_depth_levels": 51,
+        "no_depth_levels": 51
+      },
+      "economics": {
+        "quote": {
+          "yes_bid": 0.25,
+          "no_bid": 0.7,
+          "size": 20.0,
+          "reference_yes_mid": 0.275,
+          "distance_cents": 2.5,
+          "capital": 19.0
+        },
+        "paired_fill": {
+          "margin_per_share": 0.05,
+          "margin": 1.0
+        },
+        "one_leg_hedges": {
+          "yes_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.77,
+            "taker_fee": 0.1771,
+            "merge_pnl": -0.5771
+          },
+          "no_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.325,
+            "taker_fee": 0.21938,
+            "merge_pnl": -0.71938
+          },
+          "stress_ticks": 2,
+          "worst_completed_pnl": -0.71938,
+          "worst_loss": 0.71938,
+          "required_paired_fills_per_single_fill": 0.71938
+        },
+        "liquidity_reward_scenario": {
+          "own_yes_score": 3.950617283950617,
+          "own_no_score": 3.950617283950617,
+          "own_q_min": 3.950617283950617,
+          "visible_competition_proxy": {
+            "yes_side": 18.654814814814817,
+            "no_side": 1.1338271604938273,
+            "q_min_proxy": 6.218271604938272
+          },
+          "competition_multiplier": 3.0,
+          "static_share": 0.17476406850751486,
+          "daily_reward_if_static": 5.242922055225446,
+          "warning": "Scenario only: public books omit maker identity and future competition; reward is sampled and not guaranteed."
+        }
+      }
+    },
+    {
+      "candidate": {
+        "condition_id": "0xb82a7049d6790e2a8f88248ae0de0c9720ea756f7dbb79685a5292f082094766",
+        "question": "Will the highest temperature in Milan be 30°C on July 26?",
+        "yes_token_id": "9101472112330989711051271779538242642711949986811167917209717516232173520639",
+        "no_token_id": "105985517376509784422521290149186681161717259000746271990442566233693912033065",
+        "daily_reward": 4.0,
+        "reward_min_size": 20.0,
+        "reward_max_spread_cents": 4.5,
+        "reported_competitiveness": 0.0,
+        "end_date": "2026-07-26T12:00:00Z",
+        "seconds_delay": 0,
+        "tick_size": 0.01,
+        "min_order_size": 5.0,
+        "neg_risk": true,
+        "tags": [],
+        "volume_24h": 257.014283,
+        "liquidity": 1398.1559,
+        "displayed_spread": 0.03,
+        "fee_schedule": {
+          "rate": 0.05,
+          "exponent": 1.0,
+          "taker_only": true,
+          "rebate_rate": 0.25
+        }
+      },
+      "book": {
+        "yes_best_bid": 0.06,
+        "yes_best_ask": 0.09,
+        "no_best_bid": 0.91,
+        "no_best_ask": 0.94,
+        "yes_depth_levels": 30,
+        "no_depth_levels": 30
+      },
+      "economics": {
+        "quote": {
+          "yes_bid": 0.05,
+          "no_bid": 0.9,
+          "size": 20.0,
+          "reference_yes_mid": 0.075,
+          "distance_cents": 2.5,
+          "capital": 19.0
+        },
+        "paired_fill": {
+          "margin_per_share": 0.05,
+          "margin": 1.0
+        },
+        "one_leg_hedges": {
+          "yes_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.96,
+            "taker_fee": 0.0384,
+            "merge_pnl": -0.2384
+          },
+          "no_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.121265,
+            "taker_fee": 0.10656,
+            "merge_pnl": -0.53186
+          },
+          "stress_ticks": 2,
+          "worst_completed_pnl": -0.53186,
+          "worst_loss": 0.53186,
+          "required_paired_fills_per_single_fill": 0.53186
+        },
+        "liquidity_reward_scenario": {
+          "own_yes_score": 3.950617283950617,
+          "own_no_score": 3.950617283950617,
+          "own_q_min": 3.950617283950617,
+          "visible_competition_proxy": {
+            "yes_side": 122.84148148148148,
+            "no_side": 0.0,
+            "q_min_proxy": 0.0
+          },
+          "competition_multiplier": 3.0,
+          "static_share": 1.0,
+          "daily_reward_if_static": 4.0,
+          "warning": "Scenario only: public books omit maker identity and future competition; reward is sampled and not guaranteed."
+        }
+      }
+    },
+    {
+      "candidate": {
+        "condition_id": "0x46e3cb4cd0304c3bab92b3d66827abd5bd41fde8f86b241d0751dc55e056776e",
+        "question": "Will the highest temperature in Madrid be 33°C on July 26?",
+        "yes_token_id": "110272764967121105578901903534394677084742329908483141713413470597800582087093",
+        "no_token_id": "59644296815574955707927491811424697801565575069264168008313099866561058056443",
+        "daily_reward": 4.0,
+        "reward_min_size": 20.0,
+        "reward_max_spread_cents": 4.5,
+        "reported_competitiveness": 0.0,
+        "end_date": "2026-07-26T12:00:00Z",
+        "seconds_delay": 0,
+        "tick_size": 0.01,
+        "min_order_size": 5.0,
+        "neg_risk": true,
+        "tags": [],
+        "volume_24h": 16.313816,
+        "liquidity": 1296.0322,
+        "displayed_spread": 0.01,
+        "fee_schedule": {
+          "rate": 0.05,
+          "exponent": 1.0,
+          "taker_only": true,
+          "rebate_rate": 0.25
+        }
+      },
+      "book": {
+        "yes_best_bid": 0.07,
+        "yes_best_ask": 0.08,
+        "no_best_bid": 0.92,
+        "no_best_ask": 0.93,
+        "yes_depth_levels": 35,
+        "no_depth_levels": 35
+      },
+      "economics": {
+        "quote": {
+          "yes_bid": 0.05,
+          "no_bid": 0.9,
+          "size": 20.0,
+          "reference_yes_mid": 0.075,
+          "distance_cents": 2.5,
+          "capital": 19.0
+        },
+        "paired_fill": {
+          "margin_per_share": 0.05,
+          "margin": 1.0
+        },
+        "one_leg_hedges": {
+          "yes_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.95,
+            "taker_fee": 0.0475,
+            "merge_pnl": -0.0475
+          },
+          "no_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.12745,
+            "taker_fee": 0.11121,
+            "merge_pnl": -0.66021
+          },
+          "stress_ticks": 2,
+          "worst_completed_pnl": -0.66021,
+          "worst_loss": 0.66021,
+          "required_paired_fills_per_single_fill": 0.66021
+        },
+        "liquidity_reward_scenario": {
+          "own_yes_score": 3.950617283950617,
+          "own_no_score": 3.950617283950617,
+          "own_q_min": 3.950617283950617,
+          "visible_competition_proxy": {
+            "yes_side": 80.31802469135802,
+            "no_side": 0.0,
+            "q_min_proxy": 0.0
+          },
+          "competition_multiplier": 3.0,
+          "static_share": 1.0,
+          "daily_reward_if_static": 4.0,
+          "warning": "Scenario only: public books omit maker identity and future competition; reward is sampled and not guaranteed."
+        }
+      }
+    },
+    {
+      "candidate": {
+        "condition_id": "0x97755d2ac6125d47c10df71ef2cc084868406fc544682fee0bf8fe42f3c3eb14",
+        "question": "Will the highest temperature in Seoul be 28°C on July 26?",
+        "yes_token_id": "30507666563999546258284301434948417612071533260775177715734219433612199026117",
+        "no_token_id": "18418677146126337011440742762646293821143270643049840174366011833345401853357",
+        "daily_reward": 3.0,
+        "reward_min_size": 20.0,
+        "reward_max_spread_cents": 4.5,
+        "reported_competitiveness": 0.0,
+        "end_date": "2026-07-26T12:00:00Z",
+        "seconds_delay": 0,
+        "tick_size": 0.01,
+        "min_order_size": 5.0,
+        "neg_risk": true,
+        "tags": [],
+        "volume_24h": 135.5209,
+        "liquidity": 1224.8525,
+        "displayed_spread": 0.02,
+        "fee_schedule": {
+          "rate": 0.05,
+          "exponent": 1.0,
+          "taker_only": true,
+          "rebate_rate": 0.25
+        }
+      },
+      "book": {
+        "yes_best_bid": 0.07,
+        "yes_best_ask": 0.08,
+        "no_best_bid": 0.92,
+        "no_best_ask": 0.93,
+        "yes_depth_levels": 43,
+        "no_depth_levels": 43
+      },
+      "economics": {
+        "quote": {
+          "yes_bid": 0.05,
+          "no_bid": 0.9,
+          "size": 20.0,
+          "reference_yes_mid": 0.075,
+          "distance_cents": 2.5,
+          "capital": 19.0
+        },
+        "paired_fill": {
+          "margin_per_share": 0.05,
+          "margin": 1.0
+        },
+        "one_leg_hedges": {
+          "yes_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.9575,
+            "taker_fee": 0.04069,
+            "merge_pnl": -0.19069
+          },
+          "no_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.1075,
+            "taker_fee": 0.09594,
+            "merge_pnl": -0.24594
+          },
+          "stress_ticks": 2,
+          "worst_completed_pnl": -0.24594,
+          "worst_loss": 0.24594,
+          "required_paired_fills_per_single_fill": 0.24594
+        },
+        "liquidity_reward_scenario": {
+          "own_yes_score": 3.950617283950617,
+          "own_no_score": 3.950617283950617,
+          "own_q_min": 3.950617283950617,
+          "visible_competition_proxy": {
+            "yes_side": 105.39555555555556,
+            "no_side": 0.0,
+            "q_min_proxy": 0.0
+          },
+          "competition_multiplier": 3.0,
+          "static_share": 1.0,
+          "daily_reward_if_static": 3.0,
+          "warning": "Scenario only: public books omit maker identity and future competition; reward is sampled and not guaranteed."
+        }
+      }
+    },
+    {
+      "candidate": {
+        "condition_id": "0xb27963de5c64ed1a125cd921779e6fb0059ee6abbe18ed37c83a7115458231f4",
+        "question": "Will the highest temperature in Moscow be 20°C on July 26?",
+        "yes_token_id": "50874506415732836120398026402452495980679180193206493011287064035448354462092",
+        "no_token_id": "64429450392474645657006188201710902306399233663553081129064846556836361868451",
+        "daily_reward": 8.0,
+        "reward_min_size": 20.0,
+        "reward_max_spread_cents": 4.5,
+        "reported_competitiveness": 0.0,
+        "end_date": "2026-07-26T12:00:00Z",
+        "seconds_delay": 0,
+        "tick_size": 0.01,
+        "min_order_size": 5.0,
+        "neg_risk": true,
+        "tags": [],
+        "volume_24h": 9.18365,
+        "liquidity": 899.7842,
+        "displayed_spread": 0.23,
+        "fee_schedule": {
+          "rate": 0.05,
+          "exponent": 1.0,
+          "taker_only": true,
+          "rebate_rate": 0.25
+        }
+      },
+      "book": {
+        "yes_best_bid": 0.02,
+        "yes_best_ask": 0.25,
+        "no_best_bid": 0.75,
+        "no_best_ask": 0.98,
+        "yes_depth_levels": 38,
+        "no_depth_levels": 38
+      },
+      "economics": {
+        "quote": {
+          "yes_bid": 0.11,
+          "no_bid": 0.84,
+          "size": 20.0,
+          "reference_yes_mid": 0.135,
+          "distance_cents": 2.5,
+          "capital": 19.0
+        },
+        "paired_fill": {
+          "margin_per_share": 0.05,
+          "margin": 1.0
+        },
+        "one_leg_hedges": {
+          "yes_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 1.0,
+            "taker_fee": 0.0,
+            "merge_pnl": -2.2
+          },
+          "no_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.27,
+            "taker_fee": 0.1971,
+            "merge_pnl": -2.3971
+          },
+          "stress_ticks": 2,
+          "worst_completed_pnl": -2.3971,
+          "worst_loss": 2.3971,
+          "required_paired_fills_per_single_fill": 2.3971
+        },
+        "liquidity_reward_scenario": {
+          "own_yes_score": 3.950617283950617,
+          "own_no_score": 3.950617283950617,
+          "own_q_min": 3.950617283950617,
+          "visible_competition_proxy": {
+            "yes_side": 0.0,
+            "no_side": 0.0,
+            "q_min_proxy": 0.0
+          },
+          "competition_multiplier": 3.0,
+          "static_share": 1.0,
+          "daily_reward_if_static": 8.0,
+          "warning": "Scenario only: public books omit maker identity and future competition; reward is sampled and not guaranteed."
+        }
+      }
+    },
+    {
+      "candidate": {
+        "condition_id": "0x42ddd02d882bc2928076133f4b06e06a88a98610c1d949174c748ee57003f0a3",
+        "question": "Will the highest temperature in Munich be 28°C on July 26?",
+        "yes_token_id": "90688105446200706390969764391011373270496117560505181274245814714555364243627",
+        "no_token_id": "90300468016749224894376451887770911414936366258048944685768963501509823228439",
+        "daily_reward": 6.0,
+        "reward_min_size": 20.0,
+        "reward_max_spread_cents": 4.5,
+        "reported_competitiveness": 0.0,
+        "end_date": "2026-07-26T12:00:00Z",
+        "seconds_delay": 0,
+        "tick_size": 0.01,
+        "min_order_size": 5.0,
+        "neg_risk": true,
+        "tags": [],
+        "volume_24h": 66.5934,
+        "liquidity": 893.8295,
+        "displayed_spread": 0.03,
+        "fee_schedule": {
+          "rate": 0.05,
+          "exponent": 1.0,
+          "taker_only": true,
+          "rebate_rate": 0.25
+        }
+      },
+      "book": {
+        "yes_best_bid": 0.07,
+        "yes_best_ask": 0.1,
+        "no_best_bid": 0.9,
+        "no_best_ask": 0.93,
+        "yes_depth_levels": 33,
+        "no_depth_levels": 33
+      },
+      "economics": {
+        "quote": {
+          "yes_bid": 0.06,
+          "no_bid": 0.89,
+          "size": 20.0,
+          "reference_yes_mid": 0.085,
+          "distance_cents": 2.5,
+          "capital": 19.0
+        },
+        "paired_fill": {
+          "margin_per_share": 0.05,
+          "margin": 1.0
+        },
+        "one_leg_hedges": {
+          "yes_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.95,
+            "taker_fee": 0.0475,
+            "merge_pnl": -0.2475
+          },
+          "no_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.195,
+            "taker_fee": 0.15698,
+            "merge_pnl": -1.85698
+          },
+          "stress_ticks": 2,
+          "worst_completed_pnl": -1.85698,
+          "worst_loss": 1.85698,
+          "required_paired_fills_per_single_fill": 1.85698
+        },
+        "liquidity_reward_scenario": {
+          "own_yes_score": 3.950617283950617,
+          "own_no_score": 3.950617283950617,
+          "own_q_min": 3.950617283950617,
+          "visible_competition_proxy": {
+            "yes_side": 51.89925925925926,
+            "no_side": 0.0,
+            "q_min_proxy": 0.0
+          },
+          "competition_multiplier": 3.0,
+          "static_share": 1.0,
+          "daily_reward_if_static": 6.0,
+          "warning": "Scenario only: public books omit maker identity and future competition; reward is sampled and not guaranteed."
+        }
+      }
+    },
+    {
+      "candidate": {
+        "condition_id": "0x1f2e09851e59eedff99db6d2764088e60b67718d0a55ae75b386dcf12ed38ed6",
+        "question": "Will the highest temperature in Ankara be 21°C on July 26?",
+        "yes_token_id": "10699380065295328004387435763062267494017571958580007114239122120323654249970",
+        "no_token_id": "97720346644038515765015730503163458171961728016920785766356803717546986824063",
+        "daily_reward": 3.0,
+        "reward_min_size": 20.0,
+        "reward_max_spread_cents": 4.5,
+        "reported_competitiveness": 0.0,
+        "end_date": "2026-07-26T12:00:00Z",
+        "seconds_delay": 0,
+        "tick_size": 0.01,
+        "min_order_size": 5.0,
+        "neg_risk": true,
+        "tags": [],
+        "volume_24h": 113.75443,
+        "liquidity": 1149.0455,
+        "displayed_spread": 0.02,
+        "fee_schedule": {
+          "rate": 0.05,
+          "exponent": 1.0,
+          "taker_only": true,
+          "rebate_rate": 0.25
+        }
+      },
+      "book": {
+        "yes_best_bid": 0.06,
+        "yes_best_ask": 0.08,
+        "no_best_bid": 0.92,
+        "no_best_ask": 0.94,
+        "yes_depth_levels": 31,
+        "no_depth_levels": 31
+      },
+      "economics": {
+        "quote": {
+          "yes_bid": 0.04,
+          "no_bid": 0.9,
+          "size": 20.0,
+          "reference_yes_mid": 0.07,
+          "distance_cents": 3.0,
+          "capital": 18.8
+        },
+        "paired_fill": {
+          "margin_per_share": 0.06,
+          "margin": 1.2
+        },
+        "one_leg_hedges": {
+          "yes_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.97813,
+            "taker_fee": 0.02139,
+            "merge_pnl": -0.38399
+          },
+          "no_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.1215,
+            "taker_fee": 0.10674,
+            "merge_pnl": -0.53674
+          },
+          "stress_ticks": 2,
+          "worst_completed_pnl": -0.53674,
+          "worst_loss": 0.53674,
+          "required_paired_fills_per_single_fill": 0.4472833333333333
+        },
+        "liquidity_reward_scenario": {
+          "own_yes_score": 2.2222222222222223,
+          "own_no_score": 2.2222222222222223,
+          "own_q_min": 2.2222222222222223,
+          "visible_competition_proxy": {
+            "yes_side": 2.7888888888888888,
+            "no_side": 0.0,
+            "q_min_proxy": 0.0
+          },
+          "competition_multiplier": 3.0,
+          "static_share": 1.0,
+          "daily_reward_if_static": 3.0,
+          "warning": "Scenario only: public books omit maker identity and future competition; reward is sampled and not guaranteed."
+        }
+      }
+    },
+    {
+      "candidate": {
+        "condition_id": "0x136f4901cbb5da29eb3831a8cbca4648de0bc11935f400aa09168309b06e5652",
+        "question": "Will the highest temperature in Madrid be 30°C on July 26?",
+        "yes_token_id": "105839835296384530667637899248973698504841702395179877662468172388866606439114",
+        "no_token_id": "67167352773712950744171746993372456613671719660373621427013259803806446576475",
+        "daily_reward": 1.0,
+        "reward_min_size": 20.0,
+        "reward_max_spread_cents": 4.5,
+        "reported_competitiveness": 0.0,
+        "end_date": "2026-07-26T12:00:00Z",
+        "seconds_delay": 0,
+        "tick_size": 0.01,
+        "min_order_size": 5.0,
+        "neg_risk": true,
+        "tags": [],
+        "volume_24h": 5.1,
+        "liquidity": 1216.7077,
+        "displayed_spread": 0.01,
+        "fee_schedule": {
+          "rate": 0.05,
+          "exponent": 1.0,
+          "taker_only": true,
+          "rebate_rate": 0.25
+        }
+      },
+      "book": {
+        "yes_best_bid": 0.05,
+        "yes_best_ask": 0.06,
+        "no_best_bid": 0.94,
+        "no_best_ask": 0.95,
+        "yes_depth_levels": 33,
+        "no_depth_levels": 33
+      },
+      "economics": {
+        "quote": {
+          "yes_bid": 0.03,
+          "no_bid": 0.92,
+          "size": 20.0,
+          "reference_yes_mid": 0.055,
+          "distance_cents": 2.5,
+          "capital": 19.0
+        },
+        "paired_fill": {
+          "margin_per_share": 0.05,
+          "margin": 1.0
+        },
+        "one_leg_hedges": {
+          "yes_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.97,
+            "taker_fee": 0.0291,
+            "merge_pnl": -0.0291
+          },
+          "no_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.11415,
+            "taker_fee": 0.10112,
+            "merge_pnl": -0.78412
+          },
+          "stress_ticks": 2,
+          "worst_completed_pnl": -0.78412,
+          "worst_loss": 0.78412,
+          "required_paired_fills_per_single_fill": 0.78412
+        },
+        "liquidity_reward_scenario": {
+          "own_yes_score": 3.950617283950617,
+          "own_no_score": 3.950617283950617,
+          "own_q_min": 3.950617283950617,
+          "visible_competition_proxy": {
+            "yes_side": 82.0562962962963,
+            "no_side": 0.0,
+            "q_min_proxy": 0.0
+          },
+          "competition_multiplier": 3.0,
+          "static_share": 1.0,
+          "daily_reward_if_static": 1.0,
+          "warning": "Scenario only: public books omit maker identity and future competition; reward is sampled and not guaranteed."
+        }
+      }
+    },
+    {
+      "candidate": {
+        "condition_id": "0x1b182302925c88cce62d737fe9b21c2d2a82c9c943477d12f4c3c92138071fd1",
+        "question": "Will the highest temperature in Tel Aviv be 33°C on July 26?",
+        "yes_token_id": "95030618680901472970490309268212218464245469212768626906082503210234844735599",
+        "no_token_id": "25580725880719683280995266401549816165520162185840773751381791678701151822277",
+        "daily_reward": 1.0,
+        "reward_min_size": 20.0,
+        "reward_max_spread_cents": 4.5,
+        "reported_competitiveness": 0.0,
+        "end_date": "2026-07-26T12:00:00Z",
+        "seconds_delay": 0,
+        "tick_size": 0.01,
+        "min_order_size": 5.0,
+        "neg_risk": true,
+        "tags": [],
+        "volume_24h": 8.0512,
+        "liquidity": 1377.7838,
+        "displayed_spread": 0.11,
+        "fee_schedule": {
+          "rate": 0.05,
+          "exponent": 1.0,
+          "taker_only": true,
+          "rebate_rate": 0.25
+        }
+      },
+      "book": {
+        "yes_best_bid": 0.02,
+        "yes_best_ask": 0.13,
+        "no_best_bid": 0.87,
+        "no_best_ask": 0.98,
+        "yes_depth_levels": 28,
+        "no_depth_levels": 28
+      },
+      "economics": {
+        "quote": {
+          "yes_bid": 0.05,
+          "no_bid": 0.9,
+          "size": 20.0,
+          "reference_yes_mid": 0.075,
+          "distance_cents": 2.5,
+          "capital": 19.0
+        },
+        "paired_fill": {
+          "margin_per_share": 0.05,
+          "margin": 1.0
+        },
+        "one_leg_hedges": {
+          "yes_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 1.0,
+            "taker_fee": 0.0,
+            "merge_pnl": -1.0
+          },
+          "no_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.15,
+            "taker_fee": 0.1275,
+            "merge_pnl": -1.1275
+          },
+          "stress_ticks": 2,
+          "worst_completed_pnl": -1.1275,
+          "worst_loss": 1.1275,
+          "required_paired_fills_per_single_fill": 1.1275
+        },
+        "liquidity_reward_scenario": {
+          "own_yes_score": 3.950617283950617,
+          "own_no_score": 3.950617283950617,
+          "own_q_min": 3.950617283950617,
+          "visible_competition_proxy": {
+            "yes_side": 0.0,
+            "no_side": 0.0,
+            "q_min_proxy": 0.0
+          },
+          "competition_multiplier": 3.0,
+          "static_share": 1.0,
+          "daily_reward_if_static": 1.0,
+          "warning": "Scenario only: public books omit maker identity and future competition; reward is sampled and not guaranteed."
+        }
+      }
+    },
+    {
+      "candidate": {
+        "condition_id": "0xd727965a0e16d3bee9c5d0f38b217438b64c41eeb561235ba867496ee50b1e99",
+        "question": "Will the highest temperature in Hong Kong be 27°C on July 26?",
+        "yes_token_id": "89316705755453152877834819266544409409876545322074455803183133276907577665298",
+        "no_token_id": "94869931583705556043274547520589091576000563487394822085895710826265410346623",
+        "daily_reward": 3.0,
+        "reward_min_size": 20.0,
+        "reward_max_spread_cents": 4.5,
+        "reported_competitiveness": 0.0,
+        "end_date": "2026-07-26T12:00:00Z",
+        "seconds_delay": 0,
+        "tick_size": 0.01,
+        "min_order_size": 5.0,
+        "neg_risk": true,
+        "tags": [],
+        "volume_24h": 884.1520109999999,
+        "liquidity": 1635.9477,
+        "displayed_spread": 0.04,
+        "fee_schedule": {
+          "rate": 0.05,
+          "exponent": 1.0,
+          "taker_only": true,
+          "rebate_rate": 0.25
+        }
+      },
+      "book": {
+        "yes_best_bid": 0.05,
+        "yes_best_ask": 0.08,
+        "no_best_bid": 0.92,
+        "no_best_ask": 0.95,
+        "yes_depth_levels": 45,
+        "no_depth_levels": 45
+      },
+      "economics": {
+        "quote": {
+          "yes_bid": 0.04,
+          "no_bid": 0.91,
+          "size": 20.0,
+          "reference_yes_mid": 0.065,
+          "distance_cents": 2.5,
+          "capital": 19.0
+        },
+        "paired_fill": {
+          "margin_per_share": 0.05,
+          "margin": 1.0
+        },
+        "one_leg_hedges": {
+          "yes_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.976,
+            "taker_fee": 0.02342,
+            "merge_pnl": -0.34342
+          },
+          "no_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.11,
+            "taker_fee": 0.0979,
+            "merge_pnl": -0.4979
+          },
+          "stress_ticks": 2,
+          "worst_completed_pnl": -0.4979,
+          "worst_loss": 0.4979,
+          "required_paired_fills_per_single_fill": 0.4979
+        },
+        "liquidity_reward_scenario": {
+          "own_yes_score": 3.950617283950617,
+          "own_no_score": 3.950617283950617,
+          "own_q_min": 3.950617283950617,
+          "visible_competition_proxy": {
+            "yes_side": 71.50617283950618,
+            "no_side": 4.987654320987654,
+            "q_min_proxy": 4.987654320987654
+          },
+          "competition_multiplier": 3.0,
+          "static_share": 0.20887728459530025,
+          "daily_reward_if_static": 0.6266318537859008,
+          "warning": "Scenario only: public books omit maker identity and future competition; reward is sampled and not guaranteed."
+        }
+      }
+    },
+    {
+      "candidate": {
+        "condition_id": "0xc1d9873b7049ab0e16c76a0dd14954989e3eb3e9cbfa95ec6335581f2c001efb",
+        "question": "Will the highest temperature in Singapore be 32°C on July 26?",
+        "yes_token_id": "92663092776217650222327238867608767874586180542006398235885703195945400085217",
+        "no_token_id": "46354169729092720293102300174621402667134369269997758037710712520137277702152",
+        "daily_reward": 1.0,
+        "reward_min_size": 20.0,
+        "reward_max_spread_cents": 4.5,
+        "reported_competitiveness": 0.0,
+        "end_date": "2026-07-26T12:00:00Z",
+        "seconds_delay": 0,
+        "tick_size": 0.01,
+        "min_order_size": 5.0,
+        "neg_risk": true,
+        "tags": [],
+        "volume_24h": 143.36389,
+        "liquidity": 1143.8285,
+        "displayed_spread": 0.04,
+        "fee_schedule": {
+          "rate": 0.05,
+          "exponent": 1.0,
+          "taker_only": true,
+          "rebate_rate": 0.25
+        }
+      },
+      "book": {
+        "yes_best_bid": 0.04,
+        "yes_best_ask": 0.1,
+        "no_best_bid": 0.9,
+        "no_best_ask": 0.96,
+        "yes_depth_levels": 38,
+        "no_depth_levels": 38
+      },
+      "economics": {
+        "quote": {
+          "yes_bid": 0.04,
+          "no_bid": 0.9,
+          "size": 20.0,
+          "reference_yes_mid": 0.07,
+          "distance_cents": 3.0,
+          "capital": 18.8
+        },
+        "paired_fill": {
+          "margin_per_share": 0.06,
+          "margin": 1.2
+        },
+        "one_leg_hedges": {
+          "yes_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.98,
+            "taker_fee": 0.0196,
+            "merge_pnl": -0.4196
+          },
+          "no_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.125,
+            "taker_fee": 0.10938,
+            "merge_pnl": -0.60938
+          },
+          "stress_ticks": 2,
+          "worst_completed_pnl": -0.60938,
+          "worst_loss": 0.60938,
+          "required_paired_fills_per_single_fill": 0.5078166666666667
+        },
+        "liquidity_reward_scenario": {
+          "own_yes_score": 2.2222222222222223,
+          "own_no_score": 2.2222222222222223,
+          "own_q_min": 2.2222222222222223,
+          "visible_competition_proxy": {
+            "yes_side": 5.248765432098765,
+            "no_side": 0.6790123456790124,
+            "q_min_proxy": 0.6790123456790124
+          },
+          "competition_multiplier": 3.0,
+          "static_share": 0.5217391304347826,
+          "daily_reward_if_static": 0.5217391304347826,
+          "warning": "Scenario only: public books omit maker identity and future competition; reward is sampled and not guaranteed."
+        }
+      }
+    },
+    {
+      "candidate": {
+        "condition_id": "0x015ec22e07bdedaff930e86385a1dc389b68cdc4daefb7fd6ddb2d840cd684a9",
+        "question": "Will the highest temperature in Seoul be 32°C on July 26?",
+        "yes_token_id": "79403519143614873000439903788748107710097349643215325233049905544097527156828",
+        "no_token_id": "13845961420363202717894600985802933172407902540122647990569324476991830320290",
+        "daily_reward": 1.0,
+        "reward_min_size": 20.0,
+        "reward_max_spread_cents": 4.5,
+        "reported_competitiveness": 0.0,
+        "end_date": "2026-07-26T12:00:00Z",
+        "seconds_delay": 0,
+        "tick_size": 0.01,
+        "min_order_size": 5.0,
+        "neg_risk": true,
+        "tags": [],
+        "volume_24h": 298.458574,
+        "liquidity": 1410.8782,
+        "displayed_spread": 0.03,
+        "fee_schedule": {
+          "rate": 0.05,
+          "exponent": 1.0,
+          "taker_only": true,
+          "rebate_rate": 0.25
+        }
+      },
+      "book": {
+        "yes_best_bid": 0.04,
+        "yes_best_ask": 0.08,
+        "no_best_bid": 0.92,
+        "no_best_ask": 0.96,
+        "yes_depth_levels": 52,
+        "no_depth_levels": 52
+      },
+      "economics": {
+        "quote": {
+          "yes_bid": 0.03,
+          "no_bid": 0.91,
+          "size": 20.0,
+          "reference_yes_mid": 0.06,
+          "distance_cents": 3.0,
+          "capital": 18.8
+        },
+        "paired_fill": {
+          "margin_per_share": 0.06,
+          "margin": 1.2
+        },
+        "one_leg_hedges": {
+          "yes_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.987745,
+            "taker_fee": 0.0121,
+            "merge_pnl": -0.367
+          },
+          "no_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.10085,
+            "taker_fee": 0.09068,
+            "merge_pnl": -0.30768
+          },
+          "stress_ticks": 2,
+          "worst_completed_pnl": -0.367,
+          "worst_loss": 0.367,
+          "required_paired_fills_per_single_fill": 0.30583333333333335
+        },
+        "liquidity_reward_scenario": {
+          "own_yes_score": 2.2222222222222223,
+          "own_no_score": 2.2222222222222223,
+          "own_q_min": 2.2222222222222223,
+          "visible_competition_proxy": {
+            "yes_side": 40.68814814814815,
+            "no_side": 0.9382716049382716,
+            "q_min_proxy": 0.9382716049382716
+          },
+          "competition_multiplier": 3.0,
+          "static_share": 0.4411764705882353,
+          "daily_reward_if_static": 0.4411764705882353,
+          "warning": "Scenario only: public books omit maker identity and future competition; reward is sampled and not guaranteed."
+        }
+      }
+    },
+    {
+      "candidate": {
+        "condition_id": "0x0014b1d2aa82d747c1a689020e45f3b83a3c8ad9ce780c7817c3adcf89695f4f",
+        "question": "Will the highest temperature in Hong Kong be 32°C on July 26?",
+        "yes_token_id": "90535847756563966834824604541942026636138671848504163101406735367350809816538",
+        "no_token_id": "20989729804628314439020661155263178982731840304837338227127776921463982561937",
+        "daily_reward": 1.0,
+        "reward_min_size": 20.0,
+        "reward_max_spread_cents": 4.5,
+        "reported_competitiveness": 0.0,
+        "end_date": "2026-07-26T12:00:00Z",
+        "seconds_delay": 0,
+        "tick_size": 0.01,
+        "min_order_size": 5.0,
+        "neg_risk": true,
+        "tags": [],
+        "volume_24h": 323.45974999999993,
+        "liquidity": 1397.121,
+        "displayed_spread": 0.01,
+        "fee_schedule": {
+          "rate": 0.05,
+          "exponent": 1.0,
+          "taker_only": true,
+          "rebate_rate": 0.25
+        }
+      },
+      "book": {
+        "yes_best_bid": 0.05,
+        "yes_best_ask": 0.06,
+        "no_best_bid": 0.94,
+        "no_best_ask": 0.95,
+        "yes_depth_levels": 46,
+        "no_depth_levels": 46
+      },
+      "economics": {
+        "quote": {
+          "yes_bid": 0.03,
+          "no_bid": 0.92,
+          "size": 20.0,
+          "reference_yes_mid": 0.055,
+          "distance_cents": 2.5,
+          "capital": 19.0
+        },
+        "paired_fill": {
+          "margin_per_share": 0.05,
+          "margin": 1.0
+        },
+        "one_leg_hedges": {
+          "yes_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.97,
+            "taker_fee": 0.0291,
+            "merge_pnl": -0.0291
+          },
+          "no_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.0875,
+            "taker_fee": 0.07984,
+            "merge_pnl": -0.22984
+          },
+          "stress_ticks": 2,
+          "worst_completed_pnl": -0.22984,
+          "worst_loss": 0.22984,
+          "required_paired_fills_per_single_fill": 0.22984
+        },
+        "liquidity_reward_scenario": {
+          "own_yes_score": 3.950617283950617,
+          "own_no_score": 3.950617283950617,
+          "own_q_min": 3.950617283950617,
+          "visible_competition_proxy": {
+            "yes_side": 160.13975308641974,
+            "no_side": 2.2222222222222223,
+            "q_min_proxy": 2.2222222222222223
+          },
+          "competition_multiplier": 3.0,
+          "static_share": 0.37209302325581395,
+          "daily_reward_if_static": 0.37209302325581395,
+          "warning": "Scenario only: public books omit maker identity and future competition; reward is sampled and not guaranteed."
+        }
+      }
+    },
+    {
+      "candidate": {
+        "condition_id": "0xaacec75e897752f063863d439348fb3d520e05a78b2b7c35876ef89031c44178",
+        "question": "Will the highest temperature in London be 23°C on July 26?",
+        "yes_token_id": "102817708825668249270528748214510834550701116729414879302328618932934837749738",
+        "no_token_id": "18093626861840816541851549758164163016010331824461836219736591869996154486613",
+        "daily_reward": 10.0,
+        "reward_min_size": 20.0,
+        "reward_max_spread_cents": 4.5,
+        "reported_competitiveness": 0.0,
+        "end_date": "2026-07-26T12:00:00Z",
+        "seconds_delay": 0,
+        "tick_size": 0.001,
+        "min_order_size": 5.0,
+        "neg_risk": true,
+        "tags": [],
+        "volume_24h": 381.118738,
+        "liquidity": 1365.48914,
+        "displayed_spread": 0.024,
+        "fee_schedule": {
+          "rate": 0.05,
+          "exponent": 1.0,
+          "taker_only": true,
+          "rebate_rate": 0.25
+        }
+      },
+      "book": {
+        "yes_best_bid": 0.082,
+        "yes_best_ask": 0.105,
+        "no_best_bid": 0.895,
+        "no_best_ask": 0.918,
+        "yes_depth_levels": 62,
+        "no_depth_levels": 62
+      },
+      "economics": {
+        "quote": {
+          "yes_bid": 0.071,
+          "no_bid": 0.884,
+          "size": 20.0,
+          "reference_yes_mid": 0.0935,
+          "distance_cents": 2.25,
+          "capital": 19.1
+        },
+        "paired_fill": {
+          "margin_per_share": 0.045,
+          "margin": 0.9
+        },
+        "one_leg_hedges": {
+          "yes_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.92,
+            "taker_fee": 0.0736,
+            "merge_pnl": 0.1064
+          },
+          "no_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.107,
+            "taker_fee": 0.09555,
+            "merge_pnl": 0.08445
+          },
+          "stress_ticks": 2,
+          "worst_completed_pnl": 0.08445,
+          "worst_loss": 0.0,
+          "required_paired_fills_per_single_fill": 0.0
+        },
+        "liquidity_reward_scenario": {
+          "own_yes_score": 5.0,
+          "own_no_score": 5.0,
+          "own_q_min": 5.0,
+          "visible_competition_proxy": {
+            "yes_side": 199.793987654321,
+            "no_side": 55.818518518518516,
+            "q_min_proxy": 55.818518518518516
+          },
+          "competition_multiplier": 3.0,
+          "static_share": 0.02899297725662006,
+          "daily_reward_if_static": 0.2899297725662006,
+          "warning": "Scenario only: public books omit maker identity and future competition; reward is sampled and not guaranteed."
+        }
+      }
+    },
+    {
+      "candidate": {
+        "condition_id": "0x2efac1ac42cd6bea89e207e8d105b127a6bb3544a990a5ab9e35d41de390d8f8",
+        "question": "Will the highest temperature in London be 28°C on July 26?",
+        "yes_token_id": "70668976259019671944389155259109527230806490513019973458894506392386196628001",
+        "no_token_id": "20257079148633296775949229799081528595189495432411555942230858985157041670965",
+        "daily_reward": 5.0,
+        "reward_min_size": 20.0,
+        "reward_max_spread_cents": 4.5,
+        "reported_competitiveness": 0.0,
+        "end_date": "2026-07-26T12:00:00Z",
+        "seconds_delay": 0,
+        "tick_size": 0.01,
+        "min_order_size": 5.0,
+        "neg_risk": true,
+        "tags": [],
+        "volume_24h": 277.59396599999997,
+        "liquidity": 1288.3763,
+        "displayed_spread": 0.03,
+        "fee_schedule": {
+          "rate": 0.05,
+          "exponent": 1.0,
+          "taker_only": true,
+          "rebate_rate": 0.25
+        }
+      },
+      "book": {
+        "yes_best_bid": 0.03,
+        "yes_best_ask": 0.06,
+        "no_best_bid": 0.94,
+        "no_best_ask": 0.97,
+        "yes_depth_levels": 35,
+        "no_depth_levels": 35
+      },
+      "economics": {
+        "quote": {
+          "yes_bid": 0.02,
+          "no_bid": 0.93,
+          "size": 20.0,
+          "reference_yes_mid": 0.045,
+          "distance_cents": 2.5,
+          "capital": 19.0
+        },
+        "paired_fill": {
+          "margin_per_share": 0.05,
+          "margin": 1.0
+        },
+        "one_leg_hedges": {
+          "yes_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.99,
+            "taker_fee": 0.0099,
+            "merge_pnl": -0.2099
+          },
+          "no_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.08,
+            "taker_fee": 0.0736,
+            "merge_pnl": -0.2736
+          },
+          "stress_ticks": 2,
+          "worst_completed_pnl": -0.2736,
+          "worst_loss": 0.2736,
+          "required_paired_fills_per_single_fill": 0.2736
+        },
+        "liquidity_reward_scenario": {
+          "own_yes_score": 3.950617283950617,
+          "own_no_score": 3.950617283950617,
+          "own_q_min": 3.950617283950617,
+          "visible_competition_proxy": {
+            "yes_side": 109.60049382716049,
+            "no_side": 29.609876543209875,
+            "q_min_proxy": 29.609876543209875
+          },
+          "competition_multiplier": 3.0,
+          "static_share": 0.04258037044922291,
+          "daily_reward_if_static": 0.21290185224611455,
+          "warning": "Scenario only: public books omit maker identity and future competition; reward is sampled and not guaranteed."
+        }
+      }
+    },
+    {
+      "candidate": {
+        "condition_id": "0x24b3f1d80e14506933ac75cbbdfa9d58b53cad42ae8de025c90de51bcfa1c538",
+        "question": "Will the highest temperature in Paris be 22°C on July 26?",
+        "yes_token_id": "22997642460126782880173588233454342464719910922535553643298074908848009550646",
+        "no_token_id": "102046044843149453569675472562807612542770081254219466498163883482011734286481",
+        "daily_reward": 2.0,
+        "reward_min_size": 20.0,
+        "reward_max_spread_cents": 4.5,
+        "reported_competitiveness": 0.0,
+        "end_date": "2026-07-26T12:00:00Z",
+        "seconds_delay": 0,
+        "tick_size": 0.01,
+        "min_order_size": 5.0,
+        "neg_risk": true,
+        "tags": [],
+        "volume_24h": 202.337013,
+        "liquidity": 1486.0936,
+        "displayed_spread": 0.02,
+        "fee_schedule": {
+          "rate": 0.05,
+          "exponent": 1.0,
+          "taker_only": true,
+          "rebate_rate": 0.25
+        }
+      },
+      "book": {
+        "yes_best_bid": 0.05,
+        "yes_best_ask": 0.07,
+        "no_best_bid": 0.93,
+        "no_best_ask": 0.95,
+        "yes_depth_levels": 43,
+        "no_depth_levels": 43
+      },
+      "economics": {
+        "quote": {
+          "yes_bid": 0.03,
+          "no_bid": 0.91,
+          "size": 20.0,
+          "reference_yes_mid": 0.06,
+          "distance_cents": 3.0,
+          "capital": 18.8
+        },
+        "paired_fill": {
+          "margin_per_share": 0.06,
+          "margin": 1.2
+        },
+        "one_leg_hedges": {
+          "yes_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.97,
+            "taker_fee": 0.0291,
+            "merge_pnl": -0.0291
+          },
+          "no_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.09505,
+            "taker_fee": 0.08602,
+            "merge_pnl": -0.18702
+          },
+          "stress_ticks": 2,
+          "worst_completed_pnl": -0.18702,
+          "worst_loss": 0.18702,
+          "required_paired_fills_per_single_fill": 0.15585
+        },
+        "liquidity_reward_scenario": {
+          "own_yes_score": 2.2222222222222223,
+          "own_no_score": 2.2222222222222223,
+          "own_q_min": 2.2222222222222223,
+          "visible_competition_proxy": {
+            "yes_side": 81.74148148148149,
+            "no_side": 7.564814814814815,
+            "q_min_proxy": 7.564814814814815
+          },
+          "competition_multiplier": 3.0,
+          "static_share": 0.08918617614269789,
+          "daily_reward_if_static": 0.17837235228539577,
+          "warning": "Scenario only: public books omit maker identity and future competition; reward is sampled and not guaranteed."
+        }
+      }
+    },
+    {
+      "candidate": {
+        "condition_id": "0x224123b39b1d74fcd96f4b5ed1c12ff6d3a16d7fcb4e00adeadecadce6b479c6",
+        "question": "Will the highest temperature in Shanghai be 33°C on July 26?",
+        "yes_token_id": "87892282521469118709711883478374712377396594777021565892221970083866577930559",
+        "no_token_id": "54353938467386274028705068869790492221166765766020342726054990778828756442926",
+        "daily_reward": 3.0,
+        "reward_min_size": 20.0,
+        "reward_max_spread_cents": 4.5,
+        "reported_competitiveness": 0.0,
+        "end_date": "2026-07-26T12:00:00Z",
+        "seconds_delay": 0,
+        "tick_size": 0.01,
+        "min_order_size": 5.0,
+        "neg_risk": true,
+        "tags": [],
+        "volume_24h": 170.701883,
+        "liquidity": 1483.8509,
+        "displayed_spread": 0.02,
+        "fee_schedule": {
+          "rate": 0.05,
+          "exponent": 1.0,
+          "taker_only": true,
+          "rebate_rate": 0.25
+        }
+      },
+      "book": {
+        "yes_best_bid": 0.05,
+        "yes_best_ask": 0.07,
+        "no_best_bid": 0.93,
+        "no_best_ask": 0.95,
+        "yes_depth_levels": 42,
+        "no_depth_levels": 42
+      },
+      "economics": {
+        "quote": {
+          "yes_bid": 0.03,
+          "no_bid": 0.91,
+          "size": 20.0,
+          "reference_yes_mid": 0.06,
+          "distance_cents": 3.0,
+          "capital": 18.8
+        },
+        "paired_fill": {
+          "margin_per_share": 0.06,
+          "margin": 1.2
+        },
+        "one_leg_hedges": {
+          "yes_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.97,
+            "taker_fee": 0.0291,
+            "merge_pnl": -0.0291
+          },
+          "no_fills_first": {
+            "complete": true,
+            "filled_size": 20.0,
+            "average_hedge_price": 0.09,
+            "taker_fee": 0.0819,
+            "merge_pnl": -0.0819
+          },
+          "stress_ticks": 2,
+          "worst_completed_pnl": -0.0819,
+          "worst_loss": 0.0819,
+          "required_paired_fills_per_single_fill": 0.06825
+        },
+        "liquidity_reward_scenario": {
+          "own_yes_score": 2.2222222222222223,
+          "own_no_score": 2.2222222222222223,
+          "own_q_min": 2.2222222222222223,
+          "visible_competition_proxy": {
+            "yes_side": 62.762962962962966,
+            "no_side": 49.46925925925926,
+            "q_min_proxy": 49.46925925925926
+          },
+          "competition_multiplier": 3.0,
+          "static_share": 0.014752852832916566,
+          "daily_reward_if_static": 0.0442585584987497,
+          "warning": "Scenario only: public books omit maker identity and future competition; reward is sampled and not guaranteed."
+        }
+      }
+    }
+  ],
+  "rejected": [
+    {
+      "condition_id": "0x629197ba540aacd4898bd83ef416d9f91d3b37d2069d54e3420282e83f030d39",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0x6088563c76736b6f3bcd060cfe1cd3c85163fe69e0c700acde835d0bafea8530",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0x60617e4e1d7af74f40e9870d523736697476d1d776b5fab48f781314cec6ff92",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0x28879dc7fc2def0ff6e93f1404c28ab4efbe26cff0fced57609267efa4df82f5",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0xe057a8782a30d59faf28c18c3203c284cbf9d643e18c0b9264aa801c4674a007",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0x17d443efcce8fbbd3f445eeb531c76efe38f600e599191f1dd0ac4cbdc97fbf4",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0x3f4f99318506c85157f8edf0cf254608251cf6965b103e21b3400d68289dada3",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0xbe41fb1073a7549323239d95885c5d727e71af2849e62618ba43dbad4993cc7d",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0x154770abb31c500d33f0e21d708f6c2f813a99887407884aba6077012caabe23",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0x60ac689fb0fdc46a03ca32d5b3b6ee5236020092c9118689c2ec9b94490c16dc",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0x647e041f59b81f2dca903b2ae4fc8850ba0cd7429c52a764653a0698c4ec0a6b",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0xdb08cfd2c2567e6d68cd470b17185915fe967f14d363ce8db44667e977387cc9",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0xcab42f1e5482fe21127101311fc6627724cd843dda8bfa5152d3e3d9515809fb",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0x99c51dc956386a90412a13baf12580f7c893a21b0e35f9a29a9fd0283e1d8e47",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0x429d986412d194f565f2d08e0d5b17d0a3fddf852b7d4c4c684859c8ed933e2d",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0x5d69c8595d4361f28ef520504c81096e2de5e8089250e0d33851b94ebcecef28",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0x6398ccc85cfdbb59fd11ac5ee9a74b09e2b82b5a28c3520d07e78a7a53d38cfe",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0xf84326cd412f8ab34b4cad49eece1568bc6be2eeaaba6ba163baaf4b769c266a",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0x0c955a4b16bc1d30a573a1eb30feebd740e3e1cf17bb104192d8cb0d41aea80e",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0xe956f56c498bb6bfac601a90bd969e34a31cc03741587d920d87796c9cdc04a7",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0x59072e2f638c1b3c73d3ad1ef1bd59648e2c358f6458cd9641bece87f9cfa6c7",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0xc9c22a947edb8998b2a7d2302d93d5562be344dcdcb594a33be8e5e7791b9fa7",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0x6cb36a89eade2e0ea779c25024539ccb40eeee4b0d3c031ce3775a48b719a4ce",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0x19d9e49a6acceb48ee55422cc19c238e566c5764732f20da43541f9d70456127",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0x2c3d92e0659c9f4f759df29f37a7b600c079d5cf0e3033119def00d8c8909c85",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0xcf95d0a2f39298f771fd0b7f2e7e4d70dc0c8ecd6168e55e60306c82f8a44a4e",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0x485f504d9b55bec987e1caf87f3f0e8e77789ad06071c84edaf444ee5263baf4",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0xfe2c3f0d79f08a31fff642c4a3771882f4bb3d2251ba26fde7087a1ad5452324",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0x9fc3c2b0a594cbd4b8a98231d27014cc794b5a9cf85b11a08912aa1bffda20fb",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0x9d5ab091f37300782b71bd4f10bb775342cc7427a145eb3f7c521387975b649f",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0x6a05145604797f69472790ae78b54be85ab0d6aa313412756f116d43a672c6fa",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0xa74b24f5d52415ad43854411118470ad5b392f8836e118669376a292f48ffee7",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0x2b77226ca855c94eea5042469f2677f5b92e8ec29d02c52fdeef63016a006e09",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0x86fadd7c1dbb3aca2a91dfef930f63b16aeaecda8cadbc6dfc173d0114d602ac",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0xf9cec848d062a77702b3dc419827e841ef866aad89c5dfa51fcb7555e6267294",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0x73779eadb919fbeec73c3707ed56b2b6546568d7abc65496fcb8fed11a0c55de",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0x860ba7dc65390ed53aea6ecb5559cb5c50b3ec1b5fc86724a9edd3499812f968",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0x71e46ac38d8081df5b507160fa40d55ea3fed3e3e3e336ddfee1eb80bc78efcf",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0x6d74b40018842ba3caff95b763ad739719ee58404b014e75de50f1b2155e0c57",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0xae15f9ba08f7f7c49744f0a7f8274e80e1f10af6405a17be2d0595e155485047",
+      "reason": "ValueError: inactive, closed, expired, or not accepting orders"
+    },
+    {
+      "condition_id": "0x5351053f917747e5dcb1c96ec48a9b8a9428faed10e17d6a3b5a9e43d3fa9ca6",
+      "reason": "low_24h_volume"
+    }
+  ],
+  "warnings": [
+    "Rank is hypothesis triage, not expected PnL.",
+    "Reward share uses public aggregate depth without maker identity.",
+    "No fill probability is assumed; one-leg hedge loss is reported.",
+    "No order was submitted and no credential was read."
+  ]
+}

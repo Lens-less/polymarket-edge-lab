@@ -1,7 +1,9 @@
-"""
-Real data backtest - profit depends on spread difference.
+"""Deprecated synthetic scenario seeded from one current market snapshot.
 
-Key: Our profit = (our_spread - market_spread) * position_size * num_fills
+Despite the historical filename, ``generate_data`` creates a deterministic
+trigonometric price path.  This module is retained only to reproduce old
+results; it is not real historical data and must not be used as profitability
+evidence.  Use ``scripts/run_edge_lab.py replay`` for public L2 replay.
 """
 
 import json
@@ -148,6 +150,12 @@ if __name__ == "__main__":
     parser.add_argument('--spread', type=float, default=0.01)
     parser.add_argument('--snapshots', type=int, default=500)
     args = parser.parse_args()
+
+    print(
+        "WARNING: synthetic path seeded from one current snapshot; not a real "
+        "historical backtest and not profitability evidence.",
+        file=sys.stderr,
+    )
 
     markets = fetch_markets()
     market = markets[0]

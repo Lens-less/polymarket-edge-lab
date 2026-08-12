@@ -1,0 +1,90 @@
+{
+  "accepted_snapshot_count": 0,
+  "analyses": [
+    {
+      "accepted_snapshot_count": 0,
+      "analysis_id": "standard-neg-risk-buy-all-yes",
+      "candidate_count": 590,
+      "classification_counts": {
+        "blocked": 590
+      },
+      "duration_ms": 2538,
+      "failure_counts": {
+        "conversion_output_unavailable": 1,
+        "depth_insufficient": 32,
+        "index_mapping_missing": 590,
+        "standard_neg_risk_provenance_unverified": 590
+      },
+      "finished_at_ms": 1784891571981,
+      "mode": "standard_neg_risk",
+      "started_at_ms": 1784891569443
+    },
+    {
+      "accepted_snapshot_count": 0,
+      "analysis_id": "cross-market-logic-buy-all-yes",
+      "candidate_count": 589,
+      "classification_counts": {
+        "blocked": 589
+      },
+      "duration_ms": 1170,
+      "failure_counts": {
+        "book_neg_risk_mismatch": 589
+      },
+      "finished_at_ms": 1784891573151,
+      "mode": "logic",
+      "started_at_ms": 1784891571981
+    }
+  ],
+  "analysis_count": 2,
+  "book_acquisition": {
+    "book_count": 22,
+    "evidence_receipt_window_ms": "2606",
+    "future_server_timestamp_count": 0,
+    "max_rtt_ms": "751.019000",
+    "observed_at_ms": 1784891569435,
+    "receipt_window_ms": "2605.813000",
+    "request_window_ms": "2625.037000",
+    "server_timestamp_window_ms": "7574"
+  },
+  "candidate_count": 1179,
+  "classification_counts": {
+    "blocked": 1179
+  },
+  "config_sha256": "b1a12985dc2f943781f734630aaab2ab8e12629ea8dc7ac139c7454ff8459286",
+  "event_id": "741266",
+  "experiment_id": "weather-nyc-2026-07-25-standard-neg-risk",
+  "failure_counts": {
+    "book_neg_risk_mismatch": 589,
+    "conversion_output_unavailable": 1,
+    "depth_insufficient": 32,
+    "index_mapping_missing": 590,
+    "standard_neg_risk_provenance_unverified": 590
+  },
+  "finished_at_ms": 1784891573151,
+  "implementation_provenance": {
+    "byteorder": "little",
+    "file_sha256": {
+      "scripts/run_constraint_experiment.py": "cd8c76342f8ee594d94b7729112886787d99b21ba906b15ea8304fa42d07bde2",
+      "src/edge_lab/compatibility.py": "8945c207603d176cc0d21de2448e63bf315c6626ded32b2727efe47ec7ec06a3",
+      "src/edge_lab/constraint_experiment.py": "09df82ba3955f59420023aff9dc4b2029ffd849b66bf020dfdbe178a3712236d",
+      "src/edge_lab/constraints.py": "4e881c5df880283a9eebec7f74cbd4d3370b59f1fd88d17350bf41df979f3b10",
+      "src/edge_lab/models.py": "dc88dea62f12307bb97904c4f9b89c933596ac66bf25cb2022033b369be6e511",
+      "src/edge_lab/network_safety.py": "f22f783b784b3bc27ca6f206f17f914194b3fe21ae72f2ed7d3f9b9cacaa5946",
+      "src/edge_lab/sources.py": "36d413a517ee95c06a274ccdf5bedd6d6eff4ae5bc2af080a9dc38ff1c959966"
+    },
+    "python_implementation": "CPython",
+    "python_version": "3.12.13",
+    "requests_version": "2.34.2",
+    "schema_version": "edge-lab-implementation-provenance.v1"
+  },
+  "network_used": true,
+  "new_orders_disabled": true,
+  "profit_claim": "none_snapshot_diagnostics_only",
+  "public_get_only": true,
+  "replay_lineage": null,
+  "run_id": "current-20260724-standard-v6-security-final",
+  "schema_version": "edge-lab-constraint-experiment-summary.v2",
+  "source_failure_codes": [],
+  "source_response_count": 45,
+  "started_at_ms": 1784891561139
+}

@@ -1,0 +1,64 @@
+{
+  "schema_version": "edge-lab-forward-capture-config.v1",
+  "data_root": "/Users/lens/Downloads/polymarket-mm-bot/data/btc_5m_15m_relative_value_2026-08-12/pilot-1786531500",
+  "asset_ids": [
+    "30092784185481317076471860721874996582532049111258180636908505741823166570787",
+    "8610761497610773477840348309636035502239874432203054279860842142527137587283",
+    "61029918534435086820480709195164596304480768291684463200264780049672645649170",
+    "115631350791933096528165313537835308380816056845431407574053933224579455044171"
+  ],
+  "condition_ids": [
+    "0xef6b2011eda9d6a4d597badf53f2a419cbd7a0bc312a1502b11619cc49bdadd0",
+    "0xeeb0d35f6aadcde69fe69f14a37ff87b1d648e1f930e15be0d93255e77ef8fdb"
+  ],
+  "rule_market_ids": ["3511187", "3511696"],
+  "rtds_subscriptions": [
+    {
+      "topic": "crypto_prices",
+      "type": "update"
+    },
+    {
+      "topic": "crypto_prices_twap_thirty",
+      "type": "update",
+      "filters": "{\"symbol\":\"btc/usd\"}"
+    },
+    {
+      "topic": "crypto_prices_twap_sixty",
+      "type": "update",
+      "filters": "{\"symbol\":\"btc/usd\"}"
+    }
+  ],
+  "snapshot_intervals": {
+    "gamma": 30,
+    "clob": 5,
+    "rules": 30
+  },
+  "checkpoint_every_records": 100,
+  "max_records_per_batch": 5000,
+  "gamma_page_limit": 10,
+  "gamma_max_pages": 1,
+  "reward_page_limit": 1,
+  "reward_max_pages": 1,
+  "targets": [
+    {
+      "horizon": "15m",
+      "slug": "btc-updown-15m-1786530600",
+      "market_id": "3511187",
+      "condition_id": "0xef6b2011eda9d6a4d597badf53f2a419cbd7a0bc312a1502b11619cc49bdadd0",
+      "opens_at_ms": 1786530600000,
+      "closes_at_ms": 1786531500000,
+      "resolution_source": "https://data.chain.link/streams/btc-usd-twap-60s-streams",
+      "twap_window_seconds": 60
+    },
+    {
+      "horizon": "5m",
+      "slug": "btc-updown-5m-1786531200",
+      "market_id": "3511696",
+      "condition_id": "0xeeb0d35f6aadcde69fe69f14a37ff87b1d648e1f930e15be0d93255e77ef8fdb",
+      "opens_at_ms": 1786531200000,
+      "closes_at_ms": 1786531500000,
+      "resolution_source": "https://data.chain.link/streams/btc-usd-twap-30s-streams",
+      "twap_window_seconds": 30
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "schema_version": "btc-twap-relative-value-continuous-service.v1",
+  "data_root": "/Users/lens/Downloads/polymarket-mm-bot/data/btc_5m_15m_relative_value_continuous_2026-08-12",
+  "research_root": "/Users/lens/Downloads/polymarket-mm-bot/research/btc_5m_15m_relative_value_continuous_2026-08-12",
+  "preregistration_path": "/Users/lens/Downloads/polymarket-mm-bot/research/btc_5m_15m_relative_value_2026-08-12/PREREGISTRATION.json",
+  "settlement_grace_seconds": 360,
+  "retry_seconds": 30,
+  "status_interval_seconds": 15,
+  "minimum_free_disk_bytes": 12884901888,
+  "max_history_roots": 1,
+  "decision_tau_seconds": 60,
+  "seed_report_paths": [
+    "/Users/lens/Downloads/polymarket-mm-bot/research/btc_5m_15m_relative_value_2026-08-12/PILOT_REPORT_1786529700.json",
+    "/Users/lens/Downloads/polymarket-mm-bot/research/btc_5m_15m_relative_value_2026-08-12/PILOT_REPORT_1786530600.json",
+    "/Users/lens/Downloads/polymarket-mm-bot/research/btc_5m_15m_relative_value_2026-08-12/PILOT_REPORT_1786531500.json"
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "artifact_sha256": {
+    "candidates.jsonl": "511386e2963a3b5562b324a6592b6fa4cc3592d27fb2d6646e696a604dbfd5e5",
+    "config.snapshot.json": "05b0defa1883418ea22f8ea5813400c008148b1b68063a4dd5a00ece06362a45",
+    "graphs.json": "0841ac501fa2b0368a8171aa02507b3fafa9767ef30bd5caa3b27e6050a61fdf",
+    "source_manifest.json": "1924661eb6ac8a106215bfe6d0f4f6850e65e99633ee8f2d76b0a2817155cd7f",
+    "summary.json": "448d8c4a2109a3c247fdfb59552cd1d1359792cdfef3c75b0ca6a37dd536b942"
+  },
+  "command_shape": "python scripts/run_constraint_experiment.py --config <config> --output-root <new-directory> --run-id current-20260724-augmented-v3-provenance [--proxy <loopback-http-url>]",
+  "config_sha256": "ada1416cf031a3a83e55431c52452be96184deae2a473fc6f82843009800f802",
+  "economic_boundary": "snapshot screening only; no atomic-fill, finality, or settlement claim",
+  "implementation_provenance": {
+    "byteorder": "little",
+    "file_sha256": {
+      "scripts/run_constraint_experiment.py": "10e17e9361cfc899844b04492d272a23aae2f03092db06aa20e83b4087bdf02f",
+      "src/edge_lab/compatibility.py": "c023325b1a536c81ffee780d7b4e80964f8ba679f2e41543c28654b9f86ecfe6",
+      "src/edge_lab/constraint_experiment.py": "51cea33c99cd436b029946ab464d717b49e382a3de0ebf6517e06fc98f15c340",
+      "src/edge_lab/constraints.py": "4e881c5df880283a9eebec7f74cbd4d3370b59f1fd88d17350bf41df979f3b10",
+      "src/edge_lab/models.py": "dc88dea62f12307bb97904c4f9b89c933596ac66bf25cb2022033b369be6e511",
+      "src/edge_lab/sources.py": "9b43d98c7ffa7a47a25506385059fa461563c8b4a7215d88833329b318634ad7"
+    },
+    "python_implementation": "CPython",
+    "python_version": "3.12.13",
+    "requests_version": "2.34.2",
+    "schema_version": "edge-lab-implementation-provenance.v1"
+  },
+  "network_boundary": "public Gamma/CLOB HTTPS GET only; no authenticated routes",
+  "network_used": true,
+  "offline_replay_command_shape": "python scripts/run_constraint_experiment.py --config <source-run>/config.snapshot.json --replay-source-run <source-run> --output-root <new-directory> --run-id <new-unique-run-id>",
+  "run_id": "current-20260724-augmented-v3-provenance",
+  "schema_version": "edge-lab-constraint-experiment-config.v2"
+}

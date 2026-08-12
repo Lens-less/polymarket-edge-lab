@@ -1,0 +1,502 @@
+[
+  {
+    "pnl": 3141057.0265540187,
+    "profileImage": "",
+    "proxyWallet": "0x095fbca2e0eaf0c9841005135427e1e0117190b2",
+    "rank": "1",
+    "userName": "muchobliged",
+    "verifiedBadge": false,
+    "vol": 7301624.277016001,
+    "xUsername": ""
+  },
+  {
+    "pnl": 697202.0854724369,
+    "profileImage": "",
+    "proxyWallet": "0x0346afae2603313d2bbee96b628536c8cbe352a5",
+    "rank": "2",
+    "userName": "GoalLineGhost",
+    "verifiedBadge": false,
+    "vol": 9673091.133951,
+    "xUsername": ""
+  },
+  {
+    "pnl": 652085.8536794507,
+    "profileImage": "",
+    "proxyWallet": "0x84cfffc3f16dcc353094de30d4a45226eccd2f63",
+    "rank": "3",
+    "userName": "mooseborzoi",
+    "verifiedBadge": false,
+    "vol": 13108939.437532002,
+    "xUsername": ""
+  },
+  {
+    "pnl": 616649.9549786797,
+    "profileImage": "",
+    "proxyWallet": "0x204f72f35326db932158cba6adff0b9a1da95e14",
+    "rank": "4",
+    "userName": "swisstony",
+    "verifiedBadge": false,
+    "vol": 33816933.641712,
+    "xUsername": ""
+  },
+  {
+    "pnl": 529667.261447934,
+    "profileImage": "",
+    "proxyWallet": "0x709e8dcb133555794decc598e07f2c923b8366f5",
+    "rank": "5",
+    "userName": "0xd4aa6f8e91cfea29b66a48ebff52814",
+    "verifiedBadge": false,
+    "vol": 3142246.6337859994,
+    "xUsername": ""
+  },
+  {
+    "pnl": 520452.48077989067,
+    "profileImage": "",
+    "proxyWallet": "0x83720820a8aa6c3f20ad71850e7a1a17d16c5223",
+    "rank": "6",
+    "userName": "Jsram",
+    "verifiedBadge": false,
+    "vol": 2889935.9012010004,
+    "xUsername": ""
+  },
+  {
+    "pnl": 417998.35315332504,
+    "profileImage": "",
+    "proxyWallet": "0x67542c3219b37fd1610aad290676ff91cdbfe3bc",
+    "rank": "7",
+    "userName": "maz26",
+    "verifiedBadge": false,
+    "vol": 5168916.511167999,
+    "xUsername": ""
+  },
+  {
+    "pnl": 395370.66455902305,
+    "profileImage": "",
+    "proxyWallet": "0x7c1ee865a785de4c00ee90ed86a38489fb8bbab3",
+    "rank": "8",
+    "userName": "CandleHammerDrums",
+    "verifiedBadge": false,
+    "vol": 2072962.298134,
+    "xUsername": ""
+  },
+  {
+    "pnl": 384402.96616519557,
+    "profileImage": "",
+    "proxyWallet": "0x9ee8bbc36d378af72e5f6b8e2ea2eb67c05a89de",
+    "rank": "9",
+    "userName": "Qpkwks",
+    "verifiedBadge": false,
+    "vol": 1897945.0221599997,
+    "xUsername": ""
+  },
+  {
+    "pnl": 371595.8651350067,
+    "profileImage": "",
+    "proxyWallet": "0xfea31bc088000ff909be1dfd8d0e3f2c7ef2d227",
+    "rank": "10",
+    "userName": "ndb1",
+    "verifiedBadge": false,
+    "vol": 1814477.8330150004,
+    "xUsername": ""
+  },
+  {
+    "pnl": 318643.95322509913,
+    "profileImage": "",
+    "proxyWallet": "0x349606c1b77f3ba668879cbc9347f15a44cf8fc4",
+    "rank": "11",
+    "userName": "skk1ch",
+    "verifiedBadge": false,
+    "vol": 3745491.6926779994,
+    "xUsername": "skk1ch"
+  },
+  {
+    "pnl": 276254.2258796749,
+    "profileImage": "https://polymarket-upload.s3.us-east-2.amazonaws.com/profile-image-1412628-bdef78cc-bdb4-47a7-9d61-4060afbac81d.png",
+    "proxyWallet": "0xa49becb692927d455924583b5e3e5788246f4c40",
+    "rank": "12",
+    "userName": "sleepy-panda",
+    "verifiedBadge": false,
+    "vol": 1103934.8028789998,
+    "xUsername": ""
+  },
+  {
+    "pnl": 261335.49505164532,
+    "profileImage": "",
+    "proxyWallet": "0x924379a79c64b77ad5816ad362122a5f6228658e",
+    "rank": "13",
+    "userName": "Kch-Temp",
+    "verifiedBadge": false,
+    "vol": 1011131.3686299999,
+    "xUsername": ""
+  },
+  {
+    "pnl": 254355.2780753402,
+    "profileImage": "",
+    "proxyWallet": "0x9f2fe025f84839ca81dd8e0338892605702d2ca8",
+    "rank": "14",
+    "userName": "surfandturf",
+    "verifiedBadge": false,
+    "vol": 3818665.145365,
+    "xUsername": ""
+  },
+  {
+    "pnl": 252802.7951985391,
+    "profileImage": "https://polymarket-upload.s3.us-east-2.amazonaws.com/profile-image-5270322-1627dc07-3ce6-48cb-8791-2c12959cbad5.png",
+    "proxyWallet": "0x5c3a1a602848565bb16165fcd460b00c3d43020b",
+    "rank": "15",
+    "userName": "Crystiano",
+    "verifiedBadge": false,
+    "vol": 1988612.1132460001,
+    "xUsername": ""
+  },
+  {
+    "pnl": 252089.17298626283,
+    "profileImage": "",
+    "proxyWallet": "0x5257aa84944804bbb0c718814ebebeeafaca3e2a",
+    "rank": "16",
+    "userName": "NO-GOD-PLEASE-NO",
+    "verifiedBadge": false,
+    "vol": 1445051.8512129998,
+    "xUsername": "SpreadCore_xyz"
+  },
+  {
+    "pnl": 246867.18191701884,
+    "profileImage": "",
+    "proxyWallet": "0x5e9458202b5817a72cf81105ec8a30e6f3705ba1",
+    "rank": "17",
+    "userName": "",
+    "verifiedBadge": false,
+    "vol": 1227815.351296,
+    "xUsername": ""
+  },
+  {
+    "pnl": 241095.1338260694,
+    "profileImage": "",
+    "proxyWallet": "0xf5fabdcdc6eb6d9765a228824f16cca9c91f62df",
+    "rank": "18",
+    "userName": "palegrit",
+    "verifiedBadge": false,
+    "vol": 1455439.3872449999,
+    "xUsername": ""
+  },
+  {
+    "pnl": 233425.98946918585,
+    "profileImage": "",
+    "proxyWallet": "0x032eb1bc893940263ad0b01889f262fc232f2a9e",
+    "rank": "19",
+    "userName": "purplegatto",
+    "verifiedBadge": false,
+    "vol": 1803246.362351,
+    "xUsername": ""
+  },
+  {
+    "pnl": 227809.39814929274,
+    "profileImage": "",
+    "proxyWallet": "0xc41d736bded9ed1accd6a44235039266219774fd",
+    "rank": "20",
+    "userName": "0xC41D736bDed9ED1acCD6A44235039266219774fD-1777101352681",
+    "verifiedBadge": false,
+    "vol": 1463656.615328,
+    "xUsername": ""
+  },
+  {
+    "pnl": 222829.9669467852,
+    "profileImage": "",
+    "proxyWallet": "0x32b484581fc5606de9c1e43af4636b6be9bc8b21",
+    "rank": "21",
+    "userName": "0x32b484581fc5606dE9C1e43AF4636b6Be9BC8B21-1774274303653",
+    "verifiedBadge": false,
+    "vol": 4449039.328714,
+    "xUsername": ""
+  },
+  {
+    "pnl": 199174.96262502996,
+    "profileImage": "https://polymarket-upload.s3.us-east-2.amazonaws.com/profile-image-1567750-84001aec-310a-470f-9584-67dfcaa61267.png",
+    "proxyWallet": "0x2005d16a84ceefa912d4e380cd32e7ff827875ea",
+    "rank": "22",
+    "userName": "RN1",
+    "verifiedBadge": false,
+    "vol": 12221594.247054994,
+    "xUsername": ""
+  },
+  {
+    "pnl": 187275.1228001652,
+    "profileImage": "",
+    "proxyWallet": "0x28059b3fb7af7ed76d83dc9121bbb72ec7cf76ed",
+    "rank": "23",
+    "userName": "RISK-IS-NEVER-OK",
+    "verifiedBadge": false,
+    "vol": 435882.78050300013,
+    "xUsername": ""
+  },
+  {
+    "pnl": 182376.2431516437,
+    "profileImage": "",
+    "proxyWallet": "0x53757615de1c42b83f893b79d4241a009dc2aeea",
+    "rank": "24",
+    "userName": "",
+    "verifiedBadge": false,
+    "vol": 1727668.530036,
+    "xUsername": ""
+  },
+  {
+    "pnl": 179303.78115311073,
+    "profileImage": "",
+    "proxyWallet": "0xa8e089ade142c95538e06196e09c85681112ad50",
+    "rank": "25",
+    "userName": "Wannac",
+    "verifiedBadge": false,
+    "vol": 1281313.2335839998,
+    "xUsername": ""
+  },
+  {
+    "pnl": 179207.7890595569,
+    "profileImage": "",
+    "proxyWallet": "0xdd882a70680633a75516f6ed5fce443e2d96dadb",
+    "rank": "26",
+    "userName": "MeiGuNiuBi",
+    "verifiedBadge": false,
+    "vol": 826625.5754079999,
+    "xUsername": ""
+  },
+  {
+    "pnl": 167036.66016995016,
+    "profileImage": "",
+    "proxyWallet": "0x7d787c72c8317046fda90814a93c87fc192529a5",
+    "rank": "27",
+    "userName": "MD14",
+    "verifiedBadge": false,
+    "vol": 598445.739564,
+    "xUsername": ""
+  },
+  {
+    "pnl": 166921.3479865275,
+    "profileImage": "",
+    "proxyWallet": "0x83255595ba1fadd2e734cb30a0fb8110301a19cc",
+    "rank": "28",
+    "userName": "Mind.The.Gap",
+    "verifiedBadge": false,
+    "vol": 2956520.0393540002,
+    "xUsername": ""
+  },
+  {
+    "pnl": 143750.1526788482,
+    "profileImage": "",
+    "proxyWallet": "0x37ee3bceb4fbf028fb90d1463a4a5354da02f86f",
+    "rank": "29",
+    "userName": "0x37ee3BCEb4fBf028fb90D1463A4a5354Da02f86F-1781205947489",
+    "verifiedBadge": false,
+    "vol": 17738119.059189003,
+    "xUsername": ""
+  },
+  {
+    "pnl": 138861.3653057646,
+    "profileImage": "",
+    "proxyWallet": "0x4bff30af91642dc7d2b19a8664378fe55c45fc26",
+    "rank": "30",
+    "userName": "Sassy-Bucket",
+    "verifiedBadge": false,
+    "vol": 1826339.0842189998,
+    "xUsername": ""
+  },
+  {
+    "pnl": 135223.0591610099,
+    "profileImage": "",
+    "proxyWallet": "0xc29e1cef4256f423e5a3e713d886bd25f98da2ca",
+    "rank": "31",
+    "userName": "shutitfatty",
+    "verifiedBadge": false,
+    "vol": 782568.31,
+    "xUsername": ""
+  },
+  {
+    "pnl": 132941.57535089538,
+    "profileImage": "",
+    "proxyWallet": "0xe0ac9addc56c19e771a0524f5d172af4d7a476ff",
+    "rank": "32",
+    "userName": "quanterty",
+    "verifiedBadge": false,
+    "vol": 1330577.653325,
+    "xUsername": ""
+  },
+  {
+    "pnl": 132595.84111440586,
+    "profileImage": "",
+    "proxyWallet": "0x37e053beabee77acc15e641dfe8e395b2b2d024e",
+    "rank": "33",
+    "userName": "ChinesePro",
+    "verifiedBadge": false,
+    "vol": 1187116.371374,
+    "xUsername": ""
+  },
+  {
+    "pnl": 131697.3699495302,
+    "profileImage": "https://polymarket-upload.s3.us-east-2.amazonaws.com/profile-image-3960422-fafa399d-3e3f-487a-adca-5d9b29933d76.png",
+    "proxyWallet": "0xa6a872ded6039c17a9e5c81b706c04e76fbeba32",
+    "rank": "34",
+    "userName": "eyeseethefuture",
+    "verifiedBadge": false,
+    "vol": 1039269.3220009999,
+    "xUsername": "eyecanseethefut"
+  },
+  {
+    "pnl": 123415.2514339097,
+    "profileImage": "",
+    "proxyWallet": "0xa6d188fb70c2e2e9ad411c42c02379ed3020286a",
+    "rank": "35",
+    "userName": "zhuz632",
+    "verifiedBadge": false,
+    "vol": 574556.2767769999,
+    "xUsername": ""
+  },
+  {
+    "pnl": 121436.25863691518,
+    "profileImage": "",
+    "proxyWallet": "0xbc43c8bfbc4d77c2fc9011adad38ba43b88996d3",
+    "rank": "36",
+    "userName": "0xBc43c8bfBC4d77c2FC9011adaD38Ba43b88996d3-1765231687816",
+    "verifiedBadge": false,
+    "vol": 890466.8463099999,
+    "xUsername": ""
+  },
+  {
+    "pnl": 121084.49524737813,
+    "profileImage": "",
+    "proxyWallet": "0xfaa2b54347bd9a9f62d6e4bfb2d3180da53de80a",
+    "rank": "37",
+    "userName": "easymoney9",
+    "verifiedBadge": false,
+    "vol": 395658.034316,
+    "xUsername": ""
+  },
+  {
+    "pnl": 120136.01147518074,
+    "profileImage": "",
+    "proxyWallet": "0xd1ed12197b7dc22dede923727e9b714024dbd7cb",
+    "rank": "38",
+    "userName": "curie",
+    "verifiedBadge": false,
+    "vol": 1727715.9768979999,
+    "xUsername": ""
+  },
+  {
+    "pnl": 116852.9847321418,
+    "profileImage": "",
+    "proxyWallet": "0x9703676286b93c2eca71ca96e8757104519a69c2",
+    "rank": "39",
+    "userName": "AnonymousUsername",
+    "verifiedBadge": false,
+    "vol": 3154138.0950229997,
+    "xUsername": ""
+  },
+  {
+    "pnl": 116638.442738,
+    "profileImage": "",
+    "proxyWallet": "0x384b622131b8897c3e431d5003c82cf7d8f07d78",
+    "rank": "40",
+    "userName": "robban888",
+    "verifiedBadge": false,
+    "vol": 238037.63824099995,
+    "xUsername": ""
+  },
+  {
+    "pnl": 115624.10200195193,
+    "profileImage": "",
+    "proxyWallet": "0x162ca4c5249987872fea1e15c846d7fe80316c47",
+    "rank": "41",
+    "userName": "VD721lsj4938Dk388",
+    "verifiedBadge": false,
+    "vol": 255158.63,
+    "xUsername": ""
+  },
+  {
+    "pnl": 103282.40254249796,
+    "profileImage": "https://polymarket-upload.s3.us-east-2.amazonaws.com/profile-image-8679090-8b9e5509-6300-4f10-a413-44a4266eb6eb.png",
+    "proxyWallet": "0xa40778fb8d0dba8a24a99c7d23511af263faca38",
+    "rank": "42",
+    "userName": "MrBlobby",
+    "verifiedBadge": false,
+    "vol": 641892.294794,
+    "xUsername": ""
+  },
+  {
+    "pnl": 103178.5561295303,
+    "profileImage": "https://polymarket-upload.s3.us-east-2.amazonaws.com/profile-image-127255-792bc95e-3338-4e06-895d-b275e6ddd6e6.jpg",
+    "proxyWallet": "0xcf6c5492124794394dd9eac46498a8babbe47e66",
+    "rank": "43",
+    "userName": "one8tyfive",
+    "verifiedBadge": false,
+    "vol": 704057.5583859999,
+    "xUsername": "one8tyfive"
+  },
+  {
+    "pnl": 101656.29422797973,
+    "profileImage": "https://polymarket-upload.s3.us-east-2.amazonaws.com/profile-image-4779007-3abe2159-0729-4850-868f-cc716f041ad1.gif",
+    "proxyWallet": "0xe72bb501df5306c75c89383d48a1e81073fbb0a0",
+    "rank": "44",
+    "userName": "norrisfan",
+    "verifiedBadge": false,
+    "vol": 938406.435862,
+    "xUsername": "BitalikWuterin"
+  },
+  {
+    "pnl": 101560.27655488894,
+    "profileImage": "",
+    "proxyWallet": "0x56acab44cfca2e88bb9b3406890aea7bfa0cd77e",
+    "rank": "45",
+    "userName": "dv-pm",
+    "verifiedBadge": false,
+    "vol": 716643.376109,
+    "xUsername": ""
+  },
+  {
+    "pnl": 99635.58639467694,
+    "profileImage": "",
+    "proxyWallet": "0x85f031d069de300055900c4055c1baeb6bde3f67",
+    "rank": "46",
+    "userName": "RJW1",
+    "verifiedBadge": false,
+    "vol": 269689.61450900004,
+    "xUsername": ""
+  },
+  {
+    "pnl": 99247.79880938833,
+    "profileImage": "",
+    "proxyWallet": "0x0c787cc2962ee6464414da592b892c3886e077f1",
+    "rank": "47",
+    "userName": "bbb17367162806",
+    "verifiedBadge": false,
+    "vol": 394231.824348,
+    "xUsername": ""
+  },
+  {
+    "pnl": 95106.85032600816,
+    "profileImage": "",
+    "proxyWallet": "0x26437896ed9dfeb2f69765edcafe8fdceaab39ae",
+    "rank": "48",
+    "userName": "Latina",
+    "verifiedBadge": false,
+    "vol": 252648.77,
+    "xUsername": "latinaXBT"
+  },
+  {
+    "pnl": 91677.81435760926,
+    "profileImage": "",
+    "proxyWallet": "0x8fbb3c32496d4bcff8f456c3342f90edaaa09a17",
+    "rank": "49",
+    "userName": "diooson",
+    "verifiedBadge": false,
+    "vol": 706063.874429,
+    "xUsername": ""
+  },
+  {
+    "pnl": 90942.67962694052,
+    "profileImage": "",
+    "proxyWallet": "0xbc1b1e935cf5a06f9378fe2b249338649dc29d59",
+    "rank": "50",
+    "userName": "shijiebeifacai",
+    "verifiedBadge": false,
+    "vol": 1049247.776462,
+    "xUsername": ""
+  }
+]

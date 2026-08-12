@@ -1,0 +1,11 @@
+[
+  {
+    "analysis_id": "augmented-neg-risk-fail-closed",
+    "failure_codes": [
+      "resolution_source_missing"
+    ],
+    "graph_hash": "1dc0d6621658134c0557c7b52d9eacf70ba3d8b568078588b04e8cc6d0f4b1d1",
+    "mode": "augmented_neg_risk",
+    "state_count": 0
+  }
+]

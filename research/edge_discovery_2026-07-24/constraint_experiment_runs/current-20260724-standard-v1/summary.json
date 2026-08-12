@@ -1,0 +1,27 @@
+{
+  "accepted_snapshot_count": 0,
+  "analysis_count": 2,
+  "candidate_count": 1177,
+  "classification_counts": {
+    "blocked": 1177
+  },
+  "config_sha256": "bd579525d12a2e063801ca982e9c0c91b6dbaf78617d0086affc151f33a3b865",
+  "event_id": "741266",
+  "experiment_id": "weather-nyc-2026-07-25-standard-neg-risk",
+  "failure_counts": {
+    "book_neg_risk_mismatch": 588,
+    "conversion_output_unavailable": 1,
+    "depth_insufficient": 32,
+    "index_mapping_missing": 589,
+    "stale_or_unsynced_books": 589
+  },
+  "finished_at_ms": 1784888572030,
+  "new_orders_disabled": true,
+  "profit_claim": "none_snapshot_diagnostics_only",
+  "public_get_only": true,
+  "run_id": "current-20260724-standard-v1",
+  "schema_version": "edge-lab-constraint-experiment-summary.v1",
+  "source_failure_codes": [],
+  "source_response_count": 45,
+  "started_at_ms": 1784888555801
+}

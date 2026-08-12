@@ -1,0 +1,90 @@
+{
+  "schema_version": "btc-5m-15m-relative-value-preregistration.v3",
+  "frozen_at": "2026-08-12T13:08:56Z",
+  "strategy_spec": {
+    "path": "/Users/lens/Downloads/polymarket_btc_5m_15m_volatility_relative_value_paper_strategy.md",
+    "sha256": "706abcfd725b3411db2e6c74073553721db8d1d201f36e3b62d8a253b10b53b4"
+  },
+  "repository_head": "7384299ec7f33c86c0f37d58f594dacdb59cdd5d",
+  "scope": {
+    "asset": "BTC",
+    "horizons": ["5m", "15m"],
+    "pair_rule": "same_expiry_only",
+    "settlement_regime": "chainlink_twap_30s_5m_and_60s_15m",
+    "paper_only": true,
+    "live_orders_disabled": true,
+    "prospective_only_after": "2026-08-12T13:08:56Z"
+  },
+  "frozen_strategy": {
+    "decision_tau_seconds": [240, 180, 120, 60],
+    "tau_min_seconds": 45,
+    "tau_max_seconds": 240,
+    "max_spread_each_leg": "0.03",
+    "max_chainlink_staleness_ms": 5000,
+    "chainlink_staleness_change_reason": "Two independent pre-v0.2 live captures had 2000ms source age and sub-536ms receipt age at the frozen tick; 1500ms rejected the normal publication cadence before any edge was evaluated.",
+    "max_book_staleness_ms": 750,
+    "max_clock_drift_ms": 100,
+    "clock_sync": {
+      "source": "SNTP time.apple.com",
+      "measurement_timing": "before_each_capture",
+      "receipt_time_correction": "corrected_received_at_ms = raw_received_at_ms + measured_clock_offset_ms",
+      "maximum_measurement_uncertainty_ms": 100,
+      "maximum_measurement_age_seconds": 1200,
+      "system_clock_mutation": false,
+      "freeze_reason": "A pre-v0.3 read-only SNTP diagnostic measured the local clock about 292ms behind UTC with about 51ms uncertainty; raw local receipt timestamps would otherwise violate the frozen 100ms causal-clock gate before edge evaluation."
+    },
+    "book_replay": "full_book_anchor_plus_target_price_changes_top_reconciled",
+    "persisted_book_cadence_ms": 250,
+    "forward_vol_method": "ewma_regime",
+    "distribution_method": "standardized_residual_bootstrap",
+    "monte_carlo_paths": 20000,
+    "calibration": "isotonic_train_only",
+    "development_calibration_minimum_points_per_horizon": 20,
+    "development_shadow_uses_raw_probabilities": true,
+    "development_shadow_is_qualified_evidence": false,
+    "execution_mode": "conservative_taker",
+    "taker_delay_ms_when_itode": 250,
+    "max_leg_delay_ms": 750,
+    "minimum_net_expected_pnl_per_pair": "0.015",
+    "uncertainty_multiplier": "1.25",
+    "paper_bankroll": "10000",
+    "pair_risk_usdc": "25",
+    "max_same_expiry_risk_usdc": "100",
+    "max_total_open_risk_usdc": "250",
+    "primary_exit": "hold_to_settlement"
+  },
+  "split_policy": {
+    "method": "chronological_walk_forward",
+    "shuffle": false,
+    "train_days": 5,
+    "validation_days": 1,
+    "test_days": 1,
+    "parameters_selected_on": "train_and_validation_only",
+    "test_is_locked": true,
+    "pre_v03_data_use": "operational cadence and prior opening-boundary diagnostics only; never v0.3 PnL"
+  },
+  "promotion_gates": {
+    "minimum_resolved_markets": 2000,
+    "minimum_simulated_trades": 500,
+    "minimum_explainable_fills": 500,
+    "phase0_market_coverage_minimum": "0.995",
+    "unknown_resolution_mapping_count": 0,
+    "oos_brier_must_beat_market_probability": true,
+    "oos_expected_calibration_error_maximum": "0.05",
+    "oos_net_pnl_must_be_positive": true,
+    "bootstrap_confidence": "0.95",
+    "bootstrap_mean_net_pnl_lower_bound_must_exceed": "0",
+    "maximum_single_event_pnl_share": "0.20",
+    "fees_depth_delay_partial_fills_and_legging_required": true,
+    "direction_exposure_must_be_below_single_leg": true,
+    "signal_strength_net_ev_monotonicity_required": true
+  },
+  "fail_closed": [
+    "Development shadow PnL is reported separately and can never populate qualified_net_pnl.",
+    "No midpoint fills or current-book substitutions for delayed execution.",
+    "No missing fee, delay, depth, Chainlink boundary, settlement, or clock-sync value is imputed.",
+    "SNTP is queried read-only; the system clock is never changed.",
+    "No live orders, credentials, signing, authenticated endpoint, or chain write.",
+    "Tests passing or a small positive shadow sample is not profitability evidence."
+  ]
+}

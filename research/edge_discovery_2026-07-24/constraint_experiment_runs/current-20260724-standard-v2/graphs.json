@@ -1,0 +1,18 @@
+[
+  {
+    "analysis_id": "standard-neg-risk-buy-all-yes",
+    "failure_codes": [
+      "index_mapping_missing"
+    ],
+    "graph_hash": "92842f736a0201b67c397f2ef6f0f5e2f14383da5de8bee1239e2055193665f4",
+    "mode": "standard_neg_risk",
+    "state_count": 0
+  },
+  {
+    "analysis_id": "cross-market-logic-buy-all-yes",
+    "failure_codes": [],
+    "graph_hash": "509dae5c3ff556b6b0356a21c1e5191859c0d33d42a81327fad7d95b2e061b3e",
+    "mode": "logic",
+    "state_count": 11
+  }
+]

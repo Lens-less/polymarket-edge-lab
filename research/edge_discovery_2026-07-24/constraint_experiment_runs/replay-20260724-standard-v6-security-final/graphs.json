@@ -1,0 +1,62 @@
+[
+  {
+    "analysis_id": "standard-neg-risk-buy-all-yes",
+    "constraint_provenance": [
+      {
+        "constraint_id": "weather-exactly-one-range",
+        "evidence": [
+          "constraint-claim:weather-exactly-one-range:sha256:a501a1ff6549d5c26a12cc93d1cb38a8d5cfe38e28e1113472730a5ff6bce435",
+          "gamma-event:741266:market-set-sha256:fd521566eeee927c5feac4fb764101318e9e5d44f9900d3b026ae4b2d8129fd2",
+          "gamma_event:sha256:1f1cc48b3fdc117733bc75e20dc656013454a61470570950280a30f61678c7c9",
+          "gamma:sha256:1475bd8df9e1490d9667910cc33b6654dc8d6c557f569b8027e124cfc12324a3",
+          "gamma:sha256:a5d89a8ba65d955209df6a6e7b016d650fb28dec68d91a2e1234e724d5308c72",
+          "gamma:sha256:f5b295e76ab4599de8265e638c6a7ffa4b78aca27588403f8fcd690ab94d4312",
+          "gamma:sha256:c6a64e618780e493dbc12318619b60e9e093c4c8fbe02865e83898bd4608a29e",
+          "gamma:sha256:dda309c093db39a2154baf90a6aa69613fd5e80a5019388be4a38d698b055b65",
+          "gamma:sha256:76f774fb3e22c487056adc454968c186c2691c6cda626ab3f395861aba04ea57",
+          "gamma:sha256:5e3d1ab43e2b03dedf823001446d8825b92d338764f59188ecc6e238a915e2b6",
+          "gamma:sha256:e3f5bf0edb23589c1b916fe306ac1cbfab5f855c25272a4e36255fe3d1ca2f53",
+          "gamma:sha256:8d05bc7e1f729f09a6cc030eb9a1669b40af45ad77d0834f30c3cd1b9a279da3",
+          "gamma:sha256:b55fc2eaa27c2f28d8b0b8138e79e72ebcbc68b3f3ba42370728011c40f729cf",
+          "gamma:sha256:c4d5e872f824f9e52b1b8b269c682a45fd6d25ef31e73fb33ecc18a7afb8b5e0"
+        ],
+        "verified": false
+      }
+    ],
+    "failure_codes": [
+      "index_mapping_missing"
+    ],
+    "graph_hash": "f288bf22c94919a1466271284b01cb67cdc089056205d4c4ff8db3d7a45a5f05",
+    "mode": "standard_neg_risk",
+    "state_count": 0
+  },
+  {
+    "analysis_id": "cross-market-logic-buy-all-yes",
+    "constraint_provenance": [
+      {
+        "constraint_id": "weather-exactly-one-range",
+        "evidence": [
+          "constraint-claim:weather-exactly-one-range:sha256:a501a1ff6549d5c26a12cc93d1cb38a8d5cfe38e28e1113472730a5ff6bce435",
+          "gamma-event:741266:market-set-sha256:fd521566eeee927c5feac4fb764101318e9e5d44f9900d3b026ae4b2d8129fd2",
+          "gamma_event:sha256:1f1cc48b3fdc117733bc75e20dc656013454a61470570950280a30f61678c7c9",
+          "gamma:sha256:1475bd8df9e1490d9667910cc33b6654dc8d6c557f569b8027e124cfc12324a3",
+          "gamma:sha256:a5d89a8ba65d955209df6a6e7b016d650fb28dec68d91a2e1234e724d5308c72",
+          "gamma:sha256:f5b295e76ab4599de8265e638c6a7ffa4b78aca27588403f8fcd690ab94d4312",
+          "gamma:sha256:c6a64e618780e493dbc12318619b60e9e093c4c8fbe02865e83898bd4608a29e",
+          "gamma:sha256:dda309c093db39a2154baf90a6aa69613fd5e80a5019388be4a38d698b055b65",
+          "gamma:sha256:76f774fb3e22c487056adc454968c186c2691c6cda626ab3f395861aba04ea57",
+          "gamma:sha256:5e3d1ab43e2b03dedf823001446d8825b92d338764f59188ecc6e238a915e2b6",
+          "gamma:sha256:e3f5bf0edb23589c1b916fe306ac1cbfab5f855c25272a4e36255fe3d1ca2f53",
+          "gamma:sha256:8d05bc7e1f729f09a6cc030eb9a1669b40af45ad77d0834f30c3cd1b9a279da3",
+          "gamma:sha256:b55fc2eaa27c2f28d8b0b8138e79e72ebcbc68b3f3ba42370728011c40f729cf",
+          "gamma:sha256:c4d5e872f824f9e52b1b8b269c682a45fd6d25ef31e73fb33ecc18a7afb8b5e0"
+        ],
+        "verified": true
+      }
+    ],
+    "failure_codes": [],
+    "graph_hash": "c1d0441bbdecd1fffc21dc2a96b0bbe7cb7f1cde9fd7cc444996a2cfb0857564",
+    "mode": "logic",
+    "state_count": 11
+  }
+]
