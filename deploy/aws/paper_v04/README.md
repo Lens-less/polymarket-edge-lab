@@ -32,6 +32,11 @@ The bootstrap requires an immutable Git commit:
 DEPLOY_REF=<40-character-commit-sha> bash deploy/aws/paper_v04/bootstrap_amazon_linux.sh
 ```
 
+For a private repository, a source archive generated from that immutable commit
+may be extracted into `/opt/poly-mm` with the same 40-character SHA stored in
+`/opt/poly-mm/.deployment-revision`; the bootstrap verifies that marker instead
+of persisting Git credentials on the instance.
+
 Acceptance checks:
 
 1. `systemctl status polymm-btc-twap-paper-v04.service --no-pager`

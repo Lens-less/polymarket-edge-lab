@@ -148,5 +148,10 @@ def test_bootstrap_script_keeps_paper_safety_and_chrony_setup_local() -> None:
     assert "dnf install" in bootstrap_text
     assert "python3.11" in bootstrap_text
     assert "apt-get" not in bootstrap_text
+    assert (
+        'DEPLOYMENT_REVISION_PATH="${INSTALL_ROOT}/.deployment-revision"'
+        in bootstrap_text
+    )
+    assert "neither a Git checkout nor a verified source archive" in bootstrap_text
     for forbidden in ("credential", "secret", "private_key", "wallet", "sign"):
         assert forbidden not in bootstrap_text.casefold()

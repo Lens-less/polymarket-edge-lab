@@ -9,6 +9,7 @@ SERVICE_USER="${SERVICE_USER:-polybot}"
 SERVICE_GROUP="${SERVICE_GROUP:-polybot}"
 CONFIG_PATH="${INSTALL_ROOT}/research/btc_5m_15m_relative_value_paper_v04_linux_2026-08-13/SERVICE_CONFIG.json"
 PREREG_PATH="${INSTALL_ROOT}/research/btc_5m_15m_relative_value_paper_v04_linux_2026-08-13/PREREGISTRATION.json"
+DEPLOYMENT_REVISION_PATH="${INSTALL_ROOT}/.deployment-revision"
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "Run as root." >&2
@@ -55,17 +56,19 @@ PY
 systemctl enable --now chronyd.service
 systemctl restart chronyd.service
 
-if [[ -e "${INSTALL_ROOT}" && ! -d "${INSTALL_ROOT}/.git" ]]; then
-  echo "${INSTALL_ROOT} exists but is not a Git checkout." >&2
-  exit 1
-fi
-if [[ ! -d "${INSTALL_ROOT}/.git" ]]; then
+if [[ ! -e "${INSTALL_ROOT}" ]]; then
   git clone "${REPO_URL}" "${INSTALL_ROOT}"
 fi
-
-git -C "${INSTALL_ROOT}" fetch --tags --prune origin
-git -C "${INSTALL_ROOT}" checkout --detach "${DEPLOY_REF}"
-test "$(git -C "${INSTALL_ROOT}" rev-parse HEAD)" = "${DEPLOY_REF}"
+if [[ -d "${INSTALL_ROOT}/.git" ]]; then
+  git -C "${INSTALL_ROOT}" fetch --tags --prune origin
+  git -C "${INSTALL_ROOT}" checkout --detach "${DEPLOY_REF}"
+  test "$(git -C "${INSTALL_ROOT}" rev-parse HEAD)" = "${DEPLOY_REF}"
+elif [[ -f "${DEPLOYMENT_REVISION_PATH}" ]]; then
+  test "$(tr -d '\r\n' <"${DEPLOYMENT_REVISION_PATH}")" = "${DEPLOY_REF}"
+else
+  echo "${INSTALL_ROOT} is neither a Git checkout nor a verified source archive." >&2
+  exit 1
+fi
 
 python3.11 -m venv "${INSTALL_ROOT}/.venv"
 "${INSTALL_ROOT}/.venv/bin/pip" install --upgrade pip
