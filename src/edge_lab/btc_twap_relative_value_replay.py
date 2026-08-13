@@ -28,6 +28,7 @@ from .btc_twap_relative_value import (
     SameExpiryPair,
     StrategyConfig,
     TwapMarketContract,
+    decide_pair_trade,
     decide_pair_trade_shadow,
     execute_pair_paper,
     settle_pair_paper_execution,
@@ -142,12 +143,10 @@ def paper_execution_diagnostics(
         if execution.unwind_leg is None
         else execution.unwind_leg.filled_quantity
     )
-    second_leg_fill_ratio = (
-        None
-        if first_filled <= 0
-        else second_filled / first_filled
+    second_leg_fill_ratio = None if first_filled <= 0 else second_filled / first_filled
+    initial_second_leg_shortfall_quantity = max(
+        Decimal(0), first_filled - second_filled
     )
-    initial_second_leg_shortfall_quantity = max(Decimal(0), first_filled - second_filled)
     residual_unhedged_quantity = execution.unhedged_quantity
     residual_unhedged_max_loss_usdc = residual_unhedged_quantity
     terminal_residual_classification = _terminal_residual_classification(
@@ -162,12 +161,9 @@ def paper_execution_diagnostics(
         execution.status is PairExecutionStatus.FAILED_UNHEDGED
         and terminal_residual_classification == "material"
     )
-    material_second_leg_failure = (
-        initial_second_leg_shortfall_quantity > 0
-        and (
-            second_leg_fill_ratio is None
-            or second_leg_fill_ratio < _SUBSTANTIAL_SECOND_LEG_FILL_RATIO
-        )
+    material_second_leg_failure = initial_second_leg_shortfall_quantity > 0 and (
+        second_leg_fill_ratio is None
+        or second_leg_fill_ratio < _SUBSTANTIAL_SECOND_LEG_FILL_RATIO
     )
     first_running = Decimal(0)
     second_running = Decimal(0)
@@ -231,9 +227,7 @@ def paper_execution_diagnostics(
         ),
         "transient_unhedged_exposure_duration_ms": transient_unhedged_duration_ms,
         "residual_unhedged_usdc": _decimal_text(residual_unhedged_max_loss_usdc),
-        "transient_naked_exposure_peak_quantity": _decimal_text(
-            peak_unhedged_quantity
-        ),
+        "transient_naked_exposure_peak_quantity": _decimal_text(peak_unhedged_quantity),
         "transient_naked_exposure_peak_usdc": _decimal_text(peak_unhedged_quantity),
         "transient_naked_exposure_duration_ms": transient_unhedged_duration_ms,
     }
@@ -303,9 +297,12 @@ def _levels(value: Any) -> dict[Decimal, Decimal] | None:
             return None
         price = _decimal(item.get("price"))
         size = _decimal(item.get("size"))
-        if price is None or size is None or not Decimal(0) <= price <= Decimal(
-            1
-        ) or size <= 0:
+        if (
+            price is None
+            or size is None
+            or not Decimal(0) <= price <= Decimal(1)
+            or size <= 0
+        ):
             return None
         result[price] = size
     return result
@@ -365,8 +362,7 @@ class CausalBookReplay:
     ) -> CausalBookReplay:
         frozen_tokens = dict(tokens)
         if not frozen_tokens or any(
-            token_id != token.token_id
-            for token_id, token in frozen_tokens.items()
+            token_id != token.token_id for token_id, token in frozen_tokens.items()
         ):
             raise ValueError("tokens must map each token_id to matching metadata")
         if isinstance(receipt_clock_offset_ms, bool) or not isinstance(
@@ -394,11 +390,7 @@ class CausalBookReplay:
             )
             source_at_ms = _source_ms(payload)
             source_event_id = str(record.get("record_id") or "")
-            if (
-                received_at_ms is None
-                or source_at_ms is None
-                or not source_event_id
-            ):
+            if received_at_ms is None or source_at_ms is None or not source_event_id:
                 continue
             ordered.append(
                 (
@@ -500,10 +492,7 @@ class CausalBookReplay:
 
         return cls(
             observations_by_token=MappingProxyType(
-                {
-                    token_id: tuple(values)
-                    for token_id, values in observations.items()
-                }
+                {token_id: tuple(values) for token_id, values in observations.items()}
             )
         )
 
@@ -543,9 +532,7 @@ class CausalBookReplay:
         eligible = [
             item
             for item in self.observations_by_token.get(token_id, ())
-            if not_before_ms
-            <= max(item.source_at_ms, item.received_at_ms)
-            <= deadline
+            if not_before_ms <= max(item.source_at_ms, item.received_at_ms) <= deadline
         ]
         return eligible[0] if eligible else None
 
@@ -676,9 +663,7 @@ class PairPaperCycleEvaluation:
         }
 
 
-def _contract_for_token(
-    pair: SameExpiryPair, token_id: str
-) -> TwapMarketContract:
+def _contract_for_token(pair: SameExpiryPair, token_id: str) -> TwapMarketContract:
     for contract in (pair.market_5, pair.market_15):
         if token_id in {contract.up_token_id, contract.down_token_id}:
             return contract
@@ -716,6 +701,67 @@ def evaluate_shadow_paper_cycle(
 ) -> PairPaperCycleEvaluation:
     """Run the uncalibrated development track on causal executable books."""
 
+    return _evaluate_paper_cycle(
+        pair=pair,
+        settlement_state=settlement_state,
+        distribution=distribution,
+        replay=replay,
+        health=health,
+        config=config,
+        market_5_up=market_5_up,
+        market_15_up=market_15_up,
+        initial_cash=initial_cash,
+        max_leg_delay_ms=max_leg_delay_ms,
+        decision_builder=decide_pair_trade_shadow,
+    )
+
+
+def evaluate_qualified_paper_cycle(
+    *,
+    pair: SameExpiryPair,
+    settlement_state: PairSettlementState,
+    distribution: JointDistribution,
+    replay: CausalBookReplay,
+    health: DataHealth,
+    config: StrategyConfig,
+    market_5_up: bool | None,
+    market_15_up: bool | None,
+    initial_cash: Decimal,
+    max_leg_delay_ms: int,
+) -> PairPaperCycleEvaluation:
+    """Run the calibrated qualified track on causal executable books."""
+
+    return _evaluate_paper_cycle(
+        pair=pair,
+        settlement_state=settlement_state,
+        distribution=distribution,
+        replay=replay,
+        health=health,
+        config=config,
+        market_5_up=market_5_up,
+        market_15_up=market_15_up,
+        initial_cash=initial_cash,
+        max_leg_delay_ms=max_leg_delay_ms,
+        decision_builder=decide_pair_trade,
+    )
+
+
+def _evaluate_paper_cycle(
+    *,
+    pair: SameExpiryPair,
+    settlement_state: PairSettlementState,
+    distribution: JointDistribution,
+    replay: CausalBookReplay,
+    health: DataHealth,
+    config: StrategyConfig,
+    market_5_up: bool | None,
+    market_15_up: bool | None,
+    initial_cash: Decimal,
+    max_leg_delay_ms: int,
+    decision_builder: Any,
+) -> PairPaperCycleEvaluation:
+    """Run one decision track on causal executable books."""
+
     required_tokens = (
         pair.market_5.up_token_id,
         pair.market_5.down_token_id,
@@ -727,7 +773,7 @@ def evaluate_shadow_paper_cycle(
         decision_at_ms=health.decision_at_ms,
         maximum_age_ms=config.maximum_book_staleness_ms,
     )
-    decision = decide_pair_trade_shadow(
+    decision = decision_builder(
         pair=pair,
         settlement_state=settlement_state,
         distribution=distribution,
@@ -792,17 +838,15 @@ def evaluate_shadow_paper_cycle(
                 reason_codes=("second_leg_timeout_surface_missing",),
                 expiry_ms=pair.expires_at_ms,
             )
-    second_is_timely = max(
-        second.source_at_ms, second.received_at_ms
-    ) <= second_deadline_ms
+    second_is_timely = (
+        max(second.source_at_ms, second.received_at_ms) <= second_deadline_ms
+    )
     hedge_result_observable_ms = (
         max(second.source_at_ms, second.received_at_ms)
         if second_is_timely
         else second_deadline_ms
     )
-    unwind_not_before = (
-        hedge_result_observable_ms + first_contract.taker_delay_ms
-    )
+    unwind_not_before = hedge_result_observable_ms + first_contract.taker_delay_ms
     unwind = replay.first_executable_book(
         token_id=decision.first_token_id,
         not_before_ms=unwind_not_before,

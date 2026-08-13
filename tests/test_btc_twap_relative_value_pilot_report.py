@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from scripts.build_btc_twap_relative_value_pilot_report import (
     _assert_frozen_decision_tau,
     _book_replay_coverage,
     _capture_runtime_health,
+    _combined_series,
     _exact,
     _latest_before,
     _resample_one_second,
@@ -17,6 +19,40 @@ from scripts.build_btc_twap_relative_value_pilot_report import (
 )
 
 D = Decimal
+
+
+def _write_rtds_record(
+    root: Path,
+    *,
+    record_id: str,
+    topic: str,
+    timestamp_ms: int,
+    value: Decimal,
+    received_at_ms: int,
+    symbol: str = "btcusdt",
+) -> None:
+    raw_dir = root / "raw" / "rtds_ws"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "record_id": record_id,
+        "received_at": (
+            datetime.fromtimestamp(received_at_ms / 1_000, tz=timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z")
+        ),
+        "payload": {
+            "payload": {
+                "topic": topic,
+                "payload": {
+                    "symbol": symbol,
+                    "timestamp": timestamp_ms,
+                    "value": str(value),
+                },
+            }
+        },
+    }
+    with (raw_dir / "records.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload) + "\n")
 
 
 def test_capture_runtime_health_preserves_redundancy_evidence(tmp_path: Path) -> None:
@@ -89,12 +125,10 @@ def test_predictor_resampling_uses_causal_grid_not_source_second_labels() -> Non
 def test_predictor_window_rejects_gaps_staleness_and_future_delivery() -> None:
     decision_at_ms = 500_000
     future_delivered = tuple(
-        (second * 1_000, decision_at_ms + 1, D(second))
-        for second in range(198, 498)
+        (second * 1_000, decision_at_ms + 1, D(second)) for second in range(198, 498)
     )
     stale = tuple(
-        (second * 1_000, second * 1_000, D(second))
-        for second in range(190, 490)
+        (second * 1_000, second * 1_000, D(second)) for second in range(190, 490)
     )
     gap = tuple(
         (second * 1_000, second * 1_000, D(second))
@@ -110,8 +144,7 @@ def test_predictor_window_rejects_gaps_staleness_and_future_delivery() -> None:
 def test_predictor_window_allows_late_start_but_not_internal_gaps() -> None:
     decision_at_ms = 500_000
     late_start = tuple(
-        (second * 1_000, second * 1_000, D(second))
-        for second in range(231, 500)
+        (second * 1_000, second * 1_000, D(second)) for second in range(231, 500)
     )
 
     resampled = _resample_one_second(late_start, decision_at_ms=decision_at_ms)
@@ -119,6 +152,56 @@ def test_predictor_window_allows_late_start_but_not_internal_gaps() -> None:
     assert len(resampled) == 270
     assert resampled[0].timestamp_ms == 231_000
     assert resampled[-1].timestamp_ms == 500_000
+
+
+def test_predictor_history_root_cannot_bridge_a_rollover_gap(
+    tmp_path: Path,
+) -> None:
+    history_root = tmp_path / "history"
+    current_root = tmp_path / "current"
+    decision_at_ms = 500_000
+    for second in range(201, 469):
+        _write_rtds_record(
+            history_root,
+            record_id=f"history-{second}",
+            topic="crypto_prices",
+            timestamp_ms=second * 1_000,
+            value=D(second),
+            received_at_ms=second * 1_000,
+        )
+    # A real service rollover gap must not be treated as continuous history.
+    for second in range(480, 501):
+        _write_rtds_record(
+            current_root,
+            record_id=f"current-{second}",
+            topic="crypto_prices",
+            timestamp_ms=second * 1_000,
+            value=D(second),
+            received_at_ms=second * 1_000,
+        )
+
+    current_only = _combined_series(
+        (current_root,),
+        topic="crypto_prices",
+        symbol="btcusdt",
+    )
+    combined = _combined_series(
+        (history_root, current_root),
+        topic="crypto_prices",
+        symbol="btcusdt",
+    )
+
+    current_resampled = _resample_one_second(
+        current_only,
+        decision_at_ms=decision_at_ms,
+    )
+    combined_resampled = _resample_one_second(
+        combined,
+        decision_at_ms=decision_at_ms,
+    )
+
+    assert len(current_resampled) == 21
+    assert combined_resampled == ()
 
 
 def test_latest_before_requires_both_source_and_delivery_before_decision() -> None:

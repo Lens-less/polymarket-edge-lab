@@ -1074,9 +1074,7 @@ def load_service_config(path: Path) -> ContinuousServiceConfig:
         minimum_free_disk_bytes=int(raw.get("minimum_free_disk_bytes", 12 * 1024**3)),
         max_history_roots=int(raw.get("max_history_roots", 1)),
         decision_tau_seconds=decision_taus,
-        evidence_track_id=str(
-            raw.get("evidence_track_id", LEGACY_EVIDENCE_TRACK_ID)
-        ),
+        evidence_track_id=str(raw.get("evidence_track_id", LEGACY_EVIDENCE_TRACK_ID)),
         clock_sync_source=str(raw.get("clock_sync_source", CLOCK_SYNC_SOURCE_SNTP)),
         seed_report_paths=tuple(Path(item) for item in seed),
     )
@@ -1114,10 +1112,15 @@ def validate_preregistration_runtime_identity(
     )
     scope_track_id = scope.get("evidence_track_id")
     if scope_track_id is not None:
-        if not isinstance(scope_track_id, str) or _ATTEMPT_ID.fullmatch(scope_track_id) is None:
+        if (
+            not isinstance(scope_track_id, str)
+            or _ATTEMPT_ID.fullmatch(scope_track_id) is None
+        ):
             raise ValueError("scope.evidence_track_id must be a non-empty safe token")
         if config.evidence_track_id != scope_track_id:
-            raise ValueError("service evidence_track_id does not match preregistration scope")
+            raise ValueError(
+                "service evidence_track_id does not match preregistration scope"
+            )
     frozen_strategy = preregistration.get("frozen_strategy")
     if not isinstance(frozen_strategy, Mapping):
         raise ValueError("preregistration frozen_strategy must be an object")
@@ -1136,13 +1139,40 @@ def validate_preregistration_runtime_identity(
     expected_hash = strategy_spec.get("sha256")
     if not isinstance(strategy_relpath, str) or not strategy_relpath.strip():
         raise ValueError("strategy_spec.path must be a non-empty string")
-    if not isinstance(expected_hash, str) or re.fullmatch(r"[0-9a-f]{64}", expected_hash) is None:
+    if (
+        not isinstance(expected_hash, str)
+        or re.fullmatch(r"[0-9a-f]{64}", expected_hash) is None
+    ):
         raise ValueError("strategy_spec.sha256 must be a lowercase sha256 hex string")
     project_root = config.preregistration_path.expanduser().resolve().parents[2]
     strategy_path = (project_root / strategy_relpath).resolve()
+    if not strategy_path.is_relative_to(project_root):
+        raise ValueError("strategy_spec.path must stay inside the deployed project")
     actual_hash = hashlib.sha256(strategy_path.read_bytes()).hexdigest()
     if actual_hash != expected_hash:
         raise ValueError("strategy_spec sha256 does not match the local strategy file")
+    repository_head = preregistration.get("repository_head")
+    if (
+        preregistration.get("schema_version")
+        == ("btc-5m-15m-relative-value-preregistration.v5")
+        and repository_head is None
+    ):
+        raise ValueError("v0.5 preregistration must freeze repository_head")
+    if repository_head is not None:
+        if (
+            not isinstance(repository_head, str)
+            or re.fullmatch(r"[0-9a-f]{40}", repository_head) is None
+        ):
+            raise ValueError("repository_head must be a lowercase commit sha")
+        implementation_marker = project_root / ".implementation-revision"
+        if implementation_marker.exists():
+            deployed_revision = implementation_marker.read_text(
+                encoding="utf-8"
+            ).strip()
+            if deployed_revision != repository_head:
+                raise ValueError(
+                    "deployed implementation revision does not match preregistration"
+                )
 
 
 def require_disk_capacity(

@@ -32,6 +32,10 @@ from src.edge_lab.btc_twap_relative_value import (
     settle_pair_paper_execution,
     simulate_ewma_joint_distribution,
 )
+from src.edge_lab.btc_twap_relative_value_replay import (
+    CausalBookObservation,
+    evaluate_qualified_paper_cycle,
+)
 
 D = Decimal
 
@@ -47,10 +51,7 @@ def public_market_fixture(
 ) -> tuple[dict[str, object], dict[str, object]]:
     window = {"5m": 30, "15m": 60}[horizon]
     slug = f"btc-updown-{horizon}-{opens_at}"
-    source = (
-        "https://data.chain.link/streams/"
-        f"btc-usd-twap-{window}s-streams"
-    )
+    source = f"https://data.chain.link/streams/btc-usd-twap-{window}s-streams"
     gamma = {
         "id": market_id,
         "conditionId": condition_id,
@@ -145,6 +146,107 @@ def settlement_state(
         opening_5_source_event_id="twap-30-opening",
         opening_15_source_event_id="twap-60-opening",
     )
+
+
+class _ReplayStub:
+    def __init__(
+        self,
+        *,
+        signal_books: dict[str, CausalBookObservation],
+        executable_books: dict[str, tuple[CausalBookObservation, ...]],
+    ) -> None:
+        self._signal_books = signal_books
+        self._executable_books = executable_books
+
+    def signal_books(
+        self,
+        *,
+        token_ids: tuple[str, ...],
+        decision_at_ms: int,
+        maximum_age_ms: int,
+    ) -> dict[str, CausalBookObservation]:
+        return {
+            token_id: self._signal_books[token_id]
+            for token_id in token_ids
+            if token_id in self._signal_books
+        }
+
+    def first_executable_book(
+        self,
+        *,
+        token_id: str,
+        not_before_ms: int,
+        maximum_wait_ms: int,
+    ) -> CausalBookObservation | None:
+        deadline = not_before_ms + maximum_wait_ms
+        for observation in self._executable_books.get(token_id, ()):
+            observable_at_ms = max(
+                observation.source_at_ms,
+                observation.received_at_ms,
+            )
+            if not_before_ms <= observable_at_ms <= deadline:
+                return observation
+        return None
+
+
+def _replay_book(
+    token: str,
+    *,
+    bid: str,
+    ask: str,
+    timestamp_ms: int,
+) -> OrderBookSnapshot:
+    return OrderBookSnapshot.from_tuples(
+        token,
+        bids=((D(bid), D("100")),),
+        asks=((D(ask), D("100")),),
+        timestamp_ms=timestamp_ms,
+        tick_size=D("0.01"),
+        minimum_order_size=D("5"),
+    )
+
+
+def _replay_observation(
+    token: str,
+    *,
+    bid: str,
+    ask: str,
+    timestamp_ms: int,
+    received_at_ms: int,
+    source_event_id: str,
+) -> CausalBookObservation:
+    return CausalBookObservation(
+        snapshot=_replay_book(
+            token,
+            bid=bid,
+            ask=ask,
+            timestamp_ms=timestamp_ms,
+        ),
+        received_at_ms=received_at_ms,
+        source_event_id=source_event_id,
+        update_kind="book",
+    )
+
+
+def _qualified_health(
+    decision_at: int,
+    *,
+    calibrated: bool,
+) -> DataHealth:
+    return DataHealth(
+        decision_at_ms=decision_at,
+        twap_30_observed_at_ms=decision_at - 100,
+        twap_60_observed_at_ms=decision_at - 100,
+        twap_30_received_at_ms=decision_at - 100,
+        twap_60_received_at_ms=decision_at - 100,
+        absolute_clock_drift_ms=20,
+        calibration_5=(past_only_calibrator(decision_at, "5m") if calibrated else None),
+        calibration_15=(
+            past_only_calibrator(decision_at, "15m") if calibrated else None
+        ),
+    )
+
+
 def test_current_public_contracts_form_one_strict_same_expiry_pair() -> None:
     gamma15, clob15 = public_market_fixture(
         horizon="15m",
@@ -187,7 +289,7 @@ def test_rule_hash_changes_when_current_market_rules_text_changes() -> None:
         down_token="5-down",
     )
     original = TwapMarketContract.from_public_metadata(gamma, clob)
-    gamma["description"] = f'{gamma["description"]} Current wording revision.'
+    gamma["description"] = f"{gamma['description']} Current wording revision."
     revised = TwapMarketContract.from_public_metadata(gamma, clob)
 
     assert revised.rule_hash != original.rule_hash
@@ -247,12 +349,8 @@ def test_calibrated_marginals_form_one_coherent_joint_distribution() -> None:
     )
 
     assert sum(probabilities.values(), D("0")) == D("1")
-    assert probabilities["5up_15up"] + probabilities["5up_15down"] == D(
-        "0.7"
-    )
-    assert probabilities["5up_15up"] + probabilities["5down_15up"] == D(
-        "0.4"
-    )
+    assert probabilities["5up_15up"] + probabilities["5up_15down"] == D("0.7")
+    assert probabilities["5up_15up"] + probabilities["5down_15up"] == D("0.4")
     assert all(value >= D("0") for value in probabilities.values())
 
 
@@ -407,6 +505,265 @@ def test_uncalibrated_shadow_can_trade_without_becoming_qualified() -> None:
     assert shadow.q_5_calibrated == shadow.q_5_raw == D("0")
     assert shadow.q_15_calibrated == shadow.q_15_raw == D("1")
     assert shadow.reason_codes == ("uncalibrated_shadow_only",)
+
+
+def test_qualified_replay_cycle_can_execute_and_settle_as_oos_sample() -> None:
+    pair = same_expiry_pair()
+    decision_at = pair.expires_at_ms - 120_000
+    favorable = SettlementScenario(twap_30=D("99"), twap_60=D("201"))
+    distribution = JointDistribution.from_scenarios(
+        (favorable,) * 200,
+        strike_5=D("100"),
+        strike_15=D("200"),
+    )
+
+    signal_books = {
+        "15-up": _replay_observation(
+            "15-up",
+            bid="0.59",
+            ask="0.60",
+            timestamp_ms=decision_at - 50,
+            received_at_ms=decision_at - 40,
+            source_event_id="signal-15-up",
+        ),
+        "15-down": _replay_observation(
+            "15-down",
+            bid="0.39",
+            ask="0.40",
+            timestamp_ms=decision_at - 50,
+            received_at_ms=decision_at - 40,
+            source_event_id="signal-15-down",
+        ),
+        "5-up": _replay_observation(
+            "5-up",
+            bid="0.49",
+            ask="0.50",
+            timestamp_ms=decision_at - 50,
+            received_at_ms=decision_at - 40,
+            source_event_id="signal-5-up",
+        ),
+        "5-down": _replay_observation(
+            "5-down",
+            bid="0.49",
+            ask="0.50",
+            timestamp_ms=decision_at - 50,
+            received_at_ms=decision_at - 40,
+            source_event_id="signal-5-down",
+        ),
+    }
+    replay = _ReplayStub(
+        signal_books=signal_books,
+        executable_books={
+            "15-up": (
+                _replay_observation(
+                    "15-up",
+                    bid="0.59",
+                    ask="0.60",
+                    timestamp_ms=decision_at + 250,
+                    received_at_ms=decision_at + 250,
+                    source_event_id="exec-15-up",
+                ),
+            ),
+            "5-down": (
+                _replay_observation(
+                    "5-down",
+                    bid="0.49",
+                    ask="0.50",
+                    timestamp_ms=decision_at + 500,
+                    received_at_ms=decision_at + 500,
+                    source_event_id="exec-5-down",
+                ),
+            ),
+        },
+    )
+
+    cycle = evaluate_qualified_paper_cycle(
+        pair=pair,
+        settlement_state=settlement_state(pair),
+        distribution=distribution,
+        replay=replay,
+        health=_qualified_health(decision_at, calibrated=True),
+        config=StrategyConfig(),
+        market_5_up=False,
+        market_15_up=True,
+        initial_cash=D("100"),
+        max_leg_delay_ms=750,
+    )
+
+    assert cycle.decision.qualification == "qualified"
+    assert cycle.decision.action is PairAction.LONG_15_UP_LONG_5_DOWN
+    assert cycle.execution is not None
+    assert cycle.execution.status is PairExecutionStatus.COMPLETE
+    assert cycle.settlement is not None
+    assert cycle.settlement.explainable is True
+    assert cycle.settlement.qualified_sample is True
+    document = cycle.to_document()
+    assert document["track"] == "qualified"
+    assert document["execution"] is not None
+    assert document["execution"]["diagnostics"] is not None
+    assert document["execution"]["diagnostics"]["economic_attempt"] is True
+    assert document["execution"]["diagnostics"]["schema_version"] == (
+        "btc-5m-15m-relative-value-execution-diagnostics.v1"
+    )
+
+
+def test_qualified_replay_cycle_fails_closed_without_past_only_calibration() -> None:
+    pair = same_expiry_pair()
+    decision_at = pair.expires_at_ms - 120_000
+    favorable = SettlementScenario(twap_30=D("99"), twap_60=D("201"))
+    distribution = JointDistribution.from_scenarios(
+        (favorable,) * 200,
+        strike_5=D("100"),
+        strike_15=D("200"),
+    )
+
+    replay = _ReplayStub(
+        signal_books={
+            "15-up": _replay_observation(
+                "15-up",
+                bid="0.59",
+                ask="0.60",
+                timestamp_ms=decision_at - 50,
+                received_at_ms=decision_at - 40,
+                source_event_id="signal-15-up",
+            ),
+            "15-down": _replay_observation(
+                "15-down",
+                bid="0.39",
+                ask="0.40",
+                timestamp_ms=decision_at - 50,
+                received_at_ms=decision_at - 40,
+                source_event_id="signal-15-down",
+            ),
+            "5-up": _replay_observation(
+                "5-up",
+                bid="0.49",
+                ask="0.50",
+                timestamp_ms=decision_at - 50,
+                received_at_ms=decision_at - 40,
+                source_event_id="signal-5-up",
+            ),
+            "5-down": _replay_observation(
+                "5-down",
+                bid="0.49",
+                ask="0.50",
+                timestamp_ms=decision_at - 50,
+                received_at_ms=decision_at - 40,
+                source_event_id="signal-5-down",
+            ),
+        },
+        executable_books={},
+    )
+
+    cycle = evaluate_qualified_paper_cycle(
+        pair=pair,
+        settlement_state=settlement_state(pair),
+        distribution=distribution,
+        replay=replay,
+        health=_qualified_health(decision_at, calibrated=False),
+        config=StrategyConfig(),
+        market_5_up=None,
+        market_15_up=None,
+        initial_cash=D("100"),
+        max_leg_delay_ms=750,
+    )
+
+    assert cycle.decision.qualification == "qualified"
+    assert cycle.decision.action is PairAction.NO_TRADE
+    assert cycle.decision.reason_codes == ("past_only_calibration_missing",)
+    assert cycle.execution is None
+    assert cycle.settlement is None
+
+
+def test_qualified_replay_cycle_failed_unhedged_is_not_qualified_sample() -> None:
+    pair = same_expiry_pair()
+    decision_at = pair.expires_at_ms - 120_000
+    favorable = SettlementScenario(twap_30=D("99"), twap_60=D("201"))
+    distribution = JointDistribution.from_scenarios(
+        (favorable,) * 200,
+        strike_5=D("100"),
+        strike_15=D("200"),
+    )
+
+    replay = _ReplayStub(
+        signal_books={
+            "15-up": _replay_observation(
+                "15-up",
+                bid="0.59",
+                ask="0.60",
+                timestamp_ms=decision_at - 50,
+                received_at_ms=decision_at - 40,
+                source_event_id="signal-15-up",
+            ),
+            "15-down": _replay_observation(
+                "15-down",
+                bid="0.39",
+                ask="0.40",
+                timestamp_ms=decision_at - 50,
+                received_at_ms=decision_at - 40,
+                source_event_id="signal-15-down",
+            ),
+            "5-up": _replay_observation(
+                "5-up",
+                bid="0.49",
+                ask="0.50",
+                timestamp_ms=decision_at - 50,
+                received_at_ms=decision_at - 40,
+                source_event_id="signal-5-up",
+            ),
+            "5-down": _replay_observation(
+                "5-down",
+                bid="0.49",
+                ask="0.50",
+                timestamp_ms=decision_at - 50,
+                received_at_ms=decision_at - 40,
+                source_event_id="signal-5-down",
+            ),
+        },
+        executable_books={
+            "15-up": (
+                _replay_observation(
+                    "15-up",
+                    bid="0.59",
+                    ask="0.60",
+                    timestamp_ms=decision_at + 250,
+                    received_at_ms=decision_at + 250,
+                    source_event_id="exec-15-up",
+                ),
+            ),
+            "5-down": (
+                _replay_observation(
+                    "5-down",
+                    bid="0.49",
+                    ask="0.50",
+                    timestamp_ms=decision_at + 1_100,
+                    received_at_ms=decision_at + 1_100,
+                    source_event_id="late-5-down",
+                ),
+            ),
+        },
+    )
+
+    cycle = evaluate_qualified_paper_cycle(
+        pair=pair,
+        settlement_state=settlement_state(pair),
+        distribution=distribution,
+        replay=replay,
+        health=_qualified_health(decision_at, calibrated=True),
+        config=StrategyConfig(),
+        market_5_up=False,
+        market_15_up=True,
+        initial_cash=D("100"),
+        max_leg_delay_ms=750,
+    )
+
+    assert cycle.decision.qualification == "qualified"
+    assert cycle.execution is not None
+    assert cycle.execution.status is PairExecutionStatus.FAILED_UNHEDGED
+    assert cycle.execution.unhedged_quantity > D("0")
+    assert cycle.settlement is not None
+    assert cycle.settlement.explainable is True
+    assert cycle.settlement.qualified_sample is False
 
 
 def test_shadow_execution_settles_to_explainable_after_fee_net_pnl() -> None:
@@ -579,9 +936,7 @@ def test_ewma_bootstrap_is_seeded_and_rejects_future_predictor_ticks() -> None:
         for index, item in enumerate(prices)
     )
     with pytest.raises(RelativeValueRejection, match="predictor_sampling_invalid"):
-        simulate_ewma_joint_distribution(
-            **{**kwargs, "predictor_prices": irregular}
-        )
+        simulate_ewma_joint_distribution(**{**kwargs, "predictor_prices": irregular})
 
 
 def test_pair_execution_rejects_action_token_mismatch() -> None:

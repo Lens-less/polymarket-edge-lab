@@ -2,19 +2,20 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import hashlib
 import json
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 import pytest
 
 from src.edge_lab.btc_twap_relative_value_service import (
+    LEGACY_EVIDENCE_TRACK_ID,
     CapturePlan,
     ClockSyncMeasurement,
     ContinuousServiceConfig,
     DiskCapacityError,
-    LEGACY_EVIDENCE_TRACK_ID,
     ServiceStatus,
     build_capture_plan,
     evaluate_service_health,
@@ -42,14 +43,15 @@ def _market_fixture(
 ) -> tuple[dict[str, object], dict[str, object]]:
     duration = {"5m": 300, "15m": 900}[horizon]
     window = {"5m": 30, "15m": 60}[horizon]
-    source = (
-        "https://data.chain.link/streams/"
-        f"btc-usd-twap-{window}s-streams"
+    source = f"https://data.chain.link/streams/btc-usd-twap-{window}s-streams"
+    end_date = (
+        datetime.fromtimestamp(
+            opens_at + duration,
+            tz=timezone.utc,
+        )
+        .isoformat()
+        .replace("+00:00", "Z")
     )
-    end_date = datetime.fromtimestamp(
-        opens_at + duration,
-        tz=timezone.utc,
-    ).isoformat().replace("+00:00", "Z")
     gamma = {
         "id": market_id,
         "conditionId": condition_id,
@@ -115,7 +117,7 @@ def _preregistration_document(
         "scope": {
             "paper_only": True,
             "live_orders_disabled": True,
-            "prospective_only_after": "2026-08-13T00:00:00Z",
+            "prospective_only_after": "2026-08-13T06:00:00Z",
             "evidence_track_id": evidence_track_id,
         },
         "frozen_strategy": {
@@ -127,6 +129,31 @@ def _preregistration_document(
             "sha256": strategy_hash,
         },
     }
+
+
+def test_preregistration_runtime_identity_rejects_mismatched_deployment_marker(
+    tmp_path: Path,
+) -> None:
+    preregistration_path = tmp_path / "research" / "paper" / "PREREGISTRATION.json"
+    preregistration_path.parent.mkdir(parents=True, exist_ok=True)
+    config = ContinuousServiceConfig(
+        **{
+            **_config(tmp_path).__dict__,
+            "preregistration_path": preregistration_path,
+        }
+    )
+    preregistration = _preregistration_document(tmp_path)
+    preregistration["repository_head"] = "a" * 40
+    (tmp_path / ".implementation-revision").write_text(
+        "b" * 40 + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="implementation revision"):
+        validate_preregistration_runtime_identity(
+            preregistration,
+            config=config,
+        )
 
 
 def test_capture_plan_targets_the_next_same_expiry_pair(tmp_path: Path) -> None:
@@ -175,8 +202,7 @@ def test_capture_plan_targets_the_next_same_expiry_pair(tmp_path: Path) -> None:
         "5-down",
     ]
     assert all(
-        len(target["rule_hash"]) == 64
-        and len(target["rules_text_sha256"]) == 64
+        len(target["rule_hash"]) == 64 and len(target["rules_text_sha256"]) == 64
         for target in plan.capture_config["targets"]
     )
     assert all(
@@ -188,9 +214,7 @@ def test_capture_plan_targets_the_next_same_expiry_pair(tmp_path: Path) -> None:
         == {"rate": "0.07", "exponent": "1", "taker_only": True}
         for target in plan.capture_config["targets"]
     )
-    assert [
-        item["topic"] for item in plan.capture_config["rtds_subscriptions"]
-    ] == [
+    assert [item["topic"] for item in plan.capture_config["rtds_subscriptions"]] == [
         "crypto_prices",
         "crypto_prices_twap_thirty",
         "crypto_prices_twap_sixty",
@@ -403,7 +427,9 @@ def test_validate_preregistration_runtime_identity_accepts_matching_runtime(
     prereg_document = _preregistration_document(tmp_path)
     preregistration.write_text(json.dumps(prereg_document), encoding="utf-8")
     config = _config(tmp_path)
-    config = ContinuousServiceConfig(**{**config.__dict__, "preregistration_path": preregistration})
+    config = ContinuousServiceConfig(
+        **{**config.__dict__, "preregistration_path": preregistration}
+    )
 
     validate_preregistration_runtime_identity(prereg_document, config=config)
 
@@ -412,7 +438,9 @@ def test_validate_preregistration_runtime_identity_accepts_matching_runtime(
     ("mutator", "pattern"),
     [
         (
-            lambda doc: doc["scope"].__setitem__("prospective_only_after", "2026-08-13"),
+            lambda doc: doc["scope"].__setitem__(
+                "prospective_only_after", "2026-08-13"
+            ),
             "UTC timestamp",
         ),
         (
@@ -424,11 +452,16 @@ def test_validate_preregistration_runtime_identity_accepts_matching_runtime(
             "does not match",
         ),
         (
-            lambda doc: doc["frozen_strategy"].__setitem__("decision_tau_seconds", [240]),
+            lambda doc: doc["frozen_strategy"].__setitem__(
+                "decision_tau_seconds", [240]
+            ),
             "decision_tau_seconds",
         ),
         (
-            lambda doc: doc["frozen_strategy"]["clock_sync"].__setitem__("source", "Chrony Amazon Time Sync Service 169.254.169.123"),
+            lambda doc: doc["frozen_strategy"]["clock_sync"].__setitem__(
+                "source",
+                "Chrony Amazon Time Sync Service 169.254.169.123",
+            ),
             "clock_sync_source",
         ),
         (
@@ -439,7 +472,7 @@ def test_validate_preregistration_runtime_identity_accepts_matching_runtime(
 )
 def test_validate_preregistration_runtime_identity_fails_closed(
     tmp_path: Path,
-    mutator: object,
+    mutator: Callable[[dict[str, object]], None],
     pattern: str,
 ) -> None:
     preregistration = tmp_path / "research" / "paper" / "PREREGISTRATION.json"
@@ -447,7 +480,9 @@ def test_validate_preregistration_runtime_identity_fails_closed(
     prereg_document = _preregistration_document(tmp_path)
     preregistration.write_text(json.dumps(prereg_document), encoding="utf-8")
     config = _config(tmp_path)
-    config = ContinuousServiceConfig(**{**config.__dict__, "preregistration_path": preregistration})
+    config = ContinuousServiceConfig(
+        **{**config.__dict__, "preregistration_path": preregistration}
+    )
     mutator(prereg_document)
 
     with pytest.raises(ValueError, match=pattern):
@@ -587,12 +622,10 @@ async def test_compact_sink_keeps_target_top_five_book_without_duplicate_frame(
             "asset_id": "token",
             "hash": "c" * 40,
             "bids": [
-                {"price": str(index / 100), "size": "1"}
-                for index in range(1, 12)
+                {"price": str(index / 100), "size": "1"} for index in range(1, 12)
             ],
             "asks": [
-                {"price": str(index / 100), "size": "1"}
-                for index in range(12, 23)
+                {"price": str(index / 100), "size": "1"} for index in range(12, 23)
             ],
         },
     }
@@ -709,9 +742,7 @@ async def test_compact_sink_preserves_public_websocket_error_diagnostics(
     )
     await sink.close()
 
-    raw_path = next(
-        (tmp_path / "capture" / "raw" / "clob_market_ws").glob("*.jsonl")
-    )
+    raw_path = next((tmp_path / "capture" / "raw" / "clob_market_ws").glob("*.jsonl"))
     stored = __import__("json").loads(raw_path.read_text(encoding="utf-8"))
     lifecycle = stored["payload"]
     assert lifecycle["detail"] == {
