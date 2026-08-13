@@ -6,7 +6,7 @@
     "path": "research/btc_5m_15m_relative_value_paper_v05_linux_2026-08-13/STRATEGY_SPEC.md",
     "sha256": "c96f89c87db0ec4e28b500f56ea32d7da9d9087fbc11ce738a7e737fa2921825"
   },
-  "repository_head": "9445b415de0f3c0dbcf8dd71c2b6fa4cbf12075a",
+  "repository_head": "99bdbd67c7a4e82347bbf3d3b78e7980e15d323c",
   "scope": {
     "asset": "BTC",
     "horizons": [
