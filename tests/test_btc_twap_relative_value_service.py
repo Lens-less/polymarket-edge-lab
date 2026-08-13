@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -12,6 +14,7 @@ from src.edge_lab.btc_twap_relative_value_service import (
     ClockSyncMeasurement,
     ContinuousServiceConfig,
     DiskCapacityError,
+    LEGACY_EVIDENCE_TRACK_ID,
     ServiceStatus,
     build_capture_plan,
     evaluate_service_health,
@@ -21,6 +24,7 @@ from src.edge_lab.btc_twap_relative_value_service import (
     parse_sntp_output,
     public_session,
     require_disk_capacity,
+    validate_preregistration_runtime_identity,
     write_service_status,
 )
 from src.edge_lab.capture_runtime import CaptureStoreRecorderSink
@@ -89,7 +93,40 @@ def _config(tmp_path: Path) -> ContinuousServiceConfig:
         minimum_free_disk_bytes=12 * 1024**3,
         max_history_roots=2,
         decision_tau_seconds=60,
+        evidence_track_id="paper-v05",
     )
+
+
+def _write_strategy_fixture(tmp_path: Path) -> tuple[Path, str]:
+    research_dir = tmp_path / "research" / "paper"
+    research_dir.mkdir(parents=True, exist_ok=True)
+    strategy_path = research_dir / "STRATEGY_SPEC.md"
+    strategy_path.write_text("# frozen strategy\n", encoding="utf-8")
+    return strategy_path, hashlib.sha256(strategy_path.read_bytes()).hexdigest()
+
+
+def _preregistration_document(
+    tmp_path: Path,
+    *,
+    evidence_track_id: str = "paper-v05",
+) -> dict[str, object]:
+    strategy_path, strategy_hash = _write_strategy_fixture(tmp_path)
+    return {
+        "scope": {
+            "paper_only": True,
+            "live_orders_disabled": True,
+            "prospective_only_after": "2026-08-13T00:00:00Z",
+            "evidence_track_id": evidence_track_id,
+        },
+        "frozen_strategy": {
+            "decision_tau_seconds": [60],
+            "clock_sync": {"source": "SNTP time.apple.com"},
+        },
+        "strategy_spec": {
+            "path": str(strategy_path.relative_to(tmp_path)).replace("\\", "/"),
+            "sha256": strategy_hash,
+        },
+    }
 
 
 def test_capture_plan_targets_the_next_same_expiry_pair(tmp_path: Path) -> None:
@@ -159,6 +196,8 @@ def test_capture_plan_targets_the_next_same_expiry_pair(tmp_path: Path) -> None:
         "crypto_prices_twap_sixty",
     ]
     assert plan.capture_config["checkpoint_every_records"] == 10_000
+    assert plan.capture_config["capture_started_at_ms"] == now_seconds * 1_000
+    assert plan.capture_config["evidence_track_id"] == "paper-v05"
     assert plan.capture_config["clock_sync"] == {
         "schema_version": "btc-twap-clock-sync.v1",
         "source": "SNTP time.apple.com",
@@ -325,6 +364,94 @@ def test_service_config_freezes_multiple_prospective_decision_ticks(
     config = load_service_config(path)
 
     assert config.decision_tau_seconds == (240, 180, 120, 60)
+    assert config.evidence_track_id == LEGACY_EVIDENCE_TRACK_ID
+
+
+def test_service_config_loads_explicit_evidence_track_id(tmp_path: Path) -> None:
+    preregistration = tmp_path / "PREREGISTRATION.json"
+    preregistration.write_text("{}", encoding="utf-8")
+    path = tmp_path / "SERVICE_CONFIG.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": "btc-twap-relative-value-continuous-service.v1",
+                "data_root": str(tmp_path / "data"),
+                "research_root": str(tmp_path / "research"),
+                "preregistration_path": str(preregistration),
+                "settlement_grace_seconds": 360,
+                "retry_seconds": 30,
+                "status_interval_seconds": 15,
+                "minimum_free_disk_bytes": 12 * 1024**3,
+                "max_history_roots": 2,
+                "decision_tau_seconds": [240, 180, 120, 60],
+                "evidence_track_id": "paper-v05",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_service_config(path)
+
+    assert config.evidence_track_id == "paper-v05"
+
+
+def test_validate_preregistration_runtime_identity_accepts_matching_runtime(
+    tmp_path: Path,
+) -> None:
+    preregistration = tmp_path / "research" / "paper" / "PREREGISTRATION.json"
+    preregistration.parent.mkdir(parents=True, exist_ok=True)
+    prereg_document = _preregistration_document(tmp_path)
+    preregistration.write_text(json.dumps(prereg_document), encoding="utf-8")
+    config = _config(tmp_path)
+    config = ContinuousServiceConfig(**{**config.__dict__, "preregistration_path": preregistration})
+
+    validate_preregistration_runtime_identity(prereg_document, config=config)
+
+
+@pytest.mark.parametrize(
+    ("mutator", "pattern"),
+    [
+        (
+            lambda doc: doc["scope"].__setitem__("prospective_only_after", "2026-08-13"),
+            "UTC timestamp",
+        ),
+        (
+            lambda doc: doc["scope"].__setitem__("paper_only", False),
+            "paper_only=true",
+        ),
+        (
+            lambda doc: doc["scope"].__setitem__("evidence_track_id", "other-track"),
+            "does not match",
+        ),
+        (
+            lambda doc: doc["frozen_strategy"].__setitem__("decision_tau_seconds", [240]),
+            "decision_tau_seconds",
+        ),
+        (
+            lambda doc: doc["frozen_strategy"]["clock_sync"].__setitem__("source", "Chrony Amazon Time Sync Service 169.254.169.123"),
+            "clock_sync_source",
+        ),
+        (
+            lambda doc: doc["strategy_spec"].__setitem__("sha256", "0" * 64),
+            "sha256",
+        ),
+    ],
+)
+def test_validate_preregistration_runtime_identity_fails_closed(
+    tmp_path: Path,
+    mutator: object,
+    pattern: str,
+) -> None:
+    preregistration = tmp_path / "research" / "paper" / "PREREGISTRATION.json"
+    preregistration.parent.mkdir(parents=True, exist_ok=True)
+    prereg_document = _preregistration_document(tmp_path)
+    preregistration.write_text(json.dumps(prereg_document), encoding="utf-8")
+    config = _config(tmp_path)
+    config = ContinuousServiceConfig(**{**config.__dict__, "preregistration_path": preregistration})
+    mutator(prereg_document)
+
+    with pytest.raises(ValueError, match=pattern):
+        validate_preregistration_runtime_identity(prereg_document, config=config)
 
 
 def test_service_status_is_hashed_and_explicitly_paper_only(tmp_path: Path) -> None:

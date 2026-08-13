@@ -17,6 +17,8 @@ def _write_report(
     *,
     model_available: bool = False,
     shadow_net_pnl: str | None = None,
+    shadow_trade_count: int | None = None,
+    shadow_execution_diagnostics: dict[str, object] | None = None,
     capture_root: str = "/capture/run-1",
     websocket_errors: int = 0,
     rtds_errors: int = 0,
@@ -129,11 +131,16 @@ def _write_report(
             "development_shadow_decisions": int(
                 shadow_net_pnl is not None or shadow_no_trade_reason is not None
             ),
-            "development_shadow_trades": int(shadow_net_pnl is not None),
+            "development_shadow_trades": (
+                int(shadow_net_pnl is not None)
+                if shadow_trade_count is None
+                else shadow_trade_count
+            ),
             "development_shadow_fills": (
                 2 if shadow_net_pnl is not None else 0
             ),
             "development_shadow_net_pnl": shadow_net_pnl,
+            "development_shadow_execution_diagnostics": shadow_execution_diagnostics,
             "development_shadow_complete_taker_cost_model": (
                 shadow_net_pnl is not None
             ),
@@ -320,4 +327,53 @@ def test_summary_distinguishes_shadow_edge_rejection_from_data_blocker(
         "maximum_measurement_age_ms": 300_000,
         "maximum_uncertainty_ms": 52,
         "latest_offset_seconds": "0.30",
+    }
+
+
+def test_summary_keeps_economic_attempts_and_execution_diagnostics(
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "first.json"
+    second = tmp_path / "second.json"
+    _write_report(
+        first,
+        shadow_net_pnl="-1.25",
+        shadow_trade_count=1,
+        shadow_execution_diagnostics={
+            "economic_attempt": True,
+            "residual_unhedged_usdc": "0.00001",
+            "dust_failed_unhedged": True,
+            "material_failed_unhedged": False,
+            "transient_naked_exposure_peak_usdc": "5",
+            "transient_naked_exposure_duration_ms": 250,
+        },
+    )
+    _write_report(
+        second,
+        shadow_net_pnl="-2.00",
+        shadow_trade_count=1,
+        shadow_execution_diagnostics={
+            "economic_attempt": True,
+            "residual_unhedged_usdc": "2.5",
+            "dust_failed_unhedged": False,
+            "material_failed_unhedged": True,
+            "transient_naked_exposure_peak_usdc": "12.5",
+            "transient_naked_exposure_duration_ms": 400,
+        },
+        decision_tau_seconds=120,
+    )
+
+    summary = build_summary((first, second))
+
+    assert summary["development_shadow"]["trades"] == 2
+    assert summary["development_shadow"]["settled_trades"] == 2
+    assert summary["development_shadow"]["pending_trades"] == 0
+    assert summary["development_shadow"]["execution_diagnostics"] == {
+        "dust_failed_unhedged_trades": 1,
+        "material_failed_unhedged_trades": 1,
+        "residual_unhedged_usdc_total": "2.50001",
+        "residual_unhedged_usdc_material_total": "2.5",
+        "transient_naked_exposure_peak_usdc": "12.5",
+        "transient_naked_exposure_total_duration_ms": 650,
+        "transient_naked_exposure_trades": 2,
     }

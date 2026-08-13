@@ -81,6 +81,13 @@ def build_summary(report_paths: tuple[Path, ...]) -> dict[str, Any]:
     shadow_fills = 0
     shadow_complete_cost_trades = 0
     shadow_net_pnls: list[Decimal] = []
+    shadow_residual_unhedged_usdc_total = Decimal("0")
+    shadow_residual_unhedged_usdc_material_total = Decimal("0")
+    shadow_transient_peak_usdc = Decimal("0")
+    shadow_transient_duration_ms_total = 0
+    shadow_transient_nonzero_trades = 0
+    shadow_dust_failed_unhedged_trades = 0
+    shadow_material_failed_unhedged_trades = 0
     shadow_action_counts: Counter[str] = Counter()
     shadow_decision_reason_counts: Counter[str] = Counter()
     shadow_cycle_reason_counts: Counter[str] = Counter()
@@ -280,6 +287,44 @@ def build_summary(report_paths: tuple[Path, ...]) -> dict[str, Any]:
         shadow_complete_cost_trades += int(
             economic.get("development_shadow_complete_taker_cost_model") is True
         )
+        diagnostics = economic.get("development_shadow_execution_diagnostics")
+        if isinstance(diagnostics, dict):
+            residual_unhedged_usdc = Decimal(
+                str(diagnostics.get("residual_unhedged_usdc", "0"))
+            )
+            if not residual_unhedged_usdc.is_finite():
+                raise ValueError("development shadow residual_unhedged_usdc must be finite")
+            shadow_residual_unhedged_usdc_total += residual_unhedged_usdc
+            if diagnostics.get("material_failed_unhedged") is True:
+                shadow_residual_unhedged_usdc_material_total += residual_unhedged_usdc
+                shadow_material_failed_unhedged_trades += 1
+            if diagnostics.get("dust_failed_unhedged") is True:
+                shadow_dust_failed_unhedged_trades += 1
+            transient_peak_usdc = Decimal(
+                str(diagnostics.get("transient_naked_exposure_peak_usdc", "0"))
+            )
+            if not transient_peak_usdc.is_finite():
+                raise ValueError(
+                    "development shadow transient_naked_exposure_peak_usdc must be finite"
+                )
+            shadow_transient_peak_usdc = max(
+                shadow_transient_peak_usdc,
+                transient_peak_usdc,
+            )
+            transient_duration_ms = diagnostics.get(
+                "transient_naked_exposure_duration_ms",
+                0,
+            )
+            if (
+                isinstance(transient_duration_ms, bool)
+                or not isinstance(transient_duration_ms, int)
+                or transient_duration_ms < 0
+            ):
+                raise ValueError(
+                    "development shadow transient_naked_exposure_duration_ms is invalid"
+                )
+            shadow_transient_duration_ms_total += transient_duration_ms
+            shadow_transient_nonzero_trades += int(transient_peak_usdc > 0)
         shadow_net = economic.get("development_shadow_net_pnl")
         if shadow_net is not None:
             parsed_shadow_net = Decimal(str(shadow_net))
@@ -396,6 +441,25 @@ def build_summary(report_paths: tuple[Path, ...]) -> dict[str, Any]:
                 if shadow_negative > 0
                 else None
             ),
+            "execution_diagnostics": {
+                "dust_failed_unhedged_trades": shadow_dust_failed_unhedged_trades,
+                "material_failed_unhedged_trades": (
+                    shadow_material_failed_unhedged_trades
+                ),
+                "residual_unhedged_usdc_total": str(
+                    shadow_residual_unhedged_usdc_total
+                ),
+                "residual_unhedged_usdc_material_total": str(
+                    shadow_residual_unhedged_usdc_material_total
+                ),
+                "transient_naked_exposure_peak_usdc": str(
+                    shadow_transient_peak_usdc
+                ),
+                "transient_naked_exposure_total_duration_ms": (
+                    shadow_transient_duration_ms_total
+                ),
+                "transient_naked_exposure_trades": shadow_transient_nonzero_trades,
+            },
         },
         "reason_codes": list(validation.reason_codes),
         "inputs": input_rows,

@@ -44,6 +44,10 @@ def _decimal(value: Any) -> Decimal | None:
     return parsed if parsed.is_finite() else None
 
 
+def _decimal_text(value: Decimal | None) -> str | None:
+    return None if value is None else format(value.normalize(), "f")
+
+
 def _epoch_ms(value: Any) -> int | None:
     if not isinstance(value, str) or not value:
         return None
@@ -64,6 +68,175 @@ def _source_ms(payload: Mapping[str, Any]) -> int | None:
     except (TypeError, ValueError):
         return None
     return value if value >= 0 else None
+
+
+_DUST_RESIDUAL_MAX_LOSS_USDC = Decimal("0.01")
+_SUBSTANTIAL_SECOND_LEG_FILL_RATIO = Decimal("0.999")
+
+
+def _fill_events(
+    execution: PairPaperExecution,
+) -> tuple[tuple[int, str, Decimal], ...]:
+    events: list[tuple[int, str, Decimal]] = []
+    for fill in execution.first_leg.fills:
+        events.append((fill.timestamp_ms, "first", fill.quantity))
+    for fill in execution.second_leg.fills:
+        events.append((fill.timestamp_ms, "second", fill.quantity))
+    if execution.unwind_leg is not None:
+        for fill in execution.unwind_leg.fills:
+            events.append((fill.timestamp_ms, "unwind", fill.quantity))
+    return tuple(sorted(events, key=lambda item: (item[0], item[1])))
+
+
+def _group_fill_events_by_timestamp(
+    execution: PairPaperExecution,
+) -> tuple[tuple[int, Decimal, Decimal, Decimal], ...]:
+    grouped: dict[int, list[Decimal]] = {}
+    for timestamp_ms, leg, quantity in _fill_events(execution):
+        totals = grouped.setdefault(
+            timestamp_ms,
+            [Decimal(0), Decimal(0), Decimal(0)],
+        )
+        if leg == "first":
+            totals[0] += quantity
+        elif leg == "second":
+            totals[1] += quantity
+        else:
+            totals[2] += quantity
+    return tuple(
+        (timestamp_ms, totals[0], totals[1], totals[2])
+        for timestamp_ms, totals in sorted(grouped.items())
+    )
+
+
+def _terminal_residual_classification(
+    *,
+    residual_unhedged_max_loss_usdc: Decimal,
+    second_leg_fill_ratio: Decimal | None,
+) -> str:
+    if residual_unhedged_max_loss_usdc <= 0:
+        return "none"
+    if second_leg_fill_ratio is None:
+        return "unknown"
+    if (
+        residual_unhedged_max_loss_usdc <= _DUST_RESIDUAL_MAX_LOSS_USDC
+        and second_leg_fill_ratio >= _SUBSTANTIAL_SECOND_LEG_FILL_RATIO
+    ):
+        return "dust"
+    return "material"
+
+
+def paper_execution_diagnostics(
+    execution: PairPaperExecution,
+    *,
+    expiry_ms: int,
+) -> dict[str, Any]:
+    if isinstance(expiry_ms, bool) or not isinstance(expiry_ms, int) or expiry_ms < 0:
+        raise ValueError("expiry_ms must be a non-negative integer")
+    if not isinstance(execution, PairPaperExecution):
+        raise TypeError("execution must be PairPaperExecution")
+    first_filled = execution.first_leg.filled_quantity
+    second_filled = execution.second_leg.filled_quantity
+    unwind_filled = (
+        Decimal(0)
+        if execution.unwind_leg is None
+        else execution.unwind_leg.filled_quantity
+    )
+    second_leg_fill_ratio = (
+        None
+        if first_filled <= 0
+        else second_filled / first_filled
+    )
+    initial_second_leg_shortfall_quantity = max(Decimal(0), first_filled - second_filled)
+    residual_unhedged_quantity = execution.unhedged_quantity
+    residual_unhedged_max_loss_usdc = residual_unhedged_quantity
+    terminal_residual_classification = _terminal_residual_classification(
+        residual_unhedged_max_loss_usdc=residual_unhedged_max_loss_usdc,
+        second_leg_fill_ratio=second_leg_fill_ratio,
+    )
+    dust_failed_unhedged = (
+        execution.status is PairExecutionStatus.FAILED_UNHEDGED
+        and terminal_residual_classification == "dust"
+    )
+    material_failed_unhedged = (
+        execution.status is PairExecutionStatus.FAILED_UNHEDGED
+        and terminal_residual_classification == "material"
+    )
+    material_second_leg_failure = (
+        initial_second_leg_shortfall_quantity > 0
+        and (
+            second_leg_fill_ratio is None
+            or second_leg_fill_ratio < _SUBSTANTIAL_SECOND_LEG_FILL_RATIO
+        )
+    )
+    first_running = Decimal(0)
+    second_running = Decimal(0)
+    unwind_running = Decimal(0)
+    active_since_ms: int | None = None
+    transient_unhedged_duration_ms = 0
+    peak_unhedged_quantity = Decimal(0)
+    last_timestamp_ms: int | None = None
+    event_groups = _group_fill_events_by_timestamp(execution)
+    for timestamp_ms, first_delta, second_delta, unwind_delta in event_groups:
+        if (
+            active_since_ms is not None
+            and last_timestamp_ms is not None
+            and timestamp_ms > last_timestamp_ms
+        ):
+            transient_unhedged_duration_ms += timestamp_ms - last_timestamp_ms
+        first_running += first_delta
+        second_running += second_delta
+        unwind_running += unwind_delta
+        unhedged_quantity = max(
+            Decimal(0),
+            first_running - second_running - unwind_running,
+        )
+        if unhedged_quantity > 0 and active_since_ms is None:
+            active_since_ms = timestamp_ms
+        if unhedged_quantity <= 0 and active_since_ms is not None:
+            active_since_ms = None
+        peak_unhedged_quantity = max(peak_unhedged_quantity, unhedged_quantity)
+        last_timestamp_ms = timestamp_ms
+    if (
+        active_since_ms is not None
+        and last_timestamp_ms is not None
+        and residual_unhedged_quantity > 0
+        and expiry_ms > last_timestamp_ms
+    ):
+        transient_unhedged_duration_ms += expiry_ms - last_timestamp_ms
+    economic_attempt = bool(event_groups) or execution.cashflow_after_execution != 0
+    return {
+        "schema_version": "btc-5m-15m-relative-value-execution-diagnostics.v1",
+        "economic_attempt": economic_attempt,
+        "second_leg_fill_ratio": _decimal_text(second_leg_fill_ratio),
+        "first_leg_filled_quantity": _decimal_text(first_filled),
+        "second_leg_filled_quantity": _decimal_text(second_filled),
+        "initial_second_leg_shortfall_quantity": _decimal_text(
+            initial_second_leg_shortfall_quantity
+        ),
+        "material_second_leg_failure": material_second_leg_failure,
+        "unwind_filled_quantity": _decimal_text(unwind_filled),
+        "residual_unhedged_quantity": _decimal_text(residual_unhedged_quantity),
+        "residual_unhedged_max_loss_usdc": _decimal_text(
+            residual_unhedged_max_loss_usdc
+        ),
+        "terminal_residual_classification": terminal_residual_classification,
+        "dust_failed_unhedged": dust_failed_unhedged,
+        "material_failed_unhedged": material_failed_unhedged,
+        "transient_unhedged_exposure_peak_quantity": _decimal_text(
+            peak_unhedged_quantity
+        ),
+        "transient_unhedged_exposure_peak_max_loss_usdc": _decimal_text(
+            peak_unhedged_quantity
+        ),
+        "transient_unhedged_exposure_duration_ms": transient_unhedged_duration_ms,
+        "residual_unhedged_usdc": _decimal_text(residual_unhedged_max_loss_usdc),
+        "transient_naked_exposure_peak_quantity": _decimal_text(
+            peak_unhedged_quantity
+        ),
+        "transient_naked_exposure_peak_usdc": _decimal_text(peak_unhedged_quantity),
+        "transient_naked_exposure_duration_ms": transient_unhedged_duration_ms,
+    }
 
 
 @dataclass(frozen=True)
@@ -130,8 +303,8 @@ def _levels(value: Any) -> dict[Decimal, Decimal] | None:
             return None
         price = _decimal(item.get("price"))
         size = _decimal(item.get("size"))
-        if price is None or size is None or not Decimal("0") <= price <= Decimal(
-            "1"
+        if price is None or size is None or not Decimal(0) <= price <= Decimal(
+            1
         ) or size <= 0:
             return None
         result[price] = size
@@ -189,7 +362,7 @@ class CausalBookReplay:
         *,
         tokens: Mapping[str, BookReplayToken],
         receipt_clock_offset_ms: int = 0,
-    ) -> "CausalBookReplay":
+    ) -> CausalBookReplay:
         frozen_tokens = dict(tokens)
         if not frozen_tokens or any(
             token_id != token.token_id
@@ -296,7 +469,7 @@ class CausalBookReplay:
                     if (
                         price is None
                         or size is None
-                        or not Decimal("0") <= price <= Decimal("1")
+                        or not Decimal(0) <= price <= Decimal(1)
                         or size < 0
                         or side not in {"BUY", "SELL"}
                     ):
@@ -385,12 +558,13 @@ class PairPaperCycleEvaluation:
     execution: PairPaperExecution | None
     settlement: PairPaperSettlement | None
     reason_codes: tuple[str, ...]
+    expiry_ms: int | None = None
 
     def to_document(self) -> dict[str, Any]:
         decision = self.decision
 
         def decimal_text(value: Decimal | None) -> str | None:
-            return None if value is None else str(value)
+            return _decimal_text(value)
 
         def leg_document(result: Any) -> dict[str, Any]:
             return {
@@ -437,6 +611,14 @@ class PairPaperCycleEvaluation:
                     None
                     if self.execution.unwind_leg is None
                     else leg_document(self.execution.unwind_leg)
+                ),
+                "diagnostics": (
+                    None
+                    if self.expiry_ms is None
+                    else paper_execution_diagnostics(
+                        self.execution,
+                        expiry_ms=self.expiry_ms,
+                    )
                 ),
             }
         settlement_document = None
@@ -559,6 +741,7 @@ def evaluate_shadow_paper_cycle(
             execution=None,
             settlement=None,
             reason_codes=(),
+            expiry_ms=pair.expires_at_ms,
         )
     assert decision.first_token_id is not None
     assert decision.second_token_id is not None
@@ -575,6 +758,7 @@ def evaluate_shadow_paper_cycle(
             execution=None,
             settlement=None,
             reason_codes=("first_leg_execution_book_missing",),
+            expiry_ms=pair.expires_at_ms,
         )
     first_observable_ms = max(first.source_at_ms, first.received_at_ms)
     second_deadline_ms = first_observable_ms + max_leg_delay_ms
@@ -606,6 +790,7 @@ def evaluate_shadow_paper_cycle(
                 execution=None,
                 settlement=None,
                 reason_codes=("second_leg_timeout_surface_missing",),
+                expiry_ms=pair.expires_at_ms,
             )
     second_is_timely = max(
         second.source_at_ms, second.received_at_ms
@@ -657,4 +842,5 @@ def evaluate_shadow_paper_cycle(
         execution=execution,
         settlement=settlement,
         reason_codes=reasons,
+        expiry_ms=pair.expires_at_ms,
     )

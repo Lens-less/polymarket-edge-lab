@@ -276,6 +276,11 @@ def _monitoring_snapshot(
                 "breakeven_trades": _integer_field(shadow, "breakeven_trades"),
                 "win_rate": _scalar_field(shadow, "win_rate"),
                 "profit_factor": _scalar_field(shadow, "profit_factor"),
+                "execution_diagnostics": (
+                    shadow.get("execution_diagnostics")
+                    if isinstance(shadow.get("execution_diagnostics"), Mapping)
+                    else None
+                ),
             }
             if shadow is not None
             else None

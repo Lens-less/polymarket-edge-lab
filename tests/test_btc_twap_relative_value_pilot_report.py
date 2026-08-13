@@ -107,6 +107,20 @@ def test_predictor_window_rejects_gaps_staleness_and_future_delivery() -> None:
     assert not _resample_one_second(gap, decision_at_ms=decision_at_ms)
 
 
+def test_predictor_window_allows_late_start_but_not_internal_gaps() -> None:
+    decision_at_ms = 500_000
+    late_start = tuple(
+        (second * 1_000, second * 1_000, D(second))
+        for second in range(231, 500)
+    )
+
+    resampled = _resample_one_second(late_start, decision_at_ms=decision_at_ms)
+
+    assert len(resampled) == 270
+    assert resampled[0].timestamp_ms == 231_000
+    assert resampled[-1].timestamp_ms == 500_000
+
+
 def test_latest_before_requires_both_source_and_delivery_before_decision() -> None:
     series = (
         (100_000, 101_000, D("100")),

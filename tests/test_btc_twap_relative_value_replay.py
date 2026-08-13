@@ -10,6 +10,7 @@ from src.edge_lab.btc_twap_relative_value import (
     JointDistribution,
     PairAction,
     PairExecutionStatus,
+    PairPaperExecution,
     SettlementScenario,
     StrategyConfig,
 )
@@ -17,6 +18,14 @@ from src.edge_lab.btc_twap_relative_value_replay import (
     BookReplayToken,
     CausalBookReplay,
     evaluate_shadow_paper_cycle,
+    paper_execution_diagnostics,
+)
+from src.edge_lab.execution import (
+    ExecutionResult,
+    ExecutionStatus,
+    Fill,
+    LiquidityRole,
+    OrderSide,
 )
 from tests.test_edge_lab_btc_twap_relative_value import (
     same_expiry_pair,
@@ -31,6 +40,70 @@ def _iso(timestamp_ms: int) -> str:
         timestamp_ms / 1_000,
         tz=timezone.utc,
     ).isoformat().replace("+00:00", "Z")
+
+
+def _text(value: Decimal) -> str:
+    return format(value.normalize(), "f")
+
+
+def _fill(
+    *,
+    token_id: str,
+    side: OrderSide,
+    quantity: str,
+    price: str,
+    timestamp_ms: int,
+) -> Fill:
+    return Fill(
+        token_id=token_id,
+        side=side,
+        quantity=D(quantity),
+        price=D(price),
+        fee=D("0"),
+        liquidity_role=LiquidityRole.TAKER,
+        source_event_id=f"event-{token_id}-{timestamp_ms}",
+        decision_id="decision-1",
+        timestamp_ms=timestamp_ms,
+    )
+
+
+def _result(
+    *,
+    status: ExecutionStatus,
+    requested_quantity: str,
+    fills: tuple[Fill, ...],
+    reason: str | None = None,
+) -> ExecutionResult:
+    return ExecutionResult(
+        status=status,
+        requested_quantity=D(requested_quantity),
+        fills=fills,
+        source_event_id="source-1",
+        decision_id="decision-1",
+        reason=reason,
+    )
+
+
+def _execution(
+    *,
+    status: PairExecutionStatus,
+    first_leg: ExecutionResult,
+    second_leg: ExecutionResult,
+    unwind_leg: ExecutionResult | None,
+    matched_quantity: str,
+    unhedged_quantity: str,
+) -> PairPaperExecution:
+    return PairPaperExecution(
+        status=status,
+        first_leg=first_leg,
+        second_leg=second_leg,
+        unwind_leg=unwind_leg,
+        matched_quantity=D(matched_quantity),
+        unhedged_quantity=D(unhedged_quantity),
+        fees_paid=D("0"),
+        legging_cost=D("0"),
+        cashflow_after_execution=D("0"),
+    )
 
 
 def _record(
@@ -345,6 +418,36 @@ def test_shadow_cycle_runs_signal_to_fill_to_settlement_ledger() -> None:
     assert len(document["execution"]["second_leg"]["fills"]) == 1
     assert D(document["settlement"]["net_pnl"]) == cycle.settlement.net_pnl
     assert document["settlement"]["qualified_sample"] is False
+    assert document["execution"]["diagnostics"] == {
+        "schema_version": "btc-5m-15m-relative-value-execution-diagnostics.v1",
+        "economic_attempt": True,
+        "second_leg_fill_ratio": "1",
+        "first_leg_filled_quantity": _text(cycle.execution.first_leg.filled_quantity),
+        "second_leg_filled_quantity": _text(cycle.execution.second_leg.filled_quantity),
+        "initial_second_leg_shortfall_quantity": "0",
+        "material_second_leg_failure": False,
+        "unwind_filled_quantity": "0",
+        "residual_unhedged_quantity": _text(cycle.execution.unhedged_quantity),
+        "residual_unhedged_max_loss_usdc": _text(cycle.execution.unhedged_quantity),
+        "terminal_residual_classification": "none",
+        "residual_unhedged_usdc": _text(cycle.execution.unhedged_quantity),
+        "dust_failed_unhedged": False,
+        "material_failed_unhedged": False,
+        "transient_unhedged_exposure_peak_quantity": _text(
+            cycle.execution.first_leg.filled_quantity
+        ),
+        "transient_unhedged_exposure_peak_max_loss_usdc": _text(
+            cycle.execution.first_leg.filled_quantity
+        ),
+        "transient_unhedged_exposure_duration_ms": 250,
+        "transient_naked_exposure_peak_quantity": _text(
+            cycle.execution.first_leg.filled_quantity
+        ),
+        "transient_naked_exposure_peak_usdc": _text(
+            cycle.execution.first_leg.filled_quantity
+        ),
+        "transient_naked_exposure_duration_ms": 250,
+    }
     assert document["orders_submitted"] == 0
     assert document["authenticated_endpoints_used"] == 0
 
@@ -458,3 +561,191 @@ def test_shadow_cycle_records_first_leg_loss_when_second_leg_times_out() -> None
     assert cycle.settlement is not None
     assert cycle.settlement.explainable is True
     assert cycle.settlement.net_pnl < D("0")
+    assert cycle.to_document()["execution"]["diagnostics"] == {
+        "schema_version": "btc-5m-15m-relative-value-execution-diagnostics.v1",
+        "economic_attempt": True,
+        "second_leg_fill_ratio": "0",
+        "first_leg_filled_quantity": _text(cycle.execution.first_leg.filled_quantity),
+        "second_leg_filled_quantity": "0",
+        "initial_second_leg_shortfall_quantity": _text(
+            cycle.execution.first_leg.filled_quantity
+        ),
+        "material_second_leg_failure": True,
+        "unwind_filled_quantity": _text(cycle.execution.unwind_leg.filled_quantity),
+        "residual_unhedged_quantity": _text(cycle.execution.unhedged_quantity),
+        "residual_unhedged_max_loss_usdc": _text(cycle.execution.unhedged_quantity),
+        "terminal_residual_classification": "none",
+        "residual_unhedged_usdc": _text(cycle.execution.unhedged_quantity),
+        "dust_failed_unhedged": False,
+        "material_failed_unhedged": False,
+        "transient_unhedged_exposure_peak_quantity": _text(
+            cycle.execution.first_leg.filled_quantity
+        ),
+        "transient_unhedged_exposure_peak_max_loss_usdc": _text(
+            cycle.execution.first_leg.filled_quantity
+        ),
+        "transient_unhedged_exposure_duration_ms": 1010,
+        "transient_naked_exposure_peak_quantity": _text(
+            cycle.execution.first_leg.filled_quantity
+        ),
+        "transient_naked_exposure_peak_usdc": _text(
+            cycle.execution.first_leg.filled_quantity
+        ),
+        "transient_naked_exposure_duration_ms": 1010,
+    }
+
+
+def test_paper_execution_diagnostics_marks_failed_unhedged_dust_only_when_second_leg_substantially_filled() -> None:
+    quantity = D("10")
+    execution = _execution(
+        status=PairExecutionStatus.FAILED_UNHEDGED,
+        first_leg=_result(
+            status=ExecutionStatus.FILLED,
+            requested_quantity="10",
+            fills=(
+                _fill(
+                    token_id="first",
+                    side=OrderSide.BUY,
+                    quantity="10",
+                    price="0.5",
+                    timestamp_ms=1_000,
+                ),
+            ),
+        ),
+        second_leg=_result(
+            status=ExecutionStatus.PARTIAL,
+            requested_quantity="10",
+            fills=(
+                _fill(
+                    token_id="second",
+                    side=OrderSide.BUY,
+                    quantity="9.995",
+                    price="0.5",
+                    timestamp_ms=1_250,
+                ),
+            ),
+        ),
+        unwind_leg=None,
+        matched_quantity="9.995",
+        unhedged_quantity="0.005",
+    )
+
+    diagnostics = paper_execution_diagnostics(execution, expiry_ms=2_000)
+
+    assert diagnostics["second_leg_fill_ratio"] == "0.9995"
+    assert diagnostics["initial_second_leg_shortfall_quantity"] == "0.005"
+    assert diagnostics["material_second_leg_failure"] is False
+    assert diagnostics["terminal_residual_classification"] == "dust"
+    assert diagnostics["dust_failed_unhedged"] is True
+    assert diagnostics["material_failed_unhedged"] is False
+    assert diagnostics["transient_unhedged_exposure_peak_quantity"] == _text(quantity)
+    assert diagnostics["transient_unhedged_exposure_duration_ms"] == 1000
+
+
+def test_paper_execution_diagnostics_marks_zero_second_leg_unwind_as_material_second_leg_failure_not_terminal_residual() -> None:
+    execution = _execution(
+        status=PairExecutionStatus.UNWOUND_TO_MATCHED,
+        first_leg=_result(
+            status=ExecutionStatus.FILLED,
+            requested_quantity="12",
+            fills=(
+                _fill(
+                    token_id="first",
+                    side=OrderSide.BUY,
+                    quantity="12",
+                    price="0.5",
+                    timestamp_ms=1_000,
+                ),
+            ),
+        ),
+        second_leg=_result(
+            status=ExecutionStatus.KILLED,
+            requested_quantity="12",
+            fills=(),
+            reason="maximum_leg_delay_exceeded",
+        ),
+        unwind_leg=_result(
+            status=ExecutionStatus.FILLED,
+            requested_quantity="12",
+            fills=(
+                _fill(
+                    token_id="first",
+                    side=OrderSide.SELL,
+                    quantity="12",
+                    price="0.45",
+                    timestamp_ms=2_010,
+                ),
+            ),
+        ),
+        matched_quantity="0",
+        unhedged_quantity="0",
+    )
+
+    diagnostics = paper_execution_diagnostics(execution, expiry_ms=5_000)
+
+    assert diagnostics["second_leg_fill_ratio"] == "0"
+    assert diagnostics["initial_second_leg_shortfall_quantity"] == "12"
+    assert diagnostics["material_second_leg_failure"] is True
+    assert diagnostics["terminal_residual_classification"] == "none"
+    assert diagnostics["dust_failed_unhedged"] is False
+    assert diagnostics["material_failed_unhedged"] is False
+    assert diagnostics["transient_unhedged_exposure_duration_ms"] == 1010
+
+
+def test_paper_execution_diagnostics_marks_material_terminal_residual_and_extends_exposure_to_expiry() -> None:
+    execution = _execution(
+        status=PairExecutionStatus.FAILED_UNHEDGED,
+        first_leg=_result(
+            status=ExecutionStatus.FILLED,
+            requested_quantity="10",
+            fills=(
+                _fill(
+                    token_id="first",
+                    side=OrderSide.BUY,
+                    quantity="10",
+                    price="0.5",
+                    timestamp_ms=1_000,
+                ),
+            ),
+        ),
+        second_leg=_result(
+            status=ExecutionStatus.PARTIAL,
+            requested_quantity="10",
+            fills=(
+                _fill(
+                    token_id="second",
+                    side=OrderSide.BUY,
+                    quantity="7",
+                    price="0.5",
+                    timestamp_ms=1_250,
+                ),
+            ),
+        ),
+        unwind_leg=_result(
+            status=ExecutionStatus.PARTIAL,
+            requested_quantity="3",
+            fills=(
+                _fill(
+                    token_id="first",
+                    side=OrderSide.SELL,
+                    quantity="1",
+                    price="0.45",
+                    timestamp_ms=1_500,
+                ),
+            ),
+        ),
+        matched_quantity="7",
+        unhedged_quantity="2",
+    )
+
+    diagnostics = paper_execution_diagnostics(execution, expiry_ms=4_000)
+
+    assert diagnostics["second_leg_fill_ratio"] == "0.7"
+    assert diagnostics["initial_second_leg_shortfall_quantity"] == "3"
+    assert diagnostics["material_second_leg_failure"] is True
+    assert diagnostics["terminal_residual_classification"] == "material"
+    assert diagnostics["dust_failed_unhedged"] is False
+    assert diagnostics["material_failed_unhedged"] is True
+    assert diagnostics["residual_unhedged_max_loss_usdc"] == "2"
+    assert diagnostics["transient_unhedged_exposure_peak_quantity"] == "10"
+    assert diagnostics["transient_unhedged_exposure_duration_ms"] == 3000

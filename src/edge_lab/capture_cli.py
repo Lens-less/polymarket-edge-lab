@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -28,6 +29,7 @@ from .sources import PublicSourcesClient
 
 
 CONFIG_SCHEMA_VERSION = "edge-lab-forward-capture-config.v1"
+_SAFE_TRACK_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SENSITIVE_KEY_PARTS = (
     "api_key",
     "authorization",
@@ -56,6 +58,21 @@ class ForwardCaptureConfig:
     reward_max_pages: int
     targets: tuple[Mapping[str, Any], ...]
     clock_sync: Mapping[str, Any] | None = None
+    capture_started_at_ms: int | None = None
+    evidence_track_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.capture_started_at_ms is not None and (
+            isinstance(self.capture_started_at_ms, bool)
+            or not isinstance(self.capture_started_at_ms, int)
+            or self.capture_started_at_ms < 0
+        ):
+            raise ValueError("capture_started_at_ms must be a non-negative integer")
+        if self.evidence_track_id is not None and (
+            not isinstance(self.evidence_track_id, str)
+            or _SAFE_TRACK_ID.fullmatch(self.evidence_track_id) is None
+        ):
+            raise ValueError("evidence_track_id must be a non-empty safe token")
 
 
 def _unique_strings(value: Any, *, field: str) -> tuple[str, ...]:
@@ -112,6 +129,8 @@ def load_capture_config(
         "reward_max_pages",
         "targets",
         "clock_sync",
+        "capture_started_at_ms",
+        "evidence_track_id",
     }
     unexpected = set(raw) - allowed
     if unexpected:
@@ -161,6 +180,8 @@ def load_capture_config(
         reward_max_pages=int(raw.get("reward_max_pages", 1)),
         targets=tuple(dict(target) for target in targets),
         clock_sync=(dict(clock_sync) if isinstance(clock_sync, Mapping) else None),
+        capture_started_at_ms=raw.get("capture_started_at_ms"),
+        evidence_track_id=raw.get("evidence_track_id"),
     )
     # Reuse the recorder's strict allowlist and timing validation.
     RecorderConfig(

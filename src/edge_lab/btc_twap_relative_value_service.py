@@ -44,6 +44,7 @@ SERVICE_CONFIG_SCHEMA = "btc-twap-relative-value-continuous-service.v1"
 SERVICE_STATUS_SCHEMA = "btc-twap-relative-value-service-status.v1"
 CAPTURE_CONFIG_SCHEMA = "edge-lab-forward-capture-config.v1"
 _ATTEMPT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+LEGACY_EVIDENCE_TRACK_ID = "v04-legacy"
 _SNTP_SELECTED = re.compile(
     r"^\s*([+-]\d+(?:\.\d+)?)\s+\+/-\s+(\d+(?:\.\d+)?)\s+" r"time\.apple\.com(?:\s|$)",
     re.MULTILINE,
@@ -761,6 +762,7 @@ class ContinuousServiceConfig:
     minimum_free_disk_bytes: int
     max_history_roots: int
     decision_tau_seconds: tuple[int, ...] | int
+    evidence_track_id: str = LEGACY_EVIDENCE_TRACK_ID
     clock_sync_source: str = CLOCK_SYNC_SOURCE_SNTP
     seed_report_paths: tuple[Path, ...] = ()
 
@@ -803,6 +805,8 @@ class ContinuousServiceConfig:
                 "decision_tau_seconds must be unique integers inside [45, 240]"
             )
         object.__setattr__(self, "decision_tau_seconds", decision_taus)
+        if _ATTEMPT_ID.fullmatch(self.evidence_track_id) is None:
+            raise ValueError("evidence_track_id must be a non-empty safe token")
         if self.clock_sync_source not in SUPPORTED_CLOCK_SYNC_SOURCES:
             raise ValueError("clock_sync_source must be a supported source")
 
@@ -1021,6 +1025,7 @@ def load_service_config(path: Path) -> ContinuousServiceConfig:
         "minimum_free_disk_bytes",
         "max_history_roots",
         "decision_tau_seconds",
+        "evidence_track_id",
         "clock_sync_source",
         "seed_report_paths",
     }
@@ -1069,9 +1074,75 @@ def load_service_config(path: Path) -> ContinuousServiceConfig:
         minimum_free_disk_bytes=int(raw.get("minimum_free_disk_bytes", 12 * 1024**3)),
         max_history_roots=int(raw.get("max_history_roots", 1)),
         decision_tau_seconds=decision_taus,
+        evidence_track_id=str(
+            raw.get("evidence_track_id", LEGACY_EVIDENCE_TRACK_ID)
+        ),
         clock_sync_source=str(raw.get("clock_sync_source", CLOCK_SYNC_SOURCE_SNTP)),
         seed_report_paths=tuple(Path(item) for item in seed),
     )
+
+
+def _parse_required_utc_timestamp(value: Any, *, field: str) -> datetime:
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{field} must be a non-empty UTC timestamp")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"{field} must be an ISO-8601 UTC timestamp") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() != timezone.utc.utcoffset(parsed):
+        raise ValueError(f"{field} must be a UTC timestamp")
+    return parsed.astimezone(timezone.utc)
+
+
+def validate_preregistration_runtime_identity(
+    preregistration: Mapping[str, Any],
+    *,
+    config: ContinuousServiceConfig,
+) -> None:
+    if not isinstance(preregistration, Mapping):
+        raise TypeError("preregistration must be a mapping")
+    scope = preregistration.get("scope")
+    if not isinstance(scope, Mapping):
+        raise ValueError("preregistration scope must be an object")
+    if scope.get("paper_only") is not True:
+        raise ValueError("preregistration scope must keep paper_only=true")
+    if scope.get("live_orders_disabled") is not True:
+        raise ValueError("preregistration scope must keep live_orders_disabled=true")
+    _parse_required_utc_timestamp(
+        scope.get("prospective_only_after"),
+        field="scope.prospective_only_after",
+    )
+    scope_track_id = scope.get("evidence_track_id")
+    if scope_track_id is not None:
+        if not isinstance(scope_track_id, str) or _ATTEMPT_ID.fullmatch(scope_track_id) is None:
+            raise ValueError("scope.evidence_track_id must be a non-empty safe token")
+        if config.evidence_track_id != scope_track_id:
+            raise ValueError("service evidence_track_id does not match preregistration scope")
+    frozen_strategy = preregistration.get("frozen_strategy")
+    if not isinstance(frozen_strategy, Mapping):
+        raise ValueError("preregistration frozen_strategy must be an object")
+    frozen_taus = frozen_strategy.get("decision_tau_seconds")
+    if frozen_taus != list(config.decision_tau_seconds):
+        raise ValueError("service decision_tau_seconds do not match preregistration")
+    frozen_clock = frozen_strategy.get("clock_sync")
+    if not isinstance(frozen_clock, Mapping):
+        raise ValueError("preregistration frozen_strategy.clock_sync must be an object")
+    if frozen_clock.get("source") != config.clock_sync_source:
+        raise ValueError("service clock_sync_source does not match preregistration")
+    strategy_spec = preregistration.get("strategy_spec")
+    if not isinstance(strategy_spec, Mapping):
+        raise ValueError("preregistration strategy_spec must be an object")
+    strategy_relpath = strategy_spec.get("path")
+    expected_hash = strategy_spec.get("sha256")
+    if not isinstance(strategy_relpath, str) or not strategy_relpath.strip():
+        raise ValueError("strategy_spec.path must be a non-empty string")
+    if not isinstance(expected_hash, str) or re.fullmatch(r"[0-9a-f]{64}", expected_hash) is None:
+        raise ValueError("strategy_spec.sha256 must be a lowercase sha256 hex string")
+    project_root = config.preregistration_path.expanduser().resolve().parents[2]
+    strategy_path = (project_root / strategy_relpath).resolve()
+    actual_hash = hashlib.sha256(strategy_path.read_bytes()).hexdigest()
+    if actual_hash != expected_hash:
+        raise ValueError("strategy_spec sha256 does not match the local strategy file")
 
 
 def require_disk_capacity(
@@ -1169,6 +1240,8 @@ def build_capture_plan(
     capture_config: dict[str, Any] = {
         "schema_version": CAPTURE_CONFIG_SCHEMA,
         "data_root": str(capture_root),
+        "capture_started_at_ms": now_ms,
+        "evidence_track_id": config.evidence_track_id,
         "clock_sync": clock_sync.to_document(),
         "asset_ids": [
             market_15.up_token_id,

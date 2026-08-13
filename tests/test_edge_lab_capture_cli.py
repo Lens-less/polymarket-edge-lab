@@ -61,6 +61,49 @@ def test_load_capture_config_is_explicit_and_resolves_data_root(
     assert config.condition_ids == ("condition-1",)
     assert config.rule_market_ids == ("market-1",)
     assert config.targets == ({"event_id": "event-1"},)
+    assert config.capture_started_at_ms is None
+    assert config.evidence_track_id is None
+
+
+def test_load_capture_config_accepts_runtime_identity_fields(
+    tmp_path: Path,
+) -> None:
+    config_path = _write_config(
+        tmp_path / "capture.json",
+        tmp_path / "data",
+        capture_started_at_ms=123_456,
+        evidence_track_id="paper-v05",
+    )
+
+    config = load_capture_config(config_path)
+
+    assert config.capture_started_at_ms == 123_456
+    assert config.evidence_track_id == "paper-v05"
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "pattern"),
+    [
+        ("capture_started_at_ms", -1, "non-negative integer"),
+        ("capture_started_at_ms", True, "non-negative integer"),
+        ("evidence_track_id", "", "non-empty safe token"),
+        ("evidence_track_id", "unsafe/token", "non-empty safe token"),
+    ],
+)
+def test_load_capture_config_rejects_invalid_runtime_identity_fields(
+    tmp_path: Path,
+    field: str,
+    value: object,
+    pattern: str,
+) -> None:
+    config_path = _write_config(
+        tmp_path / "capture.json",
+        tmp_path / "data",
+        **{field: value},
+    )
+
+    with pytest.raises(ValueError, match=pattern):
+        load_capture_config(config_path)
 
 
 @pytest.mark.parametrize(
