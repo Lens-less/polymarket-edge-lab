@@ -1,0 +1,20 @@
+{
+  "schema_version": "btc-twap-relative-value-continuous-service.v1",
+  "evidence_track_id": "btc-paper-v05-20260813",
+  "data_root": "/var/lib/poly-mm-v05/data/btc_5m_15m_relative_value_paper_v05_linux_2026-08-13",
+  "research_root": "/var/lib/poly-mm-v05/research/btc_5m_15m_relative_value_paper_v05_linux_2026-08-13",
+  "preregistration_path": "/opt/poly-mm-v05/research/btc_5m_15m_relative_value_paper_v05_linux_2026-08-13/PREREGISTRATION.json",
+  "settlement_grace_seconds": 360,
+  "retry_seconds": 30,
+  "status_interval_seconds": 15,
+  "minimum_free_disk_bytes": 12884901888,
+  "max_history_roots": 1,
+  "decision_tau_seconds": [
+    240,
+    180,
+    120,
+    60
+  ],
+  "clock_sync_source": "Chrony Amazon Time Sync Service 169.254.169.123",
+  "seed_report_paths": []
+}
