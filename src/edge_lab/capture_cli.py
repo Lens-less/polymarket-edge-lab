@@ -27,7 +27,6 @@ from .recorder import (
 )
 from .sources import PublicSourcesClient
 
-
 CONFIG_SCHEMA_VERSION = "edge-lab-forward-capture-config.v1"
 _SAFE_TRACK_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SENSITIVE_KEY_PARTS = (
