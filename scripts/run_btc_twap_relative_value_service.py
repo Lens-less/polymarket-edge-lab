@@ -480,8 +480,6 @@ def _exclusive_lock(config: ContinuousServiceConfig) -> Iterator[None]:
 
 async def _async_main(
     config: ContinuousServiceConfig,
-    *,
-    proxy_url: str | None,
 ) -> None:
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -493,7 +491,7 @@ async def _async_main(
         except (NotImplementedError, RuntimeError):
             pass
     try:
-        await run_service(config, proxy_url=proxy_url, stop_event=stop_event)
+        await run_service(config, proxy_url=None, stop_event=stop_event)
     finally:
         for candidate in installed:
             loop.remove_signal_handler(candidate)
@@ -502,7 +500,6 @@ async def _async_main(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True, type=Path)
-    parser.add_argument("--proxy")
     parser.add_argument("--validate-only", action="store_true")
     return parser
 
@@ -512,7 +509,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     config = load_service_config(args.config)
     verify_paper_only_guard()
     _validate_runtime_identity(config)
-    public_session(args.proxy).close()
+    public_session(None).close()
     require_disk_capacity(config)
     if args.validate_only:
         print(
@@ -534,7 +531,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0
     with _exclusive_lock(config):
-        asyncio.run(_async_main(config, proxy_url=args.proxy))
+        asyncio.run(_async_main(config))
     return 0
 
 

@@ -363,6 +363,15 @@ def test_main_validate_only_loads_and_validates_preregistration_before_success(
     ]
 
 
+def test_service_entrypoint_rejects_proxy_configuration() -> None:
+    with pytest.raises(SystemExit) as caught:
+        runner.build_parser().parse_args(
+            ["--config", "service.json", "--proxy", "http://127.0.0.1:7897"]
+        )
+
+    assert caught.value.code == 2
+
+
 def test_main_validate_only_fails_closed_on_mismatched_preregistration(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
