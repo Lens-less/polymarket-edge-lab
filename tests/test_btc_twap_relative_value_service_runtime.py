@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 import types
 from pathlib import Path
@@ -166,3 +167,62 @@ async def test_service_stop_cancels_pending_capture_and_clock_refresh(
     await stop_task
 
     assert capture_cancelled.is_set()
+
+
+def test_history_roots_prefers_newest_valid_unique_capture_roots(
+    tmp_path: Path,
+) -> None:
+    config = _service_config(tmp_path)
+    reports_dir = config.research_root / "reports"
+    reports_dir.mkdir(parents=True)
+    old_root = tmp_path / "old-capture"
+    mid_root = tmp_path / "mid-capture"
+    new_root = tmp_path / "new-capture"
+    for root in (old_root, mid_root, new_root):
+        root.mkdir()
+    duplicate = reports_dir / "duplicate.json"
+    duplicate.write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-08-13T00:15:00Z",
+                "inputs": {"capture_root": str(new_root)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (reports_dir / "old.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-08-13T00:00:00Z",
+                "inputs": {"capture_root": str(old_root)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (reports_dir / "mid.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-08-13T00:10:00Z",
+                "inputs": {"capture_root": str(mid_root)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (reports_dir / "new.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-08-13T00:20:00Z",
+                "inputs": {"capture_root": str(new_root)},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (reports_dir / "invalid.json").write_text(
+        json.dumps({"generated_at": "2026-08-13T00:30:00Z", "inputs": {}}),
+        encoding="utf-8",
+    )
+    config = ContinuousServiceConfig(**{**config.__dict__, "max_history_roots": 2})
+
+    roots = runner._history_roots(config, exclude=tmp_path / "active-capture")
+
+    assert roots == (new_root.resolve(), mid_root.resolve())

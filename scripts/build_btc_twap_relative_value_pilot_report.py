@@ -231,7 +231,12 @@ def _resample_one_second(
                 latest = candidate
             cursor += 1
         if latest is None:
-            return ()
+            # A capture may start after the left edge of the optional
+            # 300-second lookback.  Do not invent the missing prefix; retain
+            # only the causally observed suffix.  Once sampling has begun,
+            # the existing five-second freshness guard below still rejects
+            # every internal outage fail-closed.
+            continue
         source_at_ms, received_at_ms, value = latest
         if grid_ms - max(source_at_ms, received_at_ms) > 5_000:
             return ()
@@ -740,6 +745,12 @@ def build_report(
     twap_60 = _combined_series(
         twap_roots, topic="crypto_prices_twap_sixty", symbol="btc/usd"
     )
+    # Predictor returns are scoped to the current continuous capture.  Prior
+    # capture roots can contain a service reporting gap greater than the
+    # frozen five-second freshness limit; joining across that gap would make
+    # an otherwise healthy current suffix fail and would not restore a
+    # continuous history.  Historical roots remain valid for exact TWAP
+    # boundary recovery above.
     predictor = _series(
         predictor_root, topic="crypto_prices", symbol="btcusdt"
     )
@@ -1294,12 +1305,15 @@ def build_report(
     shadow_execution_document = development_shadow_cycle.get("execution")
     shadow_settlement_document = development_shadow_cycle.get("settlement")
     shadow_decision_evaluated = isinstance(shadow_decision_document, Mapping)
+    shadow_execution_diagnostics = (
+        shadow_execution_document.get("diagnostics")
+        if isinstance(shadow_execution_document, Mapping)
+        and isinstance(shadow_execution_document.get("diagnostics"), Mapping)
+        else None
+    )
     shadow_trade_count = int(
-        isinstance(shadow_execution_document, Mapping)
-        and shadow_execution_document.get("status") != "no_fill"
-        and Decimal(str(shadow_execution_document.get("matched_quantity", "0")))
-        + Decimal(str(shadow_execution_document.get("unhedged_quantity", "0")))
-        > 0
+        isinstance(shadow_execution_diagnostics, Mapping)
+        and shadow_execution_diagnostics.get("economic_attempt") is True
     )
     shadow_fill_count = 0
     if isinstance(shadow_execution_document, Mapping):
@@ -1377,6 +1391,7 @@ def build_report(
             "development_shadow_trades": shadow_trade_count,
             "development_shadow_fills": shadow_fill_count,
             "development_shadow_net_pnl": shadow_net_pnl,
+            "development_shadow_execution_diagnostics": shadow_execution_diagnostics,
             "development_shadow_complete_taker_cost_model": (
                 shadow_trade_count == 1
                 and isinstance(shadow_settlement_document, Mapping)

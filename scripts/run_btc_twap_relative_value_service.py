@@ -115,7 +115,7 @@ def _history_roots(
     *,
     exclude: Path,
 ) -> tuple[Path, ...]:
-    roots: list[Path] = []
+    roots: list[tuple[float, Path]] = []
     for report_path in _report_paths(config):
         document = _read_json(report_path)
         inputs = document.get("inputs") if isinstance(document, dict) else None
@@ -124,8 +124,28 @@ def _history_roots(
             continue
         root = Path(root_value).resolve()
         if root != exclude and root.is_dir():
-            roots.append(root)
-    return tuple(dict.fromkeys(roots))[-config.max_history_roots :]
+            generated_at = document.get("generated_at")
+            timestamp = report_path.stat().st_mtime
+            if isinstance(generated_at, str) and generated_at:
+                try:
+                    parsed = datetime.fromisoformat(
+                        generated_at.replace("Z", "+00:00")
+                    )
+                    if parsed.tzinfo is not None and parsed.utcoffset() is not None:
+                        timestamp = parsed.timestamp()
+                except ValueError:
+                    pass
+            roots.append((timestamp, root))
+    deduped: dict[Path, None] = {}
+    for _, root in sorted(
+        roots,
+        key=lambda item: (item[0], str(item[1])),
+        reverse=True,
+    ):
+        deduped.setdefault(root, None)
+        if len(deduped) >= config.max_history_roots:
+            break
+    return tuple(deduped)
 
 
 def _latest_summary(config: ContinuousServiceConfig) -> dict[str, Any] | None:

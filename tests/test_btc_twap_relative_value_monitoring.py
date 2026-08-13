@@ -67,6 +67,15 @@ def _write_summary(path: Path) -> Path:
             "breakeven_trades": 0,
             "win_rate": "1",
             "profit_factor": None,
+            "execution_diagnostics": {
+                "dust_failed_unhedged_trades": 9,
+                "material_failed_unhedged_trades": 2,
+                "residual_unhedged_usdc_total": "2.500055",
+                "residual_unhedged_usdc_material_total": "2.5",
+                "transient_naked_exposure_peak_usdc": "37.74",
+                "transient_naked_exposure_total_duration_ms": 765,
+                "transient_naked_exposure_trades": 3,
+            },
         },
         "evidence": {
             "capture_cycles": 4,
@@ -195,6 +204,15 @@ def test_health_check_surfaces_monitoring_summary(
     assert payload["monitoring"]["shadow"]["trades"] == 2
     assert payload["monitoring"]["shadow"]["fills"] == 11
     assert payload["monitoring"]["shadow"]["profit_factor"] is None
+    assert payload["monitoring"]["shadow"]["execution_diagnostics"] == {
+        "dust_failed_unhedged_trades": 9,
+        "material_failed_unhedged_trades": 2,
+        "residual_unhedged_usdc_total": "2.500055",
+        "residual_unhedged_usdc_material_total": "2.5",
+        "transient_naked_exposure_peak_usdc": "37.74",
+        "transient_naked_exposure_total_duration_ms": 765,
+        "transient_naked_exposure_trades": 3,
+    }
     assert payload["monitoring"]["service"]["runtime_healthy"] is True
     assert payload["monitoring"]["service"]["paper_only_guard_valid"] is True
     assert payload["monitoring"]["service"]["status_hash_valid"] is True
