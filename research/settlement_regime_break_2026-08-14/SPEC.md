@@ -1,6 +1,6 @@
 # SPEC：结算体制切换（2026-08-14）后的采集解耦、v0.6 前瞻轨道与告警改造
 
-- 状态：implementation-in-progress
+- 状态：deployed-and-monitoring（WP1–WP6 已上线；24h 容量回填待完成）
 - 日期：2026-08-14
 - 事件：Polymarket 将 `btc-updown-5m-*` 市场结算源由 Chainlink TWAP 30s 切换为
   60s，v0.4 / v0.5 冻结校验按设计 fail-closed，两条 paper 轨道自
@@ -22,6 +22,11 @@
 | 08-14 06:45 | v0.5 报告冻结在 156（v0.4 为 380），两服务 `phase=error_wait`、`healthy=false`（`service_phase_unhealthy`）、心跳正常、guards 全绿 | `service/status.json`、`monitor/health-latest.json` |
 | 08-14 15:42:34 | 主机仍在“**process 活着但 progress 停摆**”状态：四个 systemd 单元均 `active`，但 v0.5 / v0.4 都是 `phase=error_wait`；v0.5 `completed_report_count=156`、`capture_cycles=39`、shadow `+9.465867`，v0.4 `completed_report_count=380`、`capture_cycles=95`、shadow `-79.384309` | 最新 SSM 读数 |
 | 08-14 15:42:34 | t3.small 主机 `MemAvailable=859MB`，v0.4 / v0.5 进程 RSS 分别约 `337MB` / `341MB`；过去 6 小时 `CPUCreditBalance` 最低约 `226.39`（09:42Z），15:37Z 升至约 `362.85` | 最新 SSM + CloudWatch |
+| 08-14 18:08:36 | v0.4 最终状态、health、unit 状态与哈希封存完成；服务和 health timer 停止并禁用，历史数据未删除 | `v04_final_state/ARCHIVE_MANIFEST.json` |
+| 08-14 18:49:43–44 | rawcap 与 v0.6 各自开启首个 prospective capture；缺口按 v0.6 首次 capture 启动时刻闭合 | rawcap / v0.6 status、`GAP_CLOSURE.json` |
+| 08-14 19:06:04 | rawcap 首个周期完整收口：61 manifests、230,517 records、0 integrity failure、60s/60s eligible、0 quarantine | rawcap `capture-summary.json` |
+| 08-14 19:21–19:24 | v0.6 首周期四个 τ 报告全部生成并通过 v2 验证；四个 raw shadow 均可用，canonical 均 `no_trade`；qualified/OOS 以 `past_only_calibration_insufficient` fail-closed | v0.6 reports / health / validation summary |
+| 08-14 19:37:48 | watcher 的 v0.5 权限噪声修正上线：冻结的 0600 状态文件现在报告为 `telemetry_unavailable`，不再误报 stale heartbeat；capture stalled 与 regime mismatch 继续保留 | watcher alert snapshot / journal |
 
 已错过 00:15Z–06:45Z 共 27 个周期（每轨道约 108 份 τ 报告），缺口仍以每
 15 分钟 4 份的速度扩大。
@@ -36,8 +41,11 @@
   - 诊断回放共看了 3 个动作，其中 2 个 dust 形态为正（`+13.626271`、
     `+10.365131` USDC），**但全部不得进入 qualified / calibration / OOS**。
 - 缺口的 `first_observed_at=2026-08-14T00:12:00Z` 仅表示首次观测到 mismatch，
-  不是平台体制切换的精确时刻；`gap_end` 保持 `null`，等待 v0.6 激活或 30s
-  体制回归时再闭合。
+  不是平台体制切换的精确时刻。`GAP_MANIFEST.json` 的 hash 已被 v0.6 预注册
+  冻结，因此其 `gap_end=null` 与全部原始字节保持不变；运行闭合 addendum
+  `GAP_CLOSURE.json` 将 `gap_end` 记录为 `2026-08-14T18:49:44.097586Z`
+  （v0.6 首次 prospective capture 启动；此前未观测到 30s 体制回归），并反向
+  绑定 base manifest 的冻结 SHA-256。
 
 ### 0.2 根因与结构性缺陷（代码定位）
 
@@ -380,6 +388,11 @@ Gamma 市场元数据、市场规则全文、最终结算结果、公开价格�
 丢失期间的 RTDS TWAP 更新、当时实际可得的信息集、原始 τ 报告。
 依据 §0.3：RTDS 无重放，且 Chainlink TWAP 内部计算规则未公开。
 
+冻结后闭合规则：一旦 `GAP_MANIFEST.json` 的 SHA-256 被预注册引用，禁止再原地
+填写 `gap_end`。恢复时间与首周期验收必须写入 `GAP_CLOSURE.json`，并由 closure
+文件绑定 base manifest 的路径和 SHA-256；closure 只属于 operational context，
+不进入 qualified strategy evidence。
+
 ---
 
 ## 4. 执行顺序
@@ -394,7 +407,9 @@ Gamma 市场元数据、市场规则全文、最终结算结果、公开价格�
 | 6 | WP5 完整信号集 + 恢复演练；24h 主动监控（复刻 v0.5 上线流程） | 5 |
 | 7 | 首个 24h 后回填 §5 实测数字，DEPLOYMENT_REPORT 归档 | 6 |
 
-全程保持 live trading 关闭；v0.6 晋级仍受预注册冻结门槛约束。
+执行状态：步骤 1–6 已完成并经首周期验收；步骤 7 的部署报告已先记录首周期
+事实，24h 写入速率与长期资源趋势将在定时监控取得足够窗口后追加。全程保持
+live trading 关闭；v0.6 晋级仍受预注册冻结门槛约束。
 
 ## 5. 资源预算（t3.small，部署前估算）
 
@@ -406,6 +421,11 @@ Gamma 市场元数据、市场规则全文、最终结算结果、公开价格�
 | v0.6 | −~200MB | 与 v0.5 同量级 |
 | watcher | 忽略 | timer 短进程 |
 | 预计余量 | ~400–500MB | 低于 300MB 时告警（纳入 WP5） |
+
+首周期实测（`2026-08-14T19:24:33Z`）：rawcap RSS 约 `121MB`、v0.6 RSS
+约 `229MB`、v0.5 RSS 约 `340MB`，`MemAvailable` 约 `920MB`；CPU credit
+在 19:05Z 为 `430.86`，磁盘可用 `36.3GB`。均优于预算和告警门槛。首个
+完整 rawcap 周期写入量不代表稳定 24h 压缩率，仍不得据此外推 30 天容量。
 
 磁盘：当前 37GB 空闲；v0.5 活跃采集实测约 58KB/10s，rawcap 双 TWAP 流 +
 CLOB 估 0.3–0.7GB/天（未压缩），zstd 后预计 <100MB/天；30 天保留 +
@@ -432,10 +452,36 @@ CLOB 估 0.3–0.7GB/天（未压缩），zstd 后预计 <100MB/天；30 天保�
 7. 策略与采集服务保持零凭证；唯一豁免是 watcher 的 `sns:Publish`（WP5）。
 8. live trading 保持关闭，直至 v0.6 通过预注册冻结的全部晋级门槛。
 
-## 7. 开放决策点（需要拍板）
+## 7. 决策状态与剩余开放项
 
-1. **路径 A vs 路径 B**：默认 A（迁移测试，最快恢复前瞻证据；重校准留给
-   v0.7 另行预注册）。
-2. **告警收件端点**：SNS email 订阅地址（或改用其他 webhook）。
-3. **rawcap 是否 S3 离线归档**：默认先本地 30 天保留，观察实测量再定。
-4. **v0.4 封存时机**：默认步骤 2 立即执行（其对照价值已随双停失效）。
+1. **路径 A 已执行**：v0.6 是相对 v0.5 的 prospective migration test；路径 B
+   重校准保留给未来 v0.7，当前没有调整冻结策略参数。
+2. **告警传输已部署但 SNS 收件端点仍开放**：topic 与最小权限
+   `sns:Publish` 已就绪，尚无 email/webhook subscription。作为立即可用的补充，
+   Codex task heartbeat 已设为每 30 分钟做一次外部只读巡检。
+3. **rawcap 暂不做 S3 离线归档**：本地 30 天保留已启用；待 24h 实测写入率后
+   再决定，避免先扩权限与成本面。
+4. **v0.4 已封存**：于 `2026-08-14T18:08:36Z` 完成，未删除任何历史证据。
+
+## 8. 首周期部署验收
+
+- rawcap 与 v0.6 均保持 `paper_only/public_only/new_orders_disabled=true`、
+  `orders_submitted=0`、`authenticated_endpoints_used=0`；服务进程环境未发现
+  AWS access key、session token、wallet/private-key 或 proxy 变量。
+- v0.6 cycle `1786734900` 的 τ60/120/180/240 四份报告均为
+  `btc-5m-15m-relative-value-pilot-report.v2`，`verified_report_v2=true`，
+  `raw_shadow_model.available=true`。四个 canonical 决策均为 `no_trade`，原因是
+  qualified 轨道尚无 strictly-prior isotonic calibration；这与预注册相符。
+- capture integrity、双 recorder legs、四 token signal/delayed execution book
+  surface 均完整；首周期没有经济尝试、fills、残余风险或 PnL，因此
+  `qualified_net_pnl=null`，不得解释成零收益。
+- 非 canonical 计分板已经并行记录 A1/A4/B3 与 A2 lambda 网格。当前只有一个
+  独立 expiry cluster（四个 τ 报告），任何 Brier 排序都只是管线验收，不能用于
+  选择或冻结参数。
+- watcher 当前唯一活跃的策略告警属于预期的 v0.5 旧体制：capture stalled、
+  regime mismatch，以及冻结 0600 文件导致的 telemetry unavailable。rawcap 与
+  v0.6 没有活跃告警。外部 heartbeat 会直接通过 SSM 验证 v0.5 真心跳。
+- 当前服务 release：rawcap/v0.6 为
+  `9a97a10831248a9a6c949fc239eedee45176c6a8`，watcher 为
+  `df0e7daac9e659810025ead16a2a9fb361be658b`；三者冻结 implementation revision
+  均为 `5dcc3bd7e09794c578d6572181be81388fdb6661`。

@@ -22,6 +22,7 @@ REGISTRY_PATH = (
     / "REGIME_REGISTRY.json"
 )
 GAP_PATH = REGISTRY_PATH.with_name("GAP_MANIFEST.json")
+CLOSURE_PATH = GAP_PATH.with_name("GAP_CLOSURE.json")
 V05_PREREGISTRATION = (
     PROJECT_ROOT
     / "research"
@@ -107,6 +108,31 @@ def test_v06_preregistration_freezes_60s_regime_and_registry_hash() -> None:
         for source in sources.values()
         if isinstance(source, dict)
     } == {60}
+
+
+def test_gap_closure_binds_without_mutating_frozen_manifest() -> None:
+    preregistration = _load_json(RESEARCH_ROOT / "PREREGISTRATION.json")
+    manifest = _load_json(GAP_PATH)
+    closure = _load_json(CLOSURE_PATH)
+    frozen_hash = hashlib.sha256(GAP_PATH.read_bytes()).hexdigest()
+
+    assert manifest["gap_end"] is None
+    assert closure["schema_version"] == "settlement-regime-gap-closure.v1"
+    assert closure["immutable_base_manifest_preserved"] is True
+    assert closure["base_manifest"] == {
+        "path": "research/settlement_regime_break_2026-08-14/GAP_MANIFEST.json",
+        "sha256": frozen_hash,
+    }
+    preregistered_gap = preregistration["pre_v06_gap"]
+    assert isinstance(preregistered_gap, dict)
+    assert preregistered_gap["sha256"] == frozen_hash
+    assert closure["gap_end"] == "2026-08-14T18:49:44.097586Z"
+    completed_cycle = closure["v06_first_completed_cycle"]
+    assert isinstance(completed_cycle, dict)
+    assert completed_cycle["verified_report_v2_count"] == 4
+    assert closure["evidence_boundary"] == (
+        "operational_context_only_not_qualified_strategy_evidence"
+    )
 
 
 def test_v06_service_config_points_to_isolated_paths_and_registry() -> None:
