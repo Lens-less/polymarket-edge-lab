@@ -1,0 +1,21 @@
+{
+  "affected_tracks": [
+    "btc-paper-v04-20260813",
+    "btc-paper-v05-20260813"
+  ],
+  "evidence": [
+    "service_status_snapshots",
+    "health_snapshot_history",
+    "gamma_resolution_source_probe",
+    "recovery_audit_2026-08-14"
+  ],
+  "excluded_from_qualified_evidence": true,
+  "first_observed_at": "2026-08-14T00:12:00Z",
+  "first_observed_at_semantics": "first_observed_mismatch_not_platform_switch_time",
+  "gap_end": null,
+  "gap_end_semantics": "to_be_closed_by_v06_activation_or_30s_regime_return_whichever_comes_first",
+  "gap_type": "structural_market_regime_mismatch",
+  "last_good_cycle": 1786665600,
+  "reports_reconstructed": false,
+  "schema_version": "settlement-regime-gap-manifest.v1"
+}

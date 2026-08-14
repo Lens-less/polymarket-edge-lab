@@ -47,6 +47,11 @@ from src.edge_lab.data_store import (  # noqa: E402
     canonical_json_bytes,
 )
 from src.edge_lab.execution import ExecutionFeeSchedule  # noqa: E402
+from src.edge_lab.settlement_regime import (  # noqa: E402
+    LEGACY_SETTLEMENT_REGIME_ID,
+    canonicalize_resolution_source,
+    regime_scope_value,
+)
 
 PriceObservation = tuple[int, int, Decimal]
 
@@ -172,6 +177,40 @@ def _combined_series(
         (timestamp, received_at_ms, value)
         for timestamp, (received_at_ms, value) in sorted(combined.items())
     )
+
+
+def _target_source_topic(target: Mapping[str, Any]) -> str:
+    topic = target.get("source_topic")
+    if isinstance(topic, str) and topic:
+        if topic not in {
+            "crypto_prices_twap_thirty",
+            "crypto_prices_twap_sixty",
+        }:
+            raise ValueError("capture target has an unsupported settlement topic")
+        return topic
+    window = target.get("twap_window_seconds")
+    if window == 30:
+        return "crypto_prices_twap_thirty"
+    if window == 60:
+        return "crypto_prices_twap_sixty"
+    raise ValueError("capture target has no supported settlement source")
+
+
+def _settlement_series_by_horizon(
+    roots: tuple[Path, ...],
+    targets: Mapping[str, Mapping[str, Any]],
+) -> dict[str, tuple[PriceObservation, ...]]:
+    """Load the source frozen on each target instead of assuming a horizon map."""
+
+    topics = {
+        horizon: _target_source_topic(targets[horizon])
+        for horizon in ("5m", "15m")
+    }
+    by_topic = {
+        topic: _combined_series(roots, topic=topic, symbol="btc/usd")
+        for topic in set(topics.values())
+    }
+    return {horizon: by_topic[topics[horizon]] for horizon in ("5m", "15m")}
 
 
 def _exact(
@@ -604,6 +643,16 @@ def _validate_prospective_report_identity(
         raise ValueError("current capture predates prospective_only_after")
     if track != expected_track:
         raise ValueError("current capture evidence_track_id mismatch")
+    expected_regime = scope.get("settlement_regime")
+    if expected_regime is not None:
+        configured_regime = capture_config.get("settlement_regime_id")
+        if (
+            not isinstance(expected_regime, str)
+            or not isinstance(configured_regime, str)
+            or regime_scope_value(expected_regime)
+            != regime_scope_value(configured_regime)
+        ):
+            raise ValueError("current capture settlement regime mismatch")
     configured_root = capture_config.get("data_root")
     if (
         not isinstance(configured_root, str)
@@ -688,6 +737,136 @@ def _normalized_binary_ask_probability(
     if up_ask < 0 or down_ask < 0 or denominator <= 0:
         return None
     return up_ask / denominator
+
+
+def _normalized_decimal_text(value: Decimal | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.normalize()
+    return format(normalized, "f")
+
+
+def _candidate_hypotheses(
+    *,
+    cycle: Mapping[str, Any],
+    signal_observations: Mapping[str, Any],
+    pair: Any,
+    boundaries: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Record causal candidate inputs and attach labels only after settlement."""
+
+    decision = cycle.get("decision")
+    if not isinstance(decision, Mapping):
+        return {
+            "schema_version": "btc-relative-value-candidate-hypotheses.v1",
+            "available": False,
+            "candidate_inputs_are_decision_time_only": True,
+            "outcome_labels_added_after_settlement": True,
+            "reason": "shadow_decision_unavailable",
+        }
+
+    def decimal_field(name: str) -> Decimal | None:
+        value = decision.get(name)
+        try:
+            parsed = Decimal(str(value))
+        except (ArithmeticError, ValueError):
+            return None
+        return parsed if parsed.is_finite() else None
+
+    q_5 = decimal_field("q_5_raw")
+    q_15 = decimal_field("q_15_raw")
+    loss_probability = decimal_field("loss_probability")
+    market_5 = (
+        _normalized_binary_ask_probability(
+            signal_observations,
+            up_token_id=pair.market_5.up_token_id,
+            down_token_id=pair.market_5.down_token_id,
+        )
+        if pair is not None
+        else None
+    )
+    market_15 = (
+        _normalized_binary_ask_probability(
+            signal_observations,
+            up_token_id=pair.market_15.up_token_id,
+            down_token_id=pair.market_15.down_token_id,
+        )
+        if pair is not None
+        else None
+    )
+
+    quantity = decimal_field("quantity")
+    selected_depths: list[Decimal | None] = []
+    for field in ("first_token_id", "second_token_id"):
+        observation = signal_observations.get(str(decision.get(field) or ""))
+        asks = getattr(getattr(observation, "snapshot", None), "asks", ())
+        selected_depths.append(
+            sum((Decimal(str(level.size)) for level in asks), Decimal(0))
+            if asks
+            else None
+        )
+    ratios = [
+        depth / quantity
+        if depth is not None and quantity is not None and quantity > 0
+        else None
+        for depth in selected_depths
+    ]
+    thresholds = (Decimal("1.25"), Decimal("1.5"), Decimal("2"))
+    depth_passes = {
+        _normalized_decimal_text(threshold): (
+            all(ratio is not None and ratio >= threshold for ratio in ratios)
+        )
+        for threshold in thresholds
+    }
+    extreme_bound = Decimal("0.05")
+    return {
+        "schema_version": "btc-relative-value-candidate-hypotheses.v1",
+        "available": True,
+        "candidate_inputs_are_decision_time_only": True,
+        "outcome_labels_added_after_settlement": True,
+        "canonical_action_unchanged": True,
+        "requires_separate_preregistration_for_action": True,
+        "probability": {
+            "model_probability_up": {
+                "5m": _normalized_decimal_text(q_5),
+                "15m": _normalized_decimal_text(q_15),
+            },
+            "market_probability_up": {
+                "5m": _normalized_decimal_text(market_5),
+                "15m": _normalized_decimal_text(market_15),
+            },
+            "actual_up": {
+                horizon: (
+                    boundary.get("mechanical_outcome") == "Up"
+                    if boundary.get("mechanical_outcome") in {"Up", "Down"}
+                    else None
+                )
+                for horizon, boundary in boundaries.items()
+            },
+            "a1_extreme_probability_veto_passes": (
+                q_5 is not None
+                and q_15 is not None
+                and extreme_bound <= q_5 <= Decimal(1) - extreme_bound
+                and extreme_bound <= q_15 <= Decimal(1) - extreme_bound
+            ),
+            "a4_loss_probability_veto_passes": (
+                loss_probability is not None
+                and loss_probability <= Decimal("0.45")
+            ),
+        },
+        "depth_buffer": {
+            "quantity": _normalized_decimal_text(quantity),
+            "first_leg_ask_depth": _normalized_decimal_text(selected_depths[0]),
+            "second_leg_ask_depth": _normalized_decimal_text(selected_depths[1]),
+            "first_leg_ratio": _normalized_decimal_text(ratios[0]),
+            "second_leg_ratio": _normalized_decimal_text(ratios[1]),
+            "passes": depth_passes,
+        },
+        "existing_canonical_controls": {
+            "signal_walks_both_legs_to_full_target": True,
+            "timeout_then_immediate_unwind": True,
+        },
+    }
 
 
 def _qualification_event_identity(
@@ -801,6 +980,7 @@ def _pair_from_capture_targets(
                 exponent=Decimal(str(fee["exponent"])),
                 taker_only=fee["taker_only"],
             )
+            window_seconds = int(target["twap_window_seconds"])
             contract = TwapMarketContract(
                 horizon=horizon,
                 slug=str(target["slug"]),
@@ -810,10 +990,13 @@ def _pair_from_capture_targets(
                 down_token_id=str(target["down_token_id"]),
                 opens_at_ms=int(target["opens_at_ms"]),
                 closes_at_ms=int(target["closes_at_ms"]),
-                twap_window_seconds=int(target["twap_window_seconds"]),
+                twap_window_seconds=window_seconds,
                 source_topic=(
-                    "crypto_prices_twap_thirty"
-                    if horizon == "5m"
+                    str(target["source_topic"])
+                    if isinstance(target.get("source_topic"), str)
+                    and target["source_topic"]
+                    else "crypto_prices_twap_thirty"
+                    if window_seconds == 30
                     else "crypto_prices_twap_sixty"
                 ),
                 resolution_source=str(target["resolution_source"]),
@@ -823,6 +1006,9 @@ def _pair_from_capture_targets(
                 taker_delay_ms=int(target["taker_delay_ms"]),
                 accepting_orders=target["accepting_orders"],
                 rule_hash=str(target["rule_hash"]),
+                settlement_regime=str(
+                    target.get("settlement_regime", LEGACY_SETTLEMENT_REGIME_ID)
+                ),
             )
         except (KeyError, TypeError, ValueError, ArithmeticError):
             return None
@@ -835,6 +1021,13 @@ def _pair_from_capture_targets(
 
 def _strategy_config(preregistration: Mapping[str, Any]) -> StrategyConfig:
     frozen = preregistration["frozen_strategy"]
+    scope = preregistration.get("scope")
+    if isinstance(scope, Mapping) and isinstance(scope.get("settlement_regime"), str):
+        settlement_regime = str(scope["settlement_regime"])
+        if not settlement_regime.endswith(".v1"):
+            settlement_regime = f"{settlement_regime}.v1"
+    else:
+        settlement_regime = LEGACY_SETTLEMENT_REGIME_ID
     return StrategyConfig(
         tau_min_seconds=int(frozen["tau_min_seconds"]),
         tau_max_seconds=int(frozen["tau_max_seconds"]),
@@ -847,6 +1040,7 @@ def _strategy_config(preregistration: Mapping[str, Any]) -> StrategyConfig:
             str(frozen["minimum_net_expected_pnl_per_pair"])
         ),
         uncertainty_multiplier=Decimal(str(frozen["uncertainty_multiplier"])),
+        settlement_regime=settlement_regime,
     )
 
 
@@ -989,7 +1183,11 @@ def build_report(
     # resampler below accepts only an unobserved leading prefix; after its
     # first sample, every gap over five seconds still fails closed.
     predictor = _series(predictor_root, topic="crypto_prices", symbol="btcusdt")
-    series_by_horizon = {"5m": twap_30, "15m": twap_60}
+    series_by_horizon = _settlement_series_by_horizon(twap_roots, by_horizon)
+    source_topic_by_horizon = {
+        horizon: _target_source_topic(target)
+        for horizon, target in by_horizon.items()
+    }
     boundaries: dict[str, dict[str, Any]] = {}
     mechanically_labelable = 0
     for horizon, target in sorted(by_horizon.items()):
@@ -1013,11 +1211,7 @@ def build_report(
             "closes_at_ms": target["closes_at_ms"],
             "closing_twap": str(closing) if closing is not None else None,
             "mechanical_outcome": outcome,
-            "source_topic": (
-                "crypto_prices_twap_thirty"
-                if horizon == "5m"
-                else "crypto_prices_twap_sixty"
-            ),
+            "source_topic": source_topic_by_horizon[horizon],
         }
 
     latest_rules = _latest_rules(capture_root, market_ids)
@@ -1046,6 +1240,13 @@ def build_report(
         rule_identity_present = isinstance(target.get("rule_hash"), str) and isinstance(
             target.get("rules_text_sha256"), str
         )
+        try:
+            resolution_source_matches = isinstance(market, Mapping) and (
+                canonicalize_resolution_source(str(market.get("resolutionSource")))
+                == canonicalize_resolution_source(str(target.get("resolution_source")))
+            )
+        except (TypeError, ValueError):
+            resolution_source_matches = False
         rules_match_capture = (
             market is not None
             and rule_identity_present
@@ -1053,7 +1254,7 @@ def build_report(
             and market.get("slug") == target.get("slug")
             and str(market.get("conditionId", "")).lower()
             == str(target.get("condition_id", "")).lower()
-            and market.get("resolutionSource") == target.get("resolution_source")
+            and resolution_source_matches
             and _json_string_list(market.get("outcomes")) == ("Up", "Down")
             and _json_string_list(market.get("clobTokenIds"))
             == (target.get("up_token_id"), target.get("down_token_id"))
@@ -1068,11 +1269,7 @@ def build_report(
             or Decimal(str(fee_schedule.get("rate"))) != Decimal("0.07")
             or Decimal(str(fee_schedule.get("exponent"))) != Decimal("1")
             or fee_schedule.get("takerOnly") is not True
-            or market.get("resolutionSource")
-            not in {
-                "https://data.chain.link/streams/btc-usd-twap-30s-streams",
-                "https://data.chain.link/streams/btc-usd-twap-60s-streams",
-            }
+            or not resolution_source_matches
         ):
             current_taker_cost_evidence_complete = False
         rule_summary[market_id] = {
@@ -1229,30 +1426,33 @@ def build_report(
     )
     raw_shadow: dict[str, Any]
     distribution = None
+    series_5 = series_by_horizon["5m"]
+    series_15 = series_by_horizon["15m"]
     strike_5 = _exact(
-        twap_30,
+        series_5,
         int(by_horizon["5m"]["opens_at_ms"]),
         available_by_ms=decision_at_ms,
     )
     strike_15 = _exact(
-        twap_60,
+        series_15,
         int(by_horizon["15m"]["opens_at_ms"]),
         available_by_ms=decision_at_ms,
     )
-    state_30 = _latest_before(twap_30, decision_at_ms)
-    state_60 = _latest_before(twap_60, decision_at_ms)
+    state_5 = _latest_before(series_5, decision_at_ms)
+    state_15 = _latest_before(series_15, decision_at_ms)
     predictor_before = _resample_one_second(predictor, decision_at_ms=decision_at_ms)
     raw_reasons: list[str] = []
     raw_reasons.extend(clock_sync_reasons)
     if strike_5 is None or strike_15 is None:
         raw_reasons.append("exact_chainlink_opening_boundary_missing")
-    if state_30 is None or state_60 is None:
+    if state_5 is None or state_15 is None:
         raw_reasons.append("causal_chainlink_state_missing")
     maximum_twap_age_ms = int(
         preregistration["frozen_strategy"]["max_chainlink_staleness_ms"]
     )
     state_health: dict[str, Any] = {}
-    for label, state in (("twap_30", state_30), ("twap_60", state_60)):
+    for horizon, state in (("5m", state_5), ("15m", state_15)):
+        label = f"{horizon}:{source_topic_by_horizon[horizon]}"
         if state is None:
             state_health[label] = None
             continue
@@ -1285,8 +1485,8 @@ def build_report(
     else:
         distribution = simulate_ewma_joint_distribution(
             predictor_prices=tuple(predictor_before),
-            current_twap_30=state_30[2],
-            current_twap_60=state_60[2],
+            current_twap_30=state_5[2],
+            current_twap_60=state_15[2],
             decision_at_ms=decision_at_ms,
             expiry_ms=expiry_ms,
             strike_5=strike_5,
@@ -1343,7 +1543,7 @@ def build_report(
         shadow_setup_reasons.extend(raw_reasons or ("raw_distribution_unavailable",))
     if strike_5 is None or strike_15 is None:
         shadow_setup_reasons.append("exact_chainlink_opening_boundary_missing")
-    if state_30 is None or state_60 is None:
+    if state_5 is None or state_15 is None:
         shadow_setup_reasons.append("causal_chainlink_state_missing")
     if any(
         rule.get("rules_match_capture") is not True for rule in rule_summary.values()
@@ -1354,7 +1554,7 @@ def build_report(
         if strike_5 is None
         else _opening_event_id(
             twap_roots,
-            topic="crypto_prices_twap_thirty",
+            topic=source_topic_by_horizon["5m"],
             timestamp_ms=int(by_horizon["5m"]["opens_at_ms"]),
             expected_value=strike_5,
         )
@@ -1364,7 +1564,7 @@ def build_report(
         if strike_15 is None
         else _opening_event_id(
             twap_roots,
-            topic="crypto_prices_twap_sixty",
+            topic=source_topic_by_horizon["15m"],
             timestamp_ms=int(by_horizon["15m"]["opens_at_ms"]),
             expected_value=strike_15,
         )
@@ -1382,7 +1582,7 @@ def build_report(
         assert replay is not None
         assert distribution is not None
         assert strike_5 is not None and strike_15 is not None
-        assert state_30 is not None and state_60 is not None
+        assert state_5 is not None and state_15 is not None
         assert opening_5_event_id is not None and opening_15_event_id is not None
         strategy_config = _strategy_config(preregistration)
         signal_observations = replay.signal_books(
@@ -1418,10 +1618,12 @@ def build_report(
             replay=replay,
             health=DataHealth(
                 decision_at_ms=decision_at_ms,
-                twap_30_observed_at_ms=state_30[0],
-                twap_60_observed_at_ms=state_60[0],
-                twap_30_received_at_ms=state_30[1],
-                twap_60_received_at_ms=state_60[1],
+                # DataHealth keeps legacy field names for schema compatibility;
+                # the values are the frozen 5m and 15m settlement sources.
+                twap_30_observed_at_ms=state_5[0],
+                twap_60_observed_at_ms=state_15[0],
+                twap_30_received_at_ms=state_5[1],
+                twap_60_received_at_ms=state_15[1],
                 absolute_clock_drift_ms=clock_drift_ms,
                 calibration_5=None,
                 calibration_15=None,
@@ -1460,7 +1662,7 @@ def build_report(
         assert distribution is not None
         assert strategy_config is not None
         assert settlement_state is not None
-        assert state_30 is not None and state_60 is not None
+        assert state_5 is not None and state_15 is not None
         fold = build_daily_qualification_fold(
             datetime.fromtimestamp(decision_at_ms / 1_000, tz=timezone.utc)
             .date()
@@ -1482,6 +1684,7 @@ def build_report(
                         20,
                     )
                 ),
+                settlement_regime=strategy_config.settlement_regime,
             )
         except QualificationInsufficientData as exc:
             qualified_cycle["reason_codes"] = [
@@ -1501,10 +1704,10 @@ def build_report(
                 replay=replay,
                 health=DataHealth(
                     decision_at_ms=decision_at_ms,
-                    twap_30_observed_at_ms=state_30[0],
-                    twap_60_observed_at_ms=state_60[0],
-                    twap_30_received_at_ms=state_30[1],
-                    twap_60_received_at_ms=state_60[1],
+                    twap_30_observed_at_ms=state_5[0],
+                    twap_60_observed_at_ms=state_15[0],
+                    twap_30_received_at_ms=state_5[1],
+                    twap_60_received_at_ms=state_15[1],
                     absolute_clock_drift_ms=clock_drift_ms,
                     calibration_5=fitted.artifacts["5m"],
                     calibration_15=fitted.artifacts["15m"],
@@ -1666,6 +1869,12 @@ def build_report(
         signal_strength_net_ev_monotonic=None,
     )
     validation = evaluate_validation(evidence)
+    candidate_hypotheses = _candidate_hypotheses(
+        cycle=development_shadow_cycle,
+        signal_observations=signal_observations,
+        pair=pair,
+        boundaries=boundaries,
+    )
     shadow_decision_document = development_shadow_cycle.get("decision")
     shadow_execution_document = development_shadow_cycle.get("execution")
     shadow_settlement_document = development_shadow_cycle.get("settlement")
@@ -1699,8 +1908,8 @@ def build_report(
         decision_tau_seconds=decision_tau_seconds,
     )
     closing_observations = {
-        "5m": _exact_observation(twap_30, int(by_horizon["5m"]["closes_at_ms"])),
-        "15m": _exact_observation(twap_60, int(by_horizon["15m"]["closes_at_ms"])),
+        "5m": _exact_observation(series_5, int(by_horizon["5m"]["closes_at_ms"])),
+        "15m": _exact_observation(series_15, int(by_horizon["15m"]["closes_at_ms"])),
     }
     resolution_received_at_ms = tuple(
         int(rule["resolution_event"]["received_at_ms"])
@@ -1852,6 +2061,13 @@ def build_report(
         "observed": {
             "twap_30_unique_observations": len(twap_30),
             "twap_60_unique_observations": len(twap_60),
+            "settlement_sources": {
+                horizon: {
+                    "source_topic": source_topic_by_horizon[horizon],
+                    "unique_observations": len(series_by_horizon[horizon]),
+                }
+                for horizon in ("5m", "15m")
+            },
             "binance_btc_unique_observations": len(predictor),
             "predictor_one_second_samples": len(predictor_before),
             "clob_event_counts": _event_counts(capture_root, "clob_market_ws"),
@@ -1867,6 +2083,7 @@ def build_report(
             "latest_rules": rule_summary,
         },
         "raw_shadow_model": raw_shadow,
+        "candidate_hypotheses": candidate_hypotheses,
         "paper_decision": paper_decision,
         "development_shadow_cycle": development_shadow_cycle,
         "qualified_cycle": qualified_cycle,

@@ -106,6 +106,41 @@ def test_validate_prospective_identity_accepts_matching_v2_capture_roots(
     }
 
 
+def test_validate_prospective_identity_rejects_settlement_regime_mismatch(
+    tmp_path: Path,
+) -> None:
+    preregistration = _v2_preregistration(evidence_track_id="paper-v06")
+    preregistration["scope"]["settlement_regime"] = (
+        "chainlink_twap_60s_5m_and_60s_15m"
+    )
+    cutoff_ms = _epoch_ms("2026-08-13T06:00:00Z")
+    capture_root = tmp_path / "current"
+    predictor_root = tmp_path / "predictor"
+    capture_config = _capture_config(
+        capture_root,
+        started_at_ms=cutoff_ms,
+        evidence_track_id="paper-v06",
+    )
+    capture_config["settlement_regime_id"] = (
+        "chainlink_twap_30s_5m_and_60s_15m.v1"
+    )
+    _write_capture_identity(
+        predictor_root,
+        started_at_ms=cutoff_ms,
+        evidence_track_id="paper-v06",
+    )
+
+    with pytest.raises(ValueError, match="settlement.*regime"):
+        _report_builder()._validate_prospective_report_identity(
+            capture_config=capture_config,
+            preregistration=preregistration,
+            capture_root=capture_root.resolve(),
+            predictor_root=predictor_root.resolve(),
+            history_roots=(),
+            decision_at_ms=cutoff_ms,
+        )
+
+
 @pytest.mark.parametrize(
     ("capture_started_at_ms", "track", "message"),
     [

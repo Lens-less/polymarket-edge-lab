@@ -9,6 +9,7 @@ from decimal import Decimal, InvalidOperation
 
 from .btc_twap_relative_value import CalibrationPoint, IsotonicProbabilityCalibrator
 from .data_store import canonical_json_bytes
+from .settlement_regime import LEGACY_SETTLEMENT_REGIME_ID
 
 _HORIZONS = ("5m", "15m")
 _TRAIN_DAY_COUNT = 5
@@ -539,6 +540,7 @@ def fit_qualification_calibrators_from_reports(
     evidence_track: str,
     decision_tau_seconds: int,
     minimum_unique_expiry_clusters: int,
+    settlement_regime: str = LEGACY_SETTLEMENT_REGIME_ID,
 ) -> FittedQualificationCalibrators:
     preregistration_sha256 = _validate_preregistration_sha256(preregistration_sha256)
     evidence_track = _require_string(evidence_track, label="evidence_track")
@@ -633,6 +635,7 @@ def fit_qualification_calibrators_from_reports(
             ordered_points,
             fit_at_ms=fold.fit_at_ms,
             horizon=horizon,
+            settlement_regime=settlement_regime,
         )
         artifacts[horizon] = calibrator
         deterministic_event_ids[horizon] = tuple(calibrator.training_event_ids)

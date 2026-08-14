@@ -542,3 +542,90 @@ async def test_run_service_accepts_matching_preregistration_before_startup(
         "require_disk_capacity",
         "public_session.close",
     ]
+
+
+@pytest.mark.anyio
+async def test_run_service_persists_failed_capture_finalization_before_retry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A recorder failure must remain auditable even when no report is built."""
+
+    import src.edge_lab.btc_twap_relative_value_service as service
+
+    config = _service_config(tmp_path)
+    _write_preregistration(tmp_path)
+    capture_root = config.data_root / "runs" / "1786532400" / "attempt-1"
+    capture_config_path = capture_root / "capture-config.json"
+    plan = SimpleNamespace(
+        expiry_seconds=1_786_532_400,
+        capture_root=capture_root,
+        capture_config_path=capture_config_path,
+        capture_config={
+            "schema_version": "edge-lab-forward-capture-config.v1",
+            "data_root": str(capture_root),
+        },
+        duration_seconds=1,
+    )
+    summary = {
+        "schema_version": "btc-twap-compact-forward-capture-summary.v1",
+        "capture_error": {
+            "error_code": "capture_failed",
+            "error_type": "RuntimeError",
+        },
+        "recorder_leg_count": 2,
+        "recorder_leg_failures": [
+            {"error_code": "recorder_leg_failed", "error_type": "ConnectionError"},
+            {"error_code": "recorder_leg_failed", "error_type": "ConnectionError"},
+        ],
+        "paper_only": True,
+        "public_only": True,
+        "new_orders_disabled": True,
+        "authenticated_endpoints_used": 0,
+        "orders_submitted": 0,
+    }
+
+    class DummySession:
+        def close(self) -> None:
+            return None
+
+    async def fail_capture(*args: object, **kwargs: object) -> object:
+        raise service.CaptureFinalizationError(summary)
+
+    async def stop_after_failure(
+        stop_event: asyncio.Event,
+        seconds: float,
+    ) -> bool:
+        del stop_event, seconds
+        return True
+
+    monkeypatch.setattr(runner, "verify_paper_only_guard", lambda: None)
+    monkeypatch.setattr(runner, "_validate_runtime_identity", lambda config: None)
+    monkeypatch.setattr(runner, "public_session", lambda proxy: DummySession())
+    monkeypatch.setattr(runner, "PublicSourcesClient", lambda **kwargs: object())
+    monkeypatch.setattr(runner, "require_disk_capacity", lambda config: None)
+    monkeypatch.setattr(
+        runner,
+        "_measure_clock_sync",
+        lambda config: ClockSyncMeasurement(
+            measured_at_raw_ms=1,
+            offset_seconds="0",
+            uncertainty_seconds="0.001",
+        ),
+    )
+    monkeypatch.setattr(runner, "discover_next_pair", lambda **kwargs: plan)
+    monkeypatch.setattr(runner, "load_capture_config", lambda path: object())
+    monkeypatch.setattr(runner, "_capture_with_heartbeat", fail_capture)
+    monkeypatch.setattr(runner, "_wait_or_stop", stop_after_failure)
+
+    await runner.run_service(
+        config,
+        proxy_url=None,
+        stop_event=asyncio.Event(),
+    )
+
+    persisted = json.loads(
+        (capture_root / "capture-summary.json").read_text(encoding="utf-8")
+    )
+    assert persisted == summary
+    assert not config.research_root.joinpath("reports").exists()

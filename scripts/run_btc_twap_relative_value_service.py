@@ -34,6 +34,7 @@ from src.edge_lab.btc_twap_relative_value_schedule import (  # noqa: E402
 from src.edge_lab.btc_twap_relative_value_service import (  # noqa: E402
     CLOCK_SYNC_SOURCE_CHRONY_AMAZON,
     LEGACY_EVIDENCE_TRACK_ID,
+    CaptureFinalizationError,
     ClockSyncMeasurement,
     ContinuousServiceConfig,
     ServiceStatus,
@@ -384,18 +385,27 @@ async def run_service(
                 plan.capture_root.mkdir(parents=True, exist_ok=False)
                 write_json_document(plan.capture_config_path, plan.capture_config)
                 capture_config = load_capture_config(plan.capture_config_path)
-                capture_summary, refreshed_clock_sync = await _capture_with_heartbeat(
-                    config=config,
-                    capture_config=capture_config,
-                    plan=plan,
-                    proxy_url=proxy_url,
-                    stop_event=stop_event,
-                    clock_refresh_at_ms=(
-                        bootstrap_clock_refresh_at_ms(plan.expiry_seconds)
-                        if bootstrap_required
-                        else None
-                    ),
-                )
+                try:
+                    capture_summary, refreshed_clock_sync = (
+                        await _capture_with_heartbeat(
+                            config=config,
+                            capture_config=capture_config,
+                            plan=plan,
+                            proxy_url=proxy_url,
+                            stop_event=stop_event,
+                            clock_refresh_at_ms=(
+                                bootstrap_clock_refresh_at_ms(plan.expiry_seconds)
+                                if bootstrap_required
+                                else None
+                            ),
+                        )
+                    )
+                except CaptureFinalizationError as exc:
+                    write_json_document(
+                        plan.capture_root / "capture-summary.json",
+                        exc.summary,
+                    )
+                    raise
                 if refreshed_clock_sync is not None:
                     refreshed_capture_config = dict(plan.capture_config)
                     refreshed_capture_config["clock_sync"] = (

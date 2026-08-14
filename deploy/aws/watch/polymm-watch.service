@@ -1,0 +1,36 @@
+[Unit]
+Description=Paper track progress watcher
+
+[Service]
+Type=oneshot
+User=polybotwatch
+Group=polybotwatch
+WorkingDirectory=/opt/poly-mm-watch
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/etc/polymm-watch.env
+ExecStart=/opt/poly-mm-watch/.venv/bin/python /opt/poly-mm-watch/scripts/watch_paper_tracks.py --config /opt/poly-mm-watch/deploy/aws/watch/watch-config.json
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ReadOnlyPaths=/opt/poly-mm-watch
+ReadOnlyPaths=/var/lib/poly-mm
+ReadOnlyPaths=/var/lib/poly-mm-v05
+ReadOnlyPaths=/var/lib/poly-mm-v06
+ReadOnlyPaths=/var/lib/poly-mm-rawcap
+ReadWritePaths=/var/lib/poly-mm-watch
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+UMask=0027

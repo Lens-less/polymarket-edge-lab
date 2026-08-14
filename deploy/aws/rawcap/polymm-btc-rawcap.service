@@ -1,0 +1,42 @@
+[Unit]
+Description=BTC 5m/15m regime-agnostic raw capture
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=polybotraw
+Group=polybotraw
+WorkingDirectory=/opt/poly-mm-rawcap
+Environment=PYTHONUNBUFFERED=1
+Environment=AWS_EC2_METADATA_DISABLED=true
+ExecStartPre=/opt/poly-mm-rawcap/.venv/bin/python /opt/poly-mm-rawcap/scripts/run_btc_regime_agnostic_collector.py --data-root /var/lib/poly-mm-rawcap/data --status-path /var/lib/poly-mm-rawcap/status/status.json --registry /opt/poly-mm-rawcap/research/settlement_regime_break_2026-08-14/REGIME_REGISTRY.json --validate-only
+ExecStart=/opt/poly-mm-rawcap/.venv/bin/python /opt/poly-mm-rawcap/scripts/run_btc_regime_agnostic_collector.py --data-root /var/lib/poly-mm-rawcap/data --status-path /var/lib/poly-mm-rawcap/status/status.json --registry /opt/poly-mm-rawcap/research/settlement_regime_break_2026-08-14/REGIME_REGISTRY.json
+Restart=always
+RestartSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ReadOnlyPaths=/opt/poly-mm-rawcap
+ReadWritePaths=/var/lib/poly-mm-rawcap
+IPAddressDeny=169.254.169.254
+IPAddressDeny=fd00:ec2::254
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

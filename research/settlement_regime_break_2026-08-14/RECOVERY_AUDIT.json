@@ -1,0 +1,36 @@
+{
+  "canonical_tracks_untouched": true,
+  "diagnostic_recovery": {
+    "captures_total": 69,
+    "missing_report_or_summary_cycles": 30,
+    "reported_cycles": 39,
+    "surfaces": {
+      "tau120": {
+        "captures_with_dual_surface": 10,
+        "recovery_scope": "diagnostic_only"
+      }
+    },
+    "synthetic_actions_reviewed": 3,
+    "wins": [
+      {
+        "classification": "dust",
+        "market_slug": null,
+        "net_pnl_usdc": "13.626271",
+        "qualification_eligible": false
+      },
+      {
+        "classification": "dust",
+        "market_slug": null,
+        "net_pnl_usdc": "10.365131",
+        "qualification_eligible": false
+      }
+    ]
+  },
+  "generated_at": "2026-08-14T15:42:34Z",
+  "notes": [
+    "Recovery output is context only and never enters qualified evidence, calibration, or OOS claims.",
+    "Absent RTDS replay and undisclosed Chainlink internals prevent equivalence claims for missing cycles."
+  ],
+  "schema_version": "settlement-regime-recovery-audit.v1",
+  "source_track": "btc-paper-v05-20260813"
+}

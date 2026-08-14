@@ -6,9 +6,10 @@ import argparse
 import asyncio
 import json
 import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 from urllib.parse import urlsplit
 
 import requests
@@ -39,6 +40,14 @@ _SENSITIVE_KEY_PARTS = (
     "signature",
     "wallet",
 )
+
+
+class ForwardCaptureFinalizationError(RuntimeError):
+    """A capture failed after producing an auditable final summary."""
+
+    def __init__(self, summary: Mapping[str, Any]) -> None:
+        self.summary = dict(summary)
+        super().__init__("forward capture failed; structured finalization is available")
 
 
 @dataclass(frozen=True)
@@ -76,7 +85,7 @@ class ForwardCaptureConfig:
 
 def _unique_strings(value: Any, *, field: str) -> tuple[str, ...]:
     if not isinstance(value, list):
-        raise ValueError(f"{field} must be a JSON array")
+        raise TypeError(f"{field} must be a JSON array")
     result = tuple(value)
     if any(not isinstance(item, str) or not item.strip() for item in result):
         raise ValueError(f"{field} must contain non-empty strings")
@@ -108,7 +117,7 @@ def load_capture_config(
 
     raw = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(raw, Mapping):
-        raise ValueError("capture config must be a JSON object")
+        raise TypeError("capture config must be a JSON object")
     _reject_sensitive_keys(raw)
     if raw.get("schema_version") != CONFIG_SCHEMA_VERSION:
         raise ValueError("unsupported capture config schema_version")
@@ -147,7 +156,7 @@ def load_capture_config(
         raise ValueError("rtds_subscriptions entries must be objects")
     intervals = raw.get("snapshot_intervals")
     if not isinstance(intervals, Mapping):
-        raise ValueError("snapshot_intervals must be an object")
+        raise TypeError("snapshot_intervals must be an object")
     targets = raw.get("targets", [])
     if not isinstance(targets, list) or any(
         not isinstance(target, Mapping) for target in targets
@@ -273,7 +282,7 @@ async def run_forward_capture(
     capture_error: BaseException | None = None
     try:
         await recorder.run(run_for_seconds=duration_seconds)
-    except BaseException as exc:
+    except BaseException as exc:  # noqa: BLE001 - cancellation must still finalize
         capture_error = exc
     finally:
         manifests = await sink.close()
@@ -301,7 +310,7 @@ async def run_forward_capture(
         ),
     }
     if capture_error is not None:
-        raise RuntimeError(json.dumps(summary, sort_keys=True)) from capture_error
+        raise ForwardCaptureFinalizationError(summary) from capture_error
     return summary
 
 

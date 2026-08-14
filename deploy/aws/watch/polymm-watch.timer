@@ -1,0 +1,11 @@
+[Unit]
+Description=Run paper track progress watcher every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=60s
+Persistent=true
+Unit=polymm-watch.service
+
+[Install]
+WantedBy=timers.target

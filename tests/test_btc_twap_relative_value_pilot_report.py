@@ -6,16 +6,19 @@ import json
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 from scripts.build_btc_twap_relative_value_pilot_report import (
     _assert_frozen_decision_tau,
     _book_replay_coverage,
+    _candidate_hypotheses,
     _capture_runtime_health,
     _combined_series,
     _exact,
     _latest_before,
     _resample_one_second,
     _resolution_event_validation,
+    _settlement_series_by_horizon,
 )
 
 D = Decimal
@@ -211,6 +214,97 @@ def test_latest_before_requires_both_source_and_delivery_before_decision() -> No
     )
 
     assert _latest_before(series, 103_000) == (100_000, 101_000, D("100"))
+
+
+def test_settlement_series_follow_frozen_target_topics_not_legacy_horizons(
+    tmp_path: Path,
+) -> None:
+    _write_rtds_record(
+        tmp_path,
+        record_id="sixty",
+        topic="crypto_prices_twap_sixty",
+        timestamp_ms=100_000,
+        value=D("64000"),
+        received_at_ms=100_100,
+        symbol="btc/usd",
+    )
+    targets = {
+        "5m": {"source_topic": "crypto_prices_twap_sixty"},
+        "15m": {"source_topic": "crypto_prices_twap_sixty"},
+    }
+
+    series = _settlement_series_by_horizon((tmp_path,), targets)
+
+    assert series["5m"] == ((100_000, 100_100, D("64000")),)
+    assert series["15m"] == series["5m"]
+
+
+def test_candidate_hypotheses_record_prospective_depth_and_shrinkage_inputs() -> None:
+    observations = {
+        "5-up": SimpleNamespace(
+            snapshot=SimpleNamespace(
+                asks=(SimpleNamespace(price=D("0.40"), size=D("20")),)
+            )
+        ),
+        "5-down": SimpleNamespace(
+            snapshot=SimpleNamespace(
+                asks=(SimpleNamespace(price=D("0.60"), size=D("20")),)
+            )
+        ),
+        "15-up": SimpleNamespace(
+            snapshot=SimpleNamespace(
+                asks=(SimpleNamespace(price=D("0.55"), size=D("15")),)
+            )
+        ),
+        "15-down": SimpleNamespace(
+            snapshot=SimpleNamespace(
+                asks=(SimpleNamespace(price=D("0.45"), size=D("15")),)
+            )
+        ),
+    }
+    pair = SimpleNamespace(
+        market_5=SimpleNamespace(up_token_id="5-up", down_token_id="5-down"),
+        market_15=SimpleNamespace(up_token_id="15-up", down_token_id="15-down"),
+    )
+    cycle = {
+        "decision": {
+            "action": "long_15_up_long_5_down",
+            "quantity": "10",
+            "first_token_id": "15-up",
+            "second_token_id": "5-down",
+            "q_5_raw": "0.02",
+            "q_15_raw": "0.70",
+            "loss_probability": "0.40",
+        }
+    }
+
+    diagnostic = _candidate_hypotheses(
+        cycle=cycle,
+        signal_observations=observations,
+        pair=pair,
+        boundaries={
+            "5m": {"mechanical_outcome": "Up"},
+            "15m": {"mechanical_outcome": "Down"},
+        },
+    )
+
+    assert diagnostic["candidate_inputs_are_decision_time_only"] is True
+    assert diagnostic["outcome_labels_added_after_settlement"] is True
+    assert diagnostic["probability"]["market_probability_up"] == {
+        "5m": "0.4",
+        "15m": "0.55",
+    }
+    assert diagnostic["depth_buffer"]["first_leg_ratio"] == "1.5"
+    assert diagnostic["depth_buffer"]["second_leg_ratio"] == "2"
+    assert diagnostic["depth_buffer"]["passes"] == {
+        "1.25": True,
+        "1.5": True,
+        "2": False,
+    }
+    assert diagnostic["existing_canonical_controls"] == {
+        "signal_walks_both_legs_to_full_target": True,
+        "timeout_then_immediate_unwind": True,
+    }
 
 
 def test_exact_opening_boundary_must_be_delivered_before_decision() -> None:

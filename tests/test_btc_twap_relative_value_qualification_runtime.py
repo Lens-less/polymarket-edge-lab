@@ -12,6 +12,7 @@ from src.edge_lab.btc_twap_relative_value_qualification_runtime import (
     fit_qualification_calibrators_from_reports,
 )
 from src.edge_lab.data_store import canonical_json_bytes
+from src.edge_lab.settlement_regime import V06_SETTLEMENT_REGIME_ID
 
 
 def _at_ms(utc_day: str, hour: int = 12) -> int:
@@ -163,6 +164,24 @@ def test_fit_uses_calibration_observations_without_requiring_a_qualified_cycle()
     assert len(set(fitted.provenance.expiry_cluster_ids_by_horizon["15m"])) == 20
     assert len(fitted.provenance.artifact_hashes_by_horizon["5m"]) == 64
     assert "qualified_cycle" not in reports[0]
+
+
+def test_fit_binds_calibrators_to_requested_settlement_regime() -> None:
+    reports = _training_reports(test_day="2026-08-13")
+
+    fitted = fit_qualification_calibrators_from_reports(
+        reports,
+        fold=build_daily_qualification_fold("2026-08-13"),
+        preregistration_sha256="a" * 64,
+        evidence_track="paper-v05",
+        decision_tau_seconds=60,
+        minimum_unique_expiry_clusters=20,
+        settlement_regime=V06_SETTLEMENT_REGIME_ID,
+    )
+
+    assert {
+        artifact.settlement_regime for artifact in fitted.artifacts.values()
+    } == {V06_SETTLEMENT_REGIME_ID}
 
 
 def test_provenance_and_artifacts_are_deterministic_across_report_order() -> None:
