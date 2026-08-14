@@ -1,0 +1,41 @@
+{
+  "schema_version": "btc-paper-v04-archive-manifest.v1",
+  "archived_at": "2026-08-14T18:08:36Z",
+  "instance_id": "i-045bb69f9cba2dadd",
+  "reason": "Frozen 30s/60s control universe no longer matches the observed platform regime; preserve evidence and release host memory before rawcap and v0.6 activation.",
+  "actions": [
+    "captured final status, last health snapshot, installed systemd units, and content hashes",
+    "stopped and disabled polymm-btc-twap-paper-v04.service",
+    "stopped and disabled polymm-btc-twap-paper-v04-health.timer"
+  ],
+  "unit_state_before": {
+    "polymm-btc-twap-paper-v04.service": "active/enabled",
+    "polymm-btc-twap-paper-v04-health.timer": "active/enabled"
+  },
+  "unit_state_after": {
+    "polymm-btc-twap-paper-v04.service": "inactive/disabled",
+    "polymm-btc-twap-paper-v04-health.timer": "inactive/disabled"
+  },
+  "evidence": {
+    "completed_report_count": 380,
+    "capture_expiry_directory_count": 123,
+    "last_successful_expiry_seconds": 1786665600,
+    "reports_and_captures_deleted": false,
+    "install_root_preserved": "/opt/poly-mm",
+    "data_root_preserved": "/var/lib/poly-mm",
+    "install_root_bytes_before": 404804306,
+    "install_root_bytes_after": 404804306,
+    "data_root_bytes_before": 4913319456,
+    "data_root_bytes_after": 4913319382,
+    "data_root_byte_delta_reason": "service shutdown rewrote only the mutable status document",
+    "validation_summary_sha256_unchanged": true,
+    "last_report_sha256_unchanged": true
+  },
+  "v05_check_after_archive": {
+    "service_state": "active",
+    "phase": "error_wait",
+    "completed_report_count": 156,
+    "heartbeat_at": "2026-08-14T18:08:08.064626Z"
+  },
+  "host_mem_available_kb_after": 1191360
+}

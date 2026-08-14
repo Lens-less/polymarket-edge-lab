@@ -333,6 +333,14 @@ def _latest_capture_timestamp(pattern: str) -> str | None:
         generated_at = _parse_utc(
             document.get("generated_at") if isinstance(document, Mapping) else None
         )
+        if generated_at is None:
+            try:
+                generated_at = datetime.fromtimestamp(
+                    candidate.stat().st_mtime,
+                    tz=timezone.utc,
+                )
+            except OSError:
+                continue
         if generated_at is not None and (
             latest_generated_at is None or generated_at > latest_generated_at
         ):
@@ -624,47 +632,13 @@ def _refresh_local_host_status(
     )
 
 
-def _auxiliary_alerts(
+def _regime_alerts(
     config: WatchConfig,
     *,
     prior_state: Mapping[str, Any],
     result_tracks: dict[str, Any],
 ) -> dict[str, AlertRecord]:
     alerts: dict[str, AlertRecord] = {}
-    if config.host is not None and config.host.status_path is not None:
-        host = _read_object(config.host.status_path) or {}
-        memory = host.get("mem_available_bytes")
-        if isinstance(memory, int) and memory < config.host.mem_available_threshold_bytes:
-            key = "host:memory_pressure"
-            alerts[key] = AlertRecord(
-                key=key,
-                severity="warn",
-                subject="host memory pressure",
-                body={"mem_available_bytes": memory},
-            )
-        credits = host.get("cpu_credit_balance")
-        if isinstance(credits, (int, float)) and float(credits) < config.host.cpu_credit_threshold:
-            key = "host:cpu_credit_low"
-            alerts[key] = AlertRecord(
-                key=key,
-                severity="warn",
-                subject="host CPU credit low",
-                body={"cpu_credit_balance": float(credits)},
-            )
-        rss = host.get("process_rss_bytes")
-        budgets = config.host.process_rss_budgets_bytes
-        if isinstance(rss, Mapping) and isinstance(budgets, Mapping):
-            for name, budget in budgets.items():
-                usage = rss.get(name)
-                if isinstance(usage, int) and usage > budget:
-                    key = f"host:rss:{name}"
-                    alerts[key] = AlertRecord(
-                        key=key,
-                        severity="warn",
-                        subject=f"{name} RSS over budget",
-                        body={"process_name": name, "rss_bytes": usage},
-                    )
-
     prior_tracks = prior_state.get("tracks", {})
     for track in config.tracks:
         if track.regime_state_path is None:
@@ -672,6 +646,16 @@ def _auxiliary_alerts(
         regime = _read_object(track.regime_state_path) or {}
         observed = regime.get("observed_regime")
         consecutive = regime.get("consecutive_rejections", 0)
+        context = {
+            "track": track.name,
+            "expected_regime": track.expected_regime,
+            "observed_regime": observed,
+            "first_seen_at": regime.get("first_seen_at"),
+            "last_success_at": regime.get("last_success_at")
+            or result_tracks.get(track.name, {}).get("last_success_at"),
+            "consecutive_rejections": consecutive,
+            "affected_market_slugs": regime.get("affected_market_slugs", []),
+        }
         if track.expected_regime and observed and observed != track.expected_regime:
             key = f"{track.name}:regime_mismatch"
             alerts[key] = AlertRecord(
@@ -682,16 +666,7 @@ def _auxiliary_alerts(
                     else "warn"
                 ),
                 subject=f"{track.name} regime mismatch",
-                body={
-                    "expected_regime": track.expected_regime,
-                    "observed_regime": observed,
-                    "first_seen_at": regime.get("first_seen_at"),
-                    "last_success_at": regime.get("last_success_at"),
-                    "consecutive_rejections": consecutive,
-                    "affected_market_slugs": regime.get(
-                        "affected_market_slugs", []
-                    ),
-                },
+                body=context,
             )
         quarantine = regime.get("quarantine_count")
         prior_track = (
@@ -710,12 +685,153 @@ def _auxiliary_alerts(
                 key=key,
                 severity="warn",
                 subject=f"{track.name} quarantine growth",
-                body={"quarantine_count": quarantine},
+                body={**context, "quarantine_count": quarantine},
             )
             result_tracks.setdefault(track.name, {})[
                 "last_quarantine_count"
             ] = quarantine
     return alerts
+
+
+def _host_alerts_and_state(
+    config: WatchConfig,
+    *,
+    prior_state: Mapping[str, Any],
+    now: datetime,
+) -> tuple[dict[str, AlertRecord], dict[str, Any]]:
+    if config.host is None or config.host.status_path is None:
+        return {}, {}
+    alerts: dict[str, AlertRecord] = {}
+    host = _read_object(config.host.status_path) or {}
+    prior_host = (
+        prior_state.get("host", {})
+        if isinstance(prior_state.get("host"), Mapping)
+        else {}
+    )
+    host_state = dict(prior_host)
+    memory = host.get("mem_available_bytes")
+    if isinstance(memory, int):
+        host_state["mem_available_bytes"] = memory
+        if memory < config.host.mem_available_threshold_bytes:
+            key = "host:memory_pressure"
+            alerts[key] = AlertRecord(
+                key=key,
+                severity="warn",
+                subject="host memory pressure",
+                body={"mem_available_bytes": memory},
+            )
+    credits = host.get("cpu_credit_balance")
+    observed_at = _parse_utc(
+        host.get("cpu_credit_observed_at")
+        if isinstance(host.get("cpu_credit_observed_at"), str)
+        else None
+    )
+    prior_credits = prior_host.get("cpu_credit_balance")
+    prior_observed_at = _parse_utc(
+        prior_host.get("cpu_credit_observed_at")
+        if isinstance(prior_host.get("cpu_credit_observed_at"), str)
+        else None
+    )
+    decreasing_since = _parse_utc(
+        prior_host.get("cpu_credit_decreasing_since")
+        if isinstance(prior_host.get("cpu_credit_decreasing_since"), str)
+        else None
+    )
+    if isinstance(credits, (int, float)):
+        current_credits = float(credits)
+        if (
+            observed_at is not None
+            and (prior_observed_at is None or observed_at > prior_observed_at)
+            and isinstance(prior_credits, (int, float))
+        ):
+            if current_credits < float(prior_credits):
+                decreasing_since = decreasing_since or prior_observed_at or observed_at
+            else:
+                decreasing_since = None
+        host_state["cpu_credit_balance"] = current_credits
+        if observed_at is not None:
+            host_state["cpu_credit_observed_at"] = _utc_text(observed_at)
+        if decreasing_since is None:
+            host_state.pop("cpu_credit_decreasing_since", None)
+        else:
+            host_state["cpu_credit_decreasing_since"] = _utc_text(
+                decreasing_since
+            )
+        if current_credits < config.host.cpu_credit_threshold:
+            key = "host:cpu_credit_low"
+            alerts[key] = AlertRecord(
+                key=key,
+                severity="warn",
+                subject="host CPU credit low",
+                body={"cpu_credit_balance": current_credits},
+            )
+        if decreasing_since is not None and now - decreasing_since >= timedelta(
+            seconds=config.host.cpu_credit_decrease_seconds
+        ):
+            key = "host:cpu_credit_declining"
+            alerts[key] = AlertRecord(
+                key=key,
+                severity="warn",
+                subject="host CPU credit declining",
+                body={
+                    "cpu_credit_balance": current_credits,
+                    "decreasing_since": _utc_text(decreasing_since),
+                },
+            )
+    rss = host.get("process_rss_bytes")
+    budgets = config.host.process_rss_budgets_bytes
+    if isinstance(rss, Mapping):
+        host_state["process_rss_bytes"] = dict(rss)
+    if isinstance(rss, Mapping) and isinstance(budgets, Mapping):
+        for name, budget in budgets.items():
+            usage = rss.get(name)
+            if isinstance(usage, int) and usage > budget:
+                key = f"host:rss:{name}"
+                alerts[key] = AlertRecord(
+                    key=key,
+                    severity="warn",
+                    subject=f"{name} RSS over budget",
+                    body={"process_name": name, "rss_bytes": usage},
+                )
+    return alerts, host_state
+
+
+def _report_activity(status: Mapping[str, Any]) -> datetime | None:
+    raw_path = status.get("latest_summary_path")
+    if not isinstance(raw_path, str) or not raw_path:
+        return None
+    path = Path(raw_path)
+    document = _read_object(path)
+    generated_at = _parse_utc(
+        document.get("generated_at") if isinstance(document, Mapping) else None
+    )
+    if generated_at is not None:
+        return generated_at
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+    except OSError:
+        return None
+
+
+def _track_alert_body(
+    track: TrackConfig,
+    *,
+    status: Mapping[str, Any],
+    regime: Mapping[str, Any],
+    last_success_at: datetime | None,
+) -> dict[str, Any]:
+    return {
+        "track": track.name,
+        "phase": status.get("phase"),
+        "expected_regime": track.expected_regime,
+        "observed_regime": regime.get("observed_regime"),
+        "first_seen_at": regime.get("first_seen_at"),
+        "last_success_at": (
+            _utc_text(last_success_at) if last_success_at is not None else None
+        ),
+        "consecutive_rejections": regime.get("consecutive_rejections", 0),
+        "affected_market_slugs": regime.get("affected_market_slugs", []),
+    }
 
 
 def run_watch_cycle(
@@ -734,55 +850,103 @@ def run_watch_cycle(
     }
     active_alerts: dict[str, AlertRecord] = {}
     result_tracks: dict[str, Any] = {}
+    prior_tracks = (
+        state.get("tracks", {})
+        if isinstance(state.get("tracks"), Mapping)
+        else {}
+    )
     for track in config.tracks:
         status = _read_object(track.status_path) or {}
+        health = (
+            _read_object(track.health_path)
+            if track.health_path is not None
+            else None
+        ) or {}
+        regime = (
+            _read_object(track.regime_state_path)
+            if track.regime_state_path is not None
+            else None
+        ) or {}
+        previous = (
+            prior_tracks.get(track.name, {})
+            if isinstance(prior_tracks.get(track.name), Mapping)
+            else {}
+        )
+
+        report_activity = _report_activity(status)
+        report_count = (
+            status.get("completed_report_count")
+            if isinstance(status.get("completed_report_count"), int)
+            and not isinstance(status.get("completed_report_count"), bool)
+            else None
+        )
+        report_progress_at = _parse_utc(previous.get("last_report_progress_at"))
+        if track.kind != "rawcap":
+            previous_count = previous.get("last_completed_report_count")
+            if previous_count is None:
+                report_progress_at = report_activity or now
+            elif report_count != previous_count:
+                report_progress_at = now
+            elif report_progress_at is None:
+                report_progress_at = report_activity or now
+
+        capture_marker = _latest_capture_timestamp(track.capture_summary_glob)
+        capture_activity = _parse_utc(capture_marker)
+        capture_progress_at = _parse_utc(
+            previous.get("last_capture_progress_at")
+        )
+        if "latest_capture_timestamp" not in previous:
+            capture_progress_at = capture_activity or now
+        elif capture_marker != previous.get("latest_capture_timestamp"):
+            capture_progress_at = now
+        elif capture_progress_at is None:
+            capture_progress_at = capture_activity or now
+
+        success_candidates = [
+            value
+            for value in (
+                report_activity,
+                capture_activity,
+                report_progress_at,
+                capture_progress_at,
+            )
+            if value is not None
+        ]
+        last_success = max(success_candidates, default=None)
+        body = _track_alert_body(
+            track,
+            status=status,
+            regime=regime,
+            last_success_at=last_success,
+        )
         heartbeat_at = _parse_utc(status.get("heartbeat_at"))
-        if heartbeat_at is not None and now - heartbeat_at > timedelta(seconds=60):
+        if heartbeat_at is None or now - heartbeat_at > timedelta(seconds=60):
             active_alerts[f"{track.name}:heartbeat_stale"] = AlertRecord(
                 key=f"{track.name}:heartbeat_stale",
                 severity="page",
                 subject=f"{track.name} heartbeat stale",
-                body={"track": track.name},
+                body=body,
             )
-        report_activity = None
-        latest_summary_path = status.get("latest_summary_path")
-        if isinstance(latest_summary_path, str) and latest_summary_path:
-            summary_path = Path(latest_summary_path)
-            if summary_path.exists():
-                report_activity = datetime.fromtimestamp(
-                    summary_path.stat().st_mtime,
-                    tz=timezone.utc,
-                )
         if track.kind != "rawcap" and (
-            report_activity is None
-            or now - report_activity >= timedelta(seconds=1800)
+            report_progress_at is not None
+            and now - report_progress_at
+            >= timedelta(seconds=track.expected_cycle_seconds * 2)
         ):
             active_alerts[f"{track.name}:report_stalled"] = AlertRecord(
                 key=f"{track.name}:report_stalled",
                 severity="page",
                 subject=f"{track.name} reports stalled",
-                body={"track": track.name},
+                body={**body, "completed_report_count": report_count},
             )
-        capture_activity = None
-        if track.data_root is not None:
-            candidates = sorted((track.data_root / "runs").glob("*"))
-            if candidates:
-                latest = candidates[-1]
-                capture_activity = datetime.fromtimestamp(
-                    latest.stat().st_mtime,
-                    tz=timezone.utc,
-                )
-        if capture_activity is None or now - capture_activity >= timedelta(seconds=1800):
+        if capture_progress_at is not None and now - capture_progress_at >= timedelta(
+            seconds=track.expected_cycle_seconds * 2
+        ):
             active_alerts[f"{track.name}:capture_stalled"] = AlertRecord(
                 key=f"{track.name}:capture_stalled",
                 severity="page",
                 subject=f"{track.name} capture stalled",
-                body={"track": track.name},
+                body={**body, "latest_capture_timestamp": capture_marker},
             )
-        last_success = max(
-            [value for value in (report_activity, capture_activity) if value is not None],
-            default=None,
-        )
         if status.get("phase") in {"error_wait", "stopped"} and (
             last_success is None or now - last_success >= timedelta(minutes=10)
         ):
@@ -790,27 +954,70 @@ def run_watch_cycle(
                 key=f"{track.name}:phase_unhealthy",
                 severity="page",
                 subject=f"{track.name} phase unhealthy",
-                body={"track": track.name},
+                body=body,
             )
+        health_failures = health.get("failures")
+        material_health_failures = (
+            [
+                str(failure)
+                for failure in health_failures
+                if str(failure)
+                not in {"service_phase_unhealthy", "collector_phase_unhealthy"}
+            ]
+            if isinstance(health_failures, list)
+            else []
+        )
+        if material_health_failures:
+            active_alerts[f"{track.name}:health_gate"] = AlertRecord(
+                key=f"{track.name}:health_gate",
+                severity="warn",
+                subject=f"{track.name} health gate failed",
+                body={**body, "failures": material_health_failures},
+            )
+        quarantine_count = regime.get("quarantine_count", 0)
         result_tracks[track.name] = {
-            "last_completed_report_count": status.get("completed_report_count"),
-            "last_report_progress_at": _utc_text(report_activity) if report_activity else None,
-            "last_capture_progress_at": _utc_text(capture_activity) if capture_activity else None,
+            "last_completed_report_count": report_count,
+            "last_report_progress_at": (
+                _utc_text(report_progress_at)
+                if report_progress_at is not None
+                else None
+            ),
+            "latest_capture_timestamp": capture_marker,
+            "last_capture_progress_at": (
+                _utc_text(capture_progress_at)
+                if capture_progress_at is not None
+                else None
+            ),
+            "last_success_at": (
+                _utc_text(last_success) if last_success is not None else None
+            ),
             "last_phase_healthy_at": (
                 _utc_text(now)
                 if f"{track.name}:phase_unhealthy" not in active_alerts
                 else None
             ),
-            "last_quarantine_count": 0,
+            "last_quarantine_count": (
+                quarantine_count if isinstance(quarantine_count, int) else 0
+            ),
         }
     active_alerts.update(
-        _auxiliary_alerts(
+        _regime_alerts(
             config,
             prior_state=state,
             result_tracks=result_tracks,
         )
     )
-    prior_alerts = state.get("alerts", {})
+    host_alerts, host_state = _host_alerts_and_state(
+        config,
+        prior_state=state,
+        now=now,
+    )
+    active_alerts.update(host_alerts)
+    prior_alerts = (
+        dict(state.get("alerts", {}))
+        if isinstance(state.get("alerts"), Mapping)
+        else {}
+    )
     for key, alert in active_alerts.items():
         previous_record = (
             prior_alerts.get(key) if isinstance(prior_alerts, Mapping) else None
@@ -852,6 +1059,7 @@ def run_watch_cycle(
             del prior_alerts[key]
     state["alerts"] = prior_alerts
     state["tracks"] = result_tracks
+    state["host"] = host_state
     state["checked_at"] = _utc_text(now)
     _write_object_atomic(state_path, state)
     if config.alerts_path is not None:

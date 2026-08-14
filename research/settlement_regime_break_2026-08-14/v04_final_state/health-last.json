@@ -1,0 +1,204 @@
+{
+  "checked_at": "2026-08-14T18:06:32.954168Z",
+  "completed_report_count": 380,
+  "current_capture_root": null,
+  "current_expiry_seconds": null,
+  "failures": [
+    "service_phase_unhealthy"
+  ],
+  "free_disk_bytes": 39009882112,
+  "healthy": false,
+  "heartbeat_age_seconds": 18.069406,
+  "heartbeat_at": "2026-08-14T18:06:14.884762Z",
+  "last_error": {
+    "error_code": "service_cycle_failed",
+    "error_type": "RelativeValueRejection"
+  },
+  "latest_classification": "insufficient_data",
+  "latest_summary_path": "/var/lib/poly-mm/research/btc_5m_15m_relative_value_paper_v04_linux_2026-08-13/VALIDATION_SUMMARY.json",
+  "minimum_free_disk_bytes": 12884901888,
+  "monitoring": {
+    "clock": {
+      "all_required_decisions_valid": true,
+      "frozen_maximum_measurement_age_ms": 1200000,
+      "frozen_maximum_uncertainty_ms": 100,
+      "invalid_decisions": 0,
+      "latest_offset_seconds": "-6.29E-7",
+      "maximum_measurement_age_ms": 899996,
+      "maximum_uncertainty_ms": 1,
+      "policy_passed": true,
+      "policy_violations": [],
+      "required_decisions": 380,
+      "valid_decisions": 380
+    },
+    "connections": {
+      "clob": {
+        "disconnects": 2356,
+        "errors": 2335,
+        "reconnects": 2335
+      },
+      "redundancy": {
+        "degraded_capture_cycles": 1,
+        "minimum_clob_legs": 2,
+        "minimum_rtds_legs": 2,
+        "recorder_leg_failures": 1
+      },
+      "rtds": {
+        "disconnects": 242,
+        "errors": 52,
+        "reconnects": 52
+      }
+    },
+    "evidence_healthy": true,
+    "paper": {
+      "decision_evaluations": 380,
+      "explainable_fills": 0,
+      "explainable_simulated_trades": 0,
+      "no_trade_decisions": 380,
+      "observed_explainable_net_pnl": null,
+      "qualified_net_pnl": null
+    },
+    "promotion_gaps": {
+      "explainable_fills_remaining": 500,
+      "resolved_markets_remaining": 1810,
+      "simulated_trades_remaining": 500
+    },
+    "service": {
+      "completed_report_count": 380,
+      "current_expiry_seconds": null,
+      "failures": [
+        "service_phase_unhealthy"
+      ],
+      "healthy": false,
+      "heartbeat_age_seconds": 18.069406,
+      "last_error": {
+        "error_code": "service_cycle_failed",
+        "error_type": "RelativeValueRejection"
+      },
+      "latest_classification": "insufficient_data",
+      "paper_only_guard_valid": true,
+      "phase": "error_wait",
+      "pid": 28554,
+      "process_alive": true,
+      "runtime_healthy": false,
+      "status_hash_valid": true
+    },
+    "shadow": {
+      "average_net_pnl": "-1.417576946428571428571428571",
+      "breakeven_trades": 0,
+      "decisions": 227,
+      "fills": 215,
+      "losing_trades": 27,
+      "net_pnl": "-79.38430900",
+      "pending_trades": 1,
+      "profit_factor": "0.7111934551126856111172216724",
+      "settled_trades": 56,
+      "trades": 57,
+      "win_rate": "0.5178571428571428571428571429",
+      "winning_trades": 29
+    }
+  },
+  "paper_only_guard_valid": true,
+  "phase": "error_wait",
+  "pid": 28554,
+  "process_alive": true,
+  "schema_version": "btc-twap-relative-value-service-health.v1",
+  "status_hash_valid": true,
+  "summary": {
+    "classification": "insufficient_data",
+    "development_shadow": {
+      "action_counts": {
+        "long_15_up_long_5_down": 31,
+        "long_5_up_long_15_down": 28,
+        "no_trade": 168
+      },
+      "average_net_pnl": "-1.417576946428571428571428571",
+      "breakeven_trades": 0,
+      "complete_taker_cost_model_trades": 56,
+      "cycle_reason_counts": {
+        "causal_predictor_history_missing": 103,
+        "exact_chainlink_opening_boundary_missing": 64,
+        "failed_unhedged": 22,
+        "first_leg_execution_book_missing": 2,
+        "settlement_missing": 1,
+        "twap_30_stale_or_future": 2,
+        "twap_60_stale_or_future": 2
+      },
+      "decision_reason_counts": {
+        "complete_four_outcome_books_missing": 91,
+        "net_edge_below_frozen_threshold": 17,
+        "no_candidate_has_healthy_executable_depth": 60,
+        "uncalibrated_shadow_only": 227
+      },
+      "decisions": 227,
+      "fills": 215,
+      "losing_trades": 27,
+      "net_pnl": "-79.38430900",
+      "no_trade_decisions": 168,
+      "pending_trades": 1,
+      "profit_factor": "0.7111934551126856111172216724",
+      "qualified_evidence": false,
+      "settled_trades": 56,
+      "trades": 57,
+      "win_rate": "0.5178571428571428571428571429",
+      "winning_trades": 29
+    },
+    "evidence": {
+      "capture_cycles": 95,
+      "clob_disconnects": 2356,
+      "clob_reconnects": 2335,
+      "clob_websocket_errors": 2335,
+      "clock_sync": {
+        "invalid_decisions": 0,
+        "latest_offset_seconds": "-6.29E-7",
+        "maximum_measurement_age_ms": 899996,
+        "maximum_uncertainty_ms": 1,
+        "required_decisions": 380,
+        "valid_decisions": 380
+      },
+      "complete_current_taker_fee_metadata": true,
+      "decision_reports": 380,
+      "degraded_capture_cycles": 1,
+      "explainable_fills": 0,
+      "explainable_simulated_trades": 0,
+      "market_coverage": "0.6263157894736842105263157895",
+      "mechanically_labelable_markets": 119,
+      "minimum_clob_recorder_legs": 2,
+      "minimum_rtds_recorder_legs": 2,
+      "observed_explainable_net_pnl": null,
+      "officially_resolved_markets": 190,
+      "paper_decision_evaluations": 380,
+      "paper_decision_reason_counts": {
+        "causal_predictor_history_missing": 103,
+        "complete_four_outcome_books_missing": 159,
+        "delayed_execution_book_surface_missing": 154,
+        "exact_chainlink_opening_boundary_missing": 64,
+        "past_only_isotonic_calibration_not_available": 380,
+        "twap_30_stale_or_future": 2,
+        "twap_60_stale_or_future": 2
+      },
+      "paper_no_trade_decisions": 380,
+      "raw_shadow_blocker_counts": {
+        "causal_predictor_history_missing": 103,
+        "exact_chainlink_opening_boundary_missing": 64,
+        "twap_30_stale_or_future": 2,
+        "twap_60_stale_or_future": 2
+      },
+      "raw_shadow_models_available": 227,
+      "recorder_leg_failures": 1,
+      "resolution_conflicts": 0,
+      "rtds_disconnects": 242,
+      "rtds_reconnects": 52,
+      "rtds_websocket_errors": 52,
+      "unique_markets": 190
+    },
+    "path": "/var/lib/poly-mm/research/btc_5m_15m_relative_value_paper_v04_linux_2026-08-13/VALIDATION_SUMMARY.json",
+    "promotion_gaps": {
+      "explainable_fills_remaining": 500,
+      "resolved_markets_remaining": 1810,
+      "simulated_trades_remaining": 500
+    },
+    "qualified_net_pnl": null,
+    "summary_sha256": "2266a4777fe0faef46bef478b175746700c74f4e6c6bf9a59465643ab05a122d"
+  }
+}

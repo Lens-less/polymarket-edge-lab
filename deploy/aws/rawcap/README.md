@@ -18,7 +18,11 @@ The bootstrap validates only. Start manually after v0.4 has been archived:
 ```bash
 sudo systemctl enable --now polymm-btc-rawcap.service
 sudo systemctl enable --now polymm-btc-rawcap-health.timer
+sudo systemctl enable --now polymm-btc-rawcap-maintenance.timer
 ```
 
-Local retention is initially 30 days; no S3 archival is enabled in this
-release. Measure the first 24-hour write rate before adding a retention timer.
+The hourly maintenance unit compresses only capture attempts that already have
+`capture-summary.json` and have been inactive for at least 30 minutes. It never
+touches an in-progress attempt. Completed attempts older than 30 days are
+deleted from the explicitly bounded rawcap runs tree. No S3 archival is enabled
+in this release; the first 24-hour write rate remains a required capacity check.

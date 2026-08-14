@@ -60,6 +60,9 @@ def _watch_config(
                 "status_path": str(status_path),
                 "health_path": str(health_path),
                 "data_root": str(data_root),
+                "capture_summary_glob": str(
+                    data_root / "runs" / "*" / "capture-summary.json"
+                ),
                 "expected_regime": "chainlink_twap_30s_5m_and_60s_15m.v1",
                 **(
                     {"regime_state_path": str(regime_path)}
@@ -90,8 +93,13 @@ def test_watch_cycle_pages_digest_and_recovers_on_progress_stall(
     summary_path = tmp_path / "v05" / "research" / "VALIDATION_SUMMARY.json"
     run_root = tmp_path / "v05" / "data" / "runs" / "1786665600"
     run_root.mkdir(parents=True, exist_ok=True)
+    capture_summary = _write_json(
+        run_root / "capture-summary.json",
+        {"generated_at": "2026-08-14T15:15:00Z"},
+    )
     _touch(summary_path, now - timedelta(minutes=45))
     _touch(run_root, now - timedelta(minutes=45))
+    _touch(capture_summary, now - timedelta(minutes=45))
     _write_json(
         status_path,
         {
@@ -168,6 +176,10 @@ def test_watch_cycle_pages_digest_and_recovers_on_progress_stall(
     _touch(summary_path, now + timedelta(minutes=62))
     _touch(run_root, now + timedelta(minutes=62))
     _write_json(
+        capture_summary,
+        {"generated_at": "2026-08-14T17:02:00Z"},
+    )
+    _write_json(
         status_path,
         {
             "phase": "capturing",
@@ -200,6 +212,10 @@ def test_watch_cycle_warns_on_host_pressure_and_heartbeat(
     summary_path = tmp_path / "v05" / "research" / "VALIDATION_SUMMARY.json"
     run_root = tmp_path / "v05" / "data" / "runs" / "1786665600"
     run_root.mkdir(parents=True, exist_ok=True)
+    _write_json(
+        run_root / "capture-summary.json",
+        {"generated_at": now.isoformat().replace("+00:00", "Z")},
+    )
     _touch(summary_path, now)
     _touch(run_root, now)
     _write_json(
@@ -251,6 +267,10 @@ def test_watch_cycle_warns_on_regime_mismatch_and_quarantine_growth(
     run_root = tmp_path / "v05" / "data" / "runs" / "1786665600"
     regime_path = tmp_path / "v05" / "monitor" / "regime.json"
     run_root.mkdir(parents=True, exist_ok=True)
+    _write_json(
+        run_root / "capture-summary.json",
+        {"generated_at": now.isoformat().replace("+00:00", "Z")},
+    )
     _touch(summary_path, now)
     _touch(run_root, now)
     _write_json(
@@ -288,6 +308,16 @@ def test_watch_cycle_warns_on_regime_mismatch_and_quarantine_growth(
     keys = {alert.key for alert in publisher.alerts}
     assert "v05:regime_mismatch" in keys
     assert "v05:quarantine_growth" in keys
+    mismatch = next(
+        alert for alert in publisher.alerts if alert.key == "v05:regime_mismatch"
+    )
+    assert mismatch.body["expected_regime"] == (
+        "chainlink_twap_30s_5m_and_60s_15m.v1"
+    )
+    assert mismatch.body["observed_regime"] == (
+        "chainlink_twap_60s_5m_and_60s_15m.v1"
+    )
+    assert mismatch.body["consecutive_rejections"] == 3
 
 
 def test_rawcap_track_does_not_require_report_progress(tmp_path: Path) -> None:
@@ -344,7 +374,9 @@ def test_watch_cycle_persists_active_alert_snapshot(tmp_path: Path) -> None:
         status_path,
         {
             "phase": "error_wait",
-            "heartbeat_at": now.isoformat().replace("+00:00", "Z"),
+            "heartbeat_at": (now - timedelta(minutes=5))
+            .isoformat()
+            .replace("+00:00", "Z"),
             "completed_report_count": 156,
         },
     )
@@ -358,7 +390,7 @@ def test_watch_cycle_persists_active_alert_snapshot(tmp_path: Path) -> None:
     snapshot = json.loads(alerts_path.read_text(encoding="utf-8"))
     assert snapshot["schema_version"] == "polymm-paper-track-alerts.v1"
     assert any(
-        alert["key"] == "v05:phase_unhealthy"
+        alert["key"] == "v05:heartbeat_stale"
         for alert in snapshot["active_alerts"]
     )
 
@@ -409,4 +441,96 @@ def test_local_host_snapshot_reads_memavailable_and_track_rss(
     assert snapshot["mem_available_bytes"] == 850000 * 1024
     assert snapshot["process_rss_bytes"] == {
         "v05": (300000 + 12000) * 1024
+    }
+
+
+def test_capture_progress_uses_summary_timestamp_not_run_directory_mtime(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 8, 14, 16, 0, tzinfo=UTC)
+    config_path = _watch_config(tmp_path)
+    status_path = tmp_path / "v05" / "service" / "status.json"
+    report_summary = tmp_path / "v05" / "research" / "VALIDATION_SUMMARY.json"
+    _write_json(report_summary, {"generated_at": "2026-08-14T16:00:00Z"})
+    _write_json(
+        status_path,
+        {
+            "phase": "capturing",
+            "heartbeat_at": "2026-08-14T16:00:00Z",
+            "completed_report_count": 156,
+            "latest_summary_path": str(report_summary),
+        },
+    )
+    run_root = tmp_path / "v05" / "data" / "runs" / "1786665600"
+    capture_summary = _write_json(
+        run_root / "capture-summary.json",
+        {"generated_at": "2026-08-14T15:20:00Z"},
+    )
+    _touch(run_root, now)
+    _touch(capture_summary, now)
+    _write_json(
+        tmp_path / "watch" / "state.json",
+        {
+            "schema_version": "polymm-paper-track-watch-state.v1",
+            "alerts": {},
+            "tracks": {
+                "v05": {
+                    "last_completed_report_count": 156,
+                    "last_report_progress_at": "2026-08-14T16:00:00Z",
+                    "latest_capture_timestamp": "2026-08-14T15:20:00Z",
+                    "last_capture_progress_at": "2026-08-14T15:20:00Z",
+                }
+            },
+        },
+    )
+    publisher = CollectingPublisher()
+
+    run_watch_cycle(
+        _load_watch_config(config_path),
+        publisher=publisher,
+        now=now,
+    )
+
+    assert "v05:capture_stalled" in {alert.key for alert in publisher.alerts}
+
+
+def test_watch_pages_on_sustained_cpu_credit_decline_above_absolute_floor(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 8, 14, 16, 0, tzinfo=UTC)
+    config_path = _watch_config(tmp_path, include_host=True)
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["host"]["cpu_credit_threshold"] = 100.0
+    config["host"]["cpu_credit_decrease_seconds"] = 1800
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+    _write_json(
+        tmp_path / "watch" / "host-status.json",
+        {
+            "cpu_credit_balance": 110.0,
+            "cpu_credit_observed_at": "2026-08-14T16:00:00Z",
+        },
+    )
+    _write_json(
+        tmp_path / "watch" / "state.json",
+        {
+            "schema_version": "polymm-paper-track-watch-state.v1",
+            "alerts": {},
+            "tracks": {},
+            "host": {
+                "cpu_credit_balance": 120.0,
+                "cpu_credit_observed_at": "2026-08-14T15:30:00Z",
+                "cpu_credit_decreasing_since": "2026-08-14T15:20:00Z",
+            },
+        },
+    )
+    publisher = CollectingPublisher()
+
+    run_watch_cycle(
+        _load_watch_config(config_path),
+        publisher=publisher,
+        now=now,
+    )
+
+    assert "host:cpu_credit_declining" in {
+        alert.key for alert in publisher.alerts
     }

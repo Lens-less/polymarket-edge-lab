@@ -7,6 +7,7 @@ INSTALL_ROOT="${INSTALL_ROOT:-/opt/poly-mm-watch}"
 DATA_ROOT="${DATA_ROOT:-/var/lib/poly-mm-watch}"
 SERVICE_USER="${SERVICE_USER:-polybotwatch}"
 SERVICE_GROUP="${SERVICE_GROUP:-polybotwatch}"
+DEPLOYMENT_REVISION_PATH="${INSTALL_ROOT}/.deployment-revision"
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "Run as root." >&2
@@ -33,6 +34,12 @@ if [[ -d "${INSTALL_ROOT}/.git" ]]; then
   git -C "${INSTALL_ROOT}" fetch --tags --prune origin
   git -C "${INSTALL_ROOT}" checkout --detach "${DEPLOY_REF}"
   test "$(git -C "${INSTALL_ROOT}" rev-parse HEAD)" = "${DEPLOY_REF}"
+  printf '%s\n' "${DEPLOY_REF}" >"${DEPLOYMENT_REVISION_PATH}"
+elif [[ -f "${DEPLOYMENT_REVISION_PATH}" ]]; then
+  test "$(tr -d '\r\n' <"${DEPLOYMENT_REVISION_PATH}")" = "${DEPLOY_REF}"
+else
+  echo "${INSTALL_ROOT} is neither a Git checkout nor a verified source archive." >&2
+  exit 1
 fi
 
 python3.11 -m venv "${INSTALL_ROOT}/.venv"

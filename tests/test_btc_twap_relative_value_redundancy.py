@@ -503,6 +503,7 @@ async def test_run_capture_builds_primary_and_secondary_recorders(
     )
 
     assert summary["capture_error"] is None
+    assert summary["generated_at"].endswith("Z")
     assert summary["recorder_leg_count"] == 2
     assert summary["recorder_leg_failures"] == []
     assert summary["websocket_redundancy"] == {"clob_market_ws": 2, "rtds_ws": 2}

@@ -1717,6 +1717,9 @@ async def run_compact_forward_capture(
     integrity = store.audit_integrity()
     summary = {
         "schema_version": "btc-twap-compact-forward-capture-summary.v1",
+        "generated_at": datetime.now(timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z"),
         "data_root": str(config.data_root),
         "duration_seconds": str(duration_seconds),
         "target_count": len(config.targets),

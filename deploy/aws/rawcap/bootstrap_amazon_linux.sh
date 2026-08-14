@@ -18,7 +18,7 @@ if ! grep -q '^ID="\?amzn"\?$' /etc/os-release; then
   exit 1
 fi
 
-dnf install -y git python3.11 python3.11-pip
+dnf install -y git python3.11 python3.11-pip zstd
 if ! getent group "${SERVICE_GROUP}" >/dev/null 2>&1; then
   groupadd --system "${SERVICE_GROUP}"
 fi
@@ -57,6 +57,12 @@ install -o root -g root -m 0644 \
 install -o root -g root -m 0644 \
   "${INSTALL_ROOT}/deploy/aws/rawcap/polymm-btc-rawcap-health.timer" \
   /etc/systemd/system/polymm-btc-rawcap-health.timer
+install -o root -g root -m 0644 \
+  "${INSTALL_ROOT}/deploy/aws/rawcap/polymm-btc-rawcap-maintenance.service" \
+  /etc/systemd/system/polymm-btc-rawcap-maintenance.service
+install -o root -g root -m 0644 \
+  "${INSTALL_ROOT}/deploy/aws/rawcap/polymm-btc-rawcap-maintenance.timer" \
+  /etc/systemd/system/polymm-btc-rawcap-maintenance.timer
 install -o root -g root -m 0755 \
   "${INSTALL_ROOT}/deploy/aws/rawcap/polymm-btc-rawcap-healthcheck.sh" \
   /usr/local/bin/polymm-btc-rawcap-healthcheck
@@ -69,6 +75,13 @@ chmod -R a+rX "${INSTALL_ROOT}"
   --status-path "${DATA_ROOT}/status/status.json" \
   --registry "${INSTALL_ROOT}/research/settlement_regime_break_2026-08-14/REGIME_REGISTRY.json" \
   --validate-only
+"${INSTALL_ROOT}/.venv/bin/python" \
+  "${INSTALL_ROOT}/scripts/maintain_btc_rawcap.py" \
+  --data-root "${DATA_ROOT}/data" \
+  --compress-after-seconds 1800 \
+  --retention-days 30 \
+  --status-path "${DATA_ROOT}/monitor/maintenance-latest.json" \
+  --validate-only
 systemctl daemon-reload
 
 printf '%s\n' \
@@ -76,4 +89,6 @@ printf '%s\n' \
   "  systemctl enable polymm-btc-rawcap.service" \
   "  systemctl start polymm-btc-rawcap.service" \
   "  systemctl enable polymm-btc-rawcap-health.timer" \
-  "  systemctl start polymm-btc-rawcap-health.timer"
+  "  systemctl start polymm-btc-rawcap-health.timer" \
+  "  systemctl enable polymm-btc-rawcap-maintenance.timer" \
+  "  systemctl start polymm-btc-rawcap-maintenance.timer"

@@ -44,6 +44,8 @@ def test_watch_timer_and_bootstrap_match_staged_manual_start() -> None:
     assert 'DATA_ROOT="${DATA_ROOT:-/var/lib/poly-mm-watch}"' in bootstrap_text
     assert 'SERVICE_USER="${SERVICE_USER:-polybotwatch}"' in bootstrap_text
     assert 'SERVICE_GROUP="${SERVICE_GROUP:-polybotwatch}"' in bootstrap_text
+    assert 'DEPLOYMENT_REVISION_PATH="${INSTALL_ROOT}/.deployment-revision"' in bootstrap_text
+    assert "verified source archive" in bootstrap_text
     assert "systemctl daemon-reload" in bootstrap_text
     assert "systemctl enable polymm-watch.timer" in bootstrap_text
     assert "systemctl start polymm-watch.timer" in bootstrap_text
