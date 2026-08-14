@@ -61,5 +61,6 @@ print(json.dumps(payload, sort_keys=True))
 PY
 
 cp "${TMP_PATH}" "${HISTORY_TMP}"
+chmod 0640 "${TMP_PATH}" "${HISTORY_TMP}"
 mv -f "${TMP_PATH}" "${OUTPUT_PATH}"
 mv -f "${HISTORY_TMP}" "${HISTORY_TMP%.tmp}"

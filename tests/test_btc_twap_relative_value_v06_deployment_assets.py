@@ -138,6 +138,10 @@ def test_v06_service_unit_is_hardened_and_uses_v06_paths() -> None:
     assert "Environment=AWS_EC2_METADATA_DISABLED=true" in service_text
     assert "IPAddressDeny=169.254.169.254" in service_text
     assert "--validate-only" in service_text
+    healthcheck = (
+        DEPLOY_ROOT / "polymm-btc-twap-paper-v06-healthcheck.sh"
+    ).read_text(encoding="utf-8")
+    assert 'chmod 0640 "${TMP_PATH}"' in healthcheck
 
 
 def test_v06_bootstrap_checks_release_and_implementation_markers() -> None:

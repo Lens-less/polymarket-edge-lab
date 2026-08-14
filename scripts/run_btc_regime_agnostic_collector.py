@@ -76,6 +76,7 @@ def _write_json(path: Path, document: Mapping[str, Any]) -> None:
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
+        os.chmod(temporary, 0o640)
         os.replace(temporary, path)
         temporary = None
     finally:

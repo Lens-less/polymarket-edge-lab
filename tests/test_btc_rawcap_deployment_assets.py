@@ -65,6 +65,7 @@ def test_rawcap_health_assets_snapshot_latest_atomically() -> None:
     assert "Unit=polymm-btc-rawcap-health.service" in timer_text
     assert "ExecStart=/usr/local/bin/polymm-btc-rawcap-healthcheck" in health_service_text
     assert 'OUTPUT_PATH="${OUTPUT_DIR}/health-latest.json"' in health_script_text
+    assert 'chmod 0640 "${TMP_PATH}" "${HISTORY_TMP}"' in health_script_text
     assert health_script_text.count("mv -f") == 2
 
 

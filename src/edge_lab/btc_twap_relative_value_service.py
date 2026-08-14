@@ -935,6 +935,7 @@ def _atomic_json(path: Path, document: Mapping[str, Any]) -> None:
             handle.write(encoded)
             handle.flush()
             os.fsync(handle.fileno())
+        os.chmod(temporary, 0o640)
         os.replace(temporary, path)
         temporary = None
     finally:
