@@ -32,6 +32,7 @@ def test_watch_service_is_read_only_to_strategy_roots() -> None:
     assert "ReadOnlyPaths=/var/lib/poly-mm-v06" in text
     assert "ReadOnlyPaths=/var/lib/poly-mm-rawcap" in text
     assert "ReadWritePaths=/var/lib/poly-mm-watch" in text
+    assert "SupplementaryGroups=polybotv05 polybotv06 polybotraw" in text
     assert "ExecStart=/opt/poly-mm-watch/.venv/bin/python /opt/poly-mm-watch/scripts/watch_paper_tracks.py --config /opt/poly-mm-watch/deploy/aws/watch/watch-config.json" in text
     assert "IPAddressDeny=169.254.169.254" not in text
 

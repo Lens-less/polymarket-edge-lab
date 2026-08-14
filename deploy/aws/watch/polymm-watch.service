@@ -5,6 +5,7 @@ Description=Paper track progress watcher
 Type=oneshot
 User=polybotwatch
 Group=polybotwatch
+SupplementaryGroups=polybotv05 polybotv06 polybotraw
 WorkingDirectory=/opt/poly-mm-watch
 Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=-/etc/polymm-watch.env

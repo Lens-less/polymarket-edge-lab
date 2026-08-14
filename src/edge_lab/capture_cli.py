@@ -140,6 +140,10 @@ def load_capture_config(
         "clock_sync",
         "capture_started_at_ms",
         "evidence_track_id",
+        "settlement_regime_id",
+        "qualification_status",
+        "regime_classification",
+        "registry_sha256",
     }
     unexpected = set(raw) - allowed
     if unexpected:

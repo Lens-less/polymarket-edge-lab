@@ -19,6 +19,7 @@ from src.edge_lab.btc_twap_relative_value_service import (
     load_service_config,
     validate_preregistration_runtime_identity,
 )
+from src.edge_lab.capture_cli import load_capture_config
 from src.edge_lab.settlement_regime import load_settlement_regime_registry
 
 
@@ -336,3 +337,12 @@ def test_v06_capture_plan_persists_top_level_regime_identity(
     assert {
         target["settlement_regime"] for target in plan.capture_config["targets"]
     } == {"chainlink_twap_60s_5m_and_60s_15m.v1"}
+    plan.capture_config_path.parent.mkdir(parents=True)
+    plan.capture_config_path.write_text(
+        json.dumps(plan.capture_config),
+        encoding="utf-8",
+    )
+    loaded = load_capture_config(plan.capture_config_path)
+    assert {target["source_topic"] for target in loaded.targets} == {
+        "crypto_prices_twap_sixty"
+    }

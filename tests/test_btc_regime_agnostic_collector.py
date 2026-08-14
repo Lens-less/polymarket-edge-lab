@@ -6,7 +6,10 @@ from pathlib import Path
 import pytest
 
 import scripts.run_btc_regime_agnostic_collector as collector
-from src.edge_lab.capture_cli import ForwardCaptureFinalizationError
+from src.edge_lab.capture_cli import (
+    ForwardCaptureFinalizationError,
+    load_capture_config,
+)
 from src.edge_lab.settlement_regime import load_settlement_regime_registry
 
 
@@ -141,6 +144,13 @@ def test_build_capture_plan_marks_v06_transfer_regime_and_dual_twap_topics(
     assert plan.capture_config["regime_classification"]["destination"] == "v0.6"
     assert plan.capture_config["targets"][0]["twap_window_seconds"] == 60
     assert plan.capture_config["targets"][1]["twap_window_seconds"] == 60
+    plan.capture_config_path.parent.mkdir(parents=True)
+    plan.capture_config_path.write_text(
+        json.dumps(plan.capture_config),
+        encoding="utf-8",
+    )
+    loaded = load_capture_config(plan.capture_config_path)
+    assert len(loaded.targets) == 2
 
 
 def test_build_capture_plan_quarantines_unknown_regime_but_still_builds_capture(
