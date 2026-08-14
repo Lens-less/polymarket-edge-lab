@@ -256,6 +256,49 @@ def test_watch_cycle_warns_on_host_pressure_and_heartbeat(
     assert "host:rss:v05" in keys
 
 
+def test_unreadable_status_reports_telemetry_gap_not_stale_heartbeat(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    now = datetime(2026, 8, 14, 16, 0, tzinfo=UTC)
+    config_path = _watch_config(tmp_path)
+    status_path = tmp_path / "v05" / "service" / "status.json"
+    health_path = tmp_path / "v05" / "monitor" / "health.json"
+    _write_json(
+        status_path,
+        {
+            "phase": "capturing",
+            "heartbeat_at": now.isoformat().replace("+00:00", "Z"),
+            "completed_report_count": 156,
+        },
+    )
+    _write_json(health_path, {"failures": []})
+    config = _load_watch_config(config_path)
+    original_read_text = Path.read_text
+
+    def deny_status_read(path: Path, *args, **kwargs):
+        if path == status_path:
+            raise PermissionError(status_path)
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", deny_status_read)
+    publisher = CollectingPublisher()
+
+    run_watch_cycle(config, publisher=publisher, now=now)
+
+    alerts = {alert.key: alert for alert in publisher.alerts}
+    assert "v05:telemetry_unavailable" in alerts
+    assert alerts["v05:telemetry_unavailable"].severity == "warn"
+    assert alerts["v05:telemetry_unavailable"].body["unavailable_sources"] == [
+        {
+            "exists": True,
+            "kind": "status",
+            "path": str(status_path),
+        }
+    ]
+    assert "v05:heartbeat_stale" not in alerts
+
+
 def test_watch_cycle_warns_on_regime_mismatch_and_quarantine_growth(
     tmp_path: Path,
 ) -> None:

@@ -860,17 +860,34 @@ def run_watch_cycle(
         else {}
     )
     for track in config.tracks:
-        status = _read_object(track.status_path) or {}
-        health = (
+        status_document = _read_object(track.status_path)
+        health_document = (
             _read_object(track.health_path)
             if track.health_path is not None
             else None
-        ) or {}
-        regime = (
+        )
+        regime_document = (
             _read_object(track.regime_state_path)
             if track.regime_state_path is not None
             else None
-        ) or {}
+        )
+        status = status_document or {}
+        health = health_document or {}
+        regime = regime_document or {}
+        unavailable_sources = []
+        for kind, path, document in (
+            ("status", track.status_path, status_document),
+            ("health", track.health_path, health_document),
+            ("regime", track.regime_state_path, regime_document),
+        ):
+            if path is not None and document is None:
+                unavailable_sources.append(
+                    {
+                        "kind": kind,
+                        "path": str(path),
+                        "exists": path.exists(),
+                    }
+                )
         previous = (
             prior_tracks.get(track.name, {})
             if isinstance(prior_tracks.get(track.name), Mapping)
@@ -923,8 +940,17 @@ def run_watch_cycle(
             regime=regime,
             last_success_at=last_success,
         )
+        if unavailable_sources:
+            active_alerts[f"{track.name}:telemetry_unavailable"] = AlertRecord(
+                key=f"{track.name}:telemetry_unavailable",
+                severity="warn",
+                subject=f"{track.name} telemetry unavailable",
+                body={**body, "unavailable_sources": unavailable_sources},
+            )
         heartbeat_at = _parse_utc(status.get("heartbeat_at"))
-        if heartbeat_at is None or now - heartbeat_at > timedelta(seconds=60):
+        if status_document is not None and (
+            heartbeat_at is None or now - heartbeat_at > timedelta(seconds=60)
+        ):
             active_alerts[f"{track.name}:heartbeat_stale"] = AlertRecord(
                 key=f"{track.name}:heartbeat_stale",
                 severity="page",
