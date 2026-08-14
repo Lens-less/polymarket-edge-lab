@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 DEPLOY_ROOT = Path("deploy/aws/watch")
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_watch_deployment_assets_exist() -> None:
@@ -70,3 +73,35 @@ def test_watch_config_tracks_v05_v06_and_rawcap() -> None:
     } == {"/var/lib/poly-mm-rawcap/monitor/regime-latest.json"}
     assert document["host"]["mem_available_threshold_bytes"] == 314572800
     assert document["host"]["cpu_credit_threshold"] == 100.0
+
+
+def test_watch_cli_can_start_from_outside_the_repository(tmp_path: Path) -> None:
+    config_path = tmp_path / "watch-config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "polymm-paper-track-watch-config.v1",
+                "state_path": str(tmp_path / "state" / "watch-state.json"),
+                "alerts_path": str(tmp_path / "state" / "alerts.json"),
+                "tracks": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str((PROJECT_ROOT / "scripts" / "watch_paper_tracks.py").resolve()),
+            "--config",
+            str(config_path),
+            "--stdout-only",
+        ],
+        cwd=tmp_path,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout.splitlines()[-1])["status"] == "ok"
