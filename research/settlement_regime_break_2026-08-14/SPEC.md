@@ -485,3 +485,8 @@ CLOB 估 0.3–0.7GB/天（未压缩），zstd 后预计 <100MB/天；30 天保�
   `9a97a10831248a9a6c949fc239eedee45176c6a8`，watcher 为
   `df0e7daac9e659810025ead16a2a9fb361be658b`；三者冻结 implementation revision
   均为 `5dcc3bd7e09794c578d6572181be81388fdb6661`。
+- 19:52Z 的连续运行快照已达到 3 个 cycles / 12 份报告：3 笔 shadow trades
+  合计 `-17.269762 USDC`，全部被 A1 极端概率 veto 过滤，而 A4 与三个 B3
+  buffer 均保留；没有 material second-leg failure。当前只提升 A1 的候选优先级，
+  不改 canonical v0.6。A2 的 5m/15m Brier 方向相反，需更多独立 expiry clusters
+  后才允许讨论 horizon-specific shrinkage。

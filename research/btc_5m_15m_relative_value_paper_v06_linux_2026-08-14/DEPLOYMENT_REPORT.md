@@ -82,12 +82,31 @@ v0.5 在 `19:28Z` 仍为 156 份报告、21 笔 shadow trade、净
 - 代码审计字段确认 canonical 路径已经同时具备 B1 的双腿完整深度 walking 与
   B2 的 750ms timeout 后立即 unwind；首周期经济上显著第二腿失败为 0。
 
+### 19:52Z 连续运行更新
+
+- v0.6 已完成 3 个 expiry cycles / 12 份报告；rawcap 已完成 4 个 capture，
+  服务继续处于 `capturing`，无 error 或 quarantine。
+- 其中 3 笔 settled shadow trades 分布在 2 个 expiry cycles，全部为
+  `long_15_up_long_5_down`，实现 PnL 分别为 `-7.313922`、`-6.827473`、
+  `-3.128367`，合计 `-17.269762 USDC`。三笔均有完整双腿深度，且没有经济上
+  显著的第二腿失败或残余风险。
+- A1 极端概率 veto 会过滤全部 3 笔亏损；A4 loss-probability veto 与 B3
+  1.25x/1.5x/2x 深度缓冲会保留全部 3 笔，因此当前最有信息量的候选是 A1，
+  不是 A4/B3。该结论只用于调整候选优先级，不改变 v0.6 canonical 动作。
+- A2 呈现 horizon 分化：在当前非独立、极小样本中，5m Brier 以市场端
+  `lambda=0` 较好（约 `0.1005` vs raw model `0.2265`），15m 则以 raw model
+  `lambda=1` 较好（约 `0.00015` vs market `0.0215`）。这提示未来应评估
+  horizon-specific shrinkage，但在达到预注册的独立 expiry cluster 数前不得选
+  lambda，更不能把当前 grid 最优值回填到 v0.6。
+
 ## 主机与安全边界
 
 - t3.small 验收时 `MemAvailable≈920MB`；v0.5 / rawcap / v0.6 RSS 约
-  `340MB / 121MB / 229MB`，均低于冻结预算。
-- 磁盘可用约 `36.3GB`，高于 12GiB fail-closed 门槛；CPU credit 在 19:05Z
-  为 `430.86`。
+  `340MB / 121MB / 229MB`，均低于冻结预算。19:52Z 复查时 rawcap / v0.6
+  约 `133MB / 215MB`，可用内存仍约 `912MB`。
+- 磁盘可用约 `36.3GB`，高于 12GiB fail-closed 门槛；19:52Z 仍有
+  `35.6GB`。CPU credit 从 19:05Z 的 `430.86` 到 19:47Z 的 `411.96`，远高于
+  100 的告警线，但已进入 30 分钟趋势监控。
 - Chrony 使用 Amazon Time Sync `169.254.169.123`，验收时系统偏差约
   `1.2µs`，Leap status Normal；四个决策的 clock policy 全部通过。
 - rawcap 与 v0.6 进程环境未发现 AWS access key/session token、私钥、wallet 或
@@ -104,9 +123,11 @@ v0.5 在 `19:28Z` 仍为 156 份报告、21 笔 shadow trade、净
 - v0.5 冻结版 status/health 文件为 `0600`。未修改其权限；watcher release
   `df0e7da` 将这种情况准确标记为 `telemetry_unavailable`，不再误报 stale
   heartbeat。外部巡检仍可经 SSM 直接验证 v0.5 的真实心跳与 phase。
-- Codex heartbeat automation `btc-v0-6-rawcap` 已启用，每 30 分钟做只读巡检，
+- Codex heartbeat automation `btc-v0-6-rawcap` 已启用，每 30 分钟做巡检，
   覆盖 unit、progress、regime、quarantine、guards、候选计分板、内存、RSS、
-  磁盘和 CloudWatch CPU credits；不会改服务、配置、证据或参数。
+  磁盘和 CloudWatch CPU credits。唯一允许的状态写入是把最新 CPU credit 与
+  观测时间原子同步到 watcher 自身的 host-status 后运行一次 watcher；不会改
+  策略/采集服务、配置、证据或参数。
 
 ## 验证记录与剩余边界
 
