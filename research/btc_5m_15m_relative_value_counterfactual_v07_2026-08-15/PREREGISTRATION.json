@@ -1,12 +1,21 @@
 {
   "schema_version": "btc-5m-15m-relative-value-preregistration.v07-draft",
   "evidence_track_id": "btc-counterfactual-v07-20260815",
-  "drafted_at": "2026-08-15T00:00:00Z",
+  "drafted_at": "2026-08-15T13:21:59Z",
   "deployment_status": "not_deployed_counterfactual_draft",
   "source_baseline": "c557160d0c98e195a988f4353bbe19a3b00b3576",
+  "draft_context": {
+    "revision": "v6_review_remediation",
+    "created_after_known_v06_shadow_results": true,
+    "known_v06_settled_attempts": 48,
+    "known_v06_independent_expiry_clusters": 24,
+    "known_v06_net_pnl_usdc": "87.523635",
+    "known_v06_results_role": "known_before_v6_draft_not_locked_oos_input",
+    "provides_ex_ante_qualification_for_known_v06_results": false
+  },
   "strategy_spec": {
     "path": "STRATEGY_SPEC.md",
-    "sha256": "913ad12736033b38183aa26f6c956869bddb95b3c3bc89b6f0b2b307dbffd0b5"
+    "sha256": "86b37300d51cfc9250d424a69e83527fb64a337554fc1950d04831d394c6619c"
   },
   "scope": {
     "asset": "BTC",
@@ -67,6 +76,7 @@
     "uncertainty_multiplier": "1.25",
     "cvar_tail_probability": "0.05",
     "max_leg_delay_ms": 750,
+    "counterfactual_computation_availability_delay_ms": 5000,
     "initial_cash": "10000",
     "settlement_regime": "chainlink_twap_60s_5m_and_60s_15m.v1",
     "market_baseline_quantity": "5"
@@ -116,7 +126,10 @@
     "minimum_distinct_settled_expiry_clusters": 100,
     "settled_expiry_cluster_definition": "distinct_capture_derived_common_expiries_with_at_least_one_explainable_economic_attempt",
     "minimum_explainable_locked_oos_economic_attempts": 100,
-    "net_pnl_must_be_positive": true
+    "net_pnl_must_be_positive": true,
+    "diagnostic_positive_sample_pnl_field": "diagnostic_positive_sample_pnl",
+    "positive_net_pnl_user_check_requires_builder_verified_chain": true,
+    "synthetic_or_generated_fixture_can_pass_user_check": false
   },
   "true_edge_gates": {
     "expiry_cluster_bootstrap_resamples": 5000,
@@ -132,7 +145,7 @@
     "ece_bin_edges": "equal_width_on_closed_unit_interval",
     "ece_weighting": "equal_common_expiry_then_equal_tau_within_expiry",
     "neighboring_settings_must_be_positive": true,
-    "qualified_net_pnl_null_until_all_gates_pass": true,
+    "qualified_net_pnl_null_until_at_least_one_complete_track_gate_passes": true,
     "maximum_largest_positive_cluster_to_total_net_pnl": "0.20",
     "binding_concentration_numerator": "largest_positive_expiry_cluster_net_pnl",
     "binding_concentration_denominator": "total_net_pnl",
@@ -141,7 +154,32 @@
     "diagnostic_largest_absolute_to_total_absolute_pnl": true,
     "coherent_depth_fee_market_baseline_both_horizons": true,
     "auditable_prelabel_manifest_prediction_decision_lock_required": true,
-    "pair_hashes_do_not_count_as_independent_clusters": true
+    "pair_hashes_do_not_count_as_independent_clusters": true,
+    "builder_verified_evidence_chain_required": true,
+    "public_evaluator_can_grant_qualification": false,
+    "prediction_receipt_strictly_before_common_expiry": true,
+    "receipt_timestamp_is_forecast_available_at_ms": true,
+    "execution_not_before_forecast_available_plus_taker_delay": true,
+    "independent_predictive_and_structural_gates": true,
+    "top_level_true_edge_is_logical_or_of_complete_track_gates": true,
+    "mixed_predictive_and_structural_rows_cannot_combine_for_sample_gate": true,
+    "predictive_minimum_distinct_settled_expiry_clusters": 100,
+    "predictive_minimum_explainable_economic_attempts": 100,
+    "predictive_gate_excludes_structural_rows": true,
+    "predictive_qualified_net_pnl_null_until_predictive_gate": true,
+    "structural_minimum_distinct_settled_expiry_clusters": 100,
+    "structural_minimum_explainable_economic_attempts": 100,
+    "structural_gate_requires_builder_verified_immutable_capture": true,
+    "structural_gate_requires_preexpiry_lock_and_forecast_availability": true,
+    "structural_gate_requires_decision_time_executable_positive_floor_every_row": true,
+    "structural_gate_requires_complete_receipt_timed_execution_unwind_and_settlement": true,
+    "structural_realized_net_pnl_must_be_positive": true,
+    "structural_bootstrap_lower_95_must_exceed": "0",
+    "structural_maximum_largest_positive_cluster_to_total_net_pnl": "0.20",
+    "structural_qualified_net_pnl_null_until_structural_gate": true,
+    "synthetic_mechanism_diagnostic_can_return_economic_status": false,
+    "synthetic_generated_or_mechanism_diagnostic_can_qualify_either_track": false,
+    "structural_gate_requires_brier_ece_or_model_neighborhood": false
   },
   "fail_closed": [
     "No independent 30s/60s terminal values are allowed in v0.7.",
@@ -150,11 +188,22 @@
     "Capture config requires the exact v1 schema, explicit true paper/public/orders-disabled flags, and an explicit boolean generated_fixture field.",
     "Manifest aliases and pair hashes never define independent clusters; capture-derived common expiry controls all counts, metrics, and splits.",
     "One common expiry may have only one 5m/15m pair, one case, one alias, and one split.",
-    "Post-label prediction receipts and retrospectively selected test-universe receipts are rejected.",
+    "Prediction receipts at or after common expiry and retrospectively selected test-universe receipts are rejected; a backdated lock field cannot replace the immutable receipt clock.",
+    "Verified execution may use no book or fill before forecast_available_at_ms plus the captured taker delay.",
+    "Unlocked counterfactual timing uses the frozen 5000ms computation-availability delay and remains paper/timing diagnostic, not production runtime validation.",
     "No missing raw history, required book surface, fee, rule, clock, boundary, timestamp, resolution, or reconciliation value is imputed.",
     "Every locked actionable decision is reconciled, including causal zero-PnL no-fills.",
     "No live order, credential, authenticated endpoint, proxy URL, signing, or production mutation.",
     "No synthetic fixture, pair rename, or correlated tau row counts toward independent economic gates.",
+    "The public evaluator never grants qualification from caller-created rows, receipt-shaped strings, or self-reported evidence booleans.",
+    "Only a builder-issued capability bound to strict captures, pre-expiry receipt timing, receipt-timed replay reconciliation, row hashes, and edge-basis counts can authorize qualification.",
+    "After common safety checks, structural candidates are derived from strikes and settlement rules before Monte Carlo; missing predictor history, shrinkage, or validation veto cannot erase an executable positive structural floor.",
+    "Risk budget is an upper bound, not a target quantity; structural and predictive sizes optimize their preregistered total-PnL objectives over joint depth and fee-inclusive budget breakpoints.",
+    "Structural and predictive PnL, sample counts, bootstrap, concentration, gate flags, and qualified PnL remain separate; 50 plus 50 cannot satisfy either 100-attempt gate.",
+    "A structural true-edge result requires real builder-verified provenance, real receipt-timed execution and settlement, at least 100 structural attempts at 100 common expiries, positive realized PnL, positive bootstrap lower bound, and at most 20 percent binding concentration.",
+    "A theoretical structural floor never substitutes for actual fills, partials, timeouts, unwinds, settlement, or realized PnL.",
+    "Synthetic gate arithmetic uses a non-economic diagnostic result type and can never emit predictive or structural TRUE_EDGE or non-null qualified PnL.",
+    "This v6 draft postdates the known 48-attempt v0.6 shadow result and provides no ex-ante qualification for it.",
     "The frozen v0.5/v0.6 tracks and 500-attempt promotion policy are unchanged."
   ],
   "causal_metadata_policy": {
@@ -178,7 +227,14 @@
     "independent_cluster_identity": "capture_derived_common_expiry_ms_only",
     "one_pair_per_common_expiry": true,
     "prelabel_lock_journal_optional_for_counterfactual_but_required_for_true_edge": true,
-    "actionable_decision_reconciliation": "one_row_or_invalid_window"
+    "actionable_decision_reconciliation": "one_row_or_invalid_window",
+    "prediction_receipt_strictly_before_common_expiry": true,
+    "forecast_available_at_ms_verified_source": "immutable_prediction_receipt_received_at_ms",
+    "backdated_prediction_locked_at_cannot_substitute_receipt_clock": true,
+    "first_execution_eligibility": "forecast_available_at_ms_plus_captured_taker_delay_ms",
+    "counterfactual_computation_availability_delay_ms": 5000,
+    "counterfactual_timing_is_measured_production_runtime": false,
+    "effective_signal_to_execution_latency_reported": true
   },
   "model_uncertainty_qualification": {
     "method": "fixed_volatility_scale_conditional_ev_downside",
@@ -202,16 +258,137 @@
     "top_of_book_ask_probability_role": "diagnostic_only",
     "strict_brier_improvement_required": true
   },
+  "builder_verified_evidence_policy": {
+    "schema_version": "btc-5m-15m-v07-builder-verified-evidence-policy.v3",
+    "public_evaluator_can_grant_qualification": false,
+    "qualification_authority": "opaque_builder_issued_row_bound_capability",
+    "caller_dataclasses_hashes_timestamps_and_evidence_flags_authoritative": false,
+    "required_builder_verifications": [
+      "strict_capture_config_generated_fixture_false",
+      "immutable_capture_and_predictor_tree_identity",
+      "prelabel_test_universe_and_prediction_decision_journal",
+      "preexpiry_prediction_receipt_payload_binding",
+      "receipt_timed_replay_no_prereceipt_surface",
+      "complete_replay_and_action_reconciliation",
+      "edge_basis_forecast_and_reconciliation_partition_counts",
+      "structural_positive_floor_sizing_and_reconciliation_binding"
+    ],
+    "capability_binds": [
+      "preregistration_sha256",
+      "test_universe_sha256",
+      "forecast_rows_sha256",
+      "reconciliation_rows_sha256",
+      "parameter_neighborhood_sha256",
+      "capture_config_and_tree_verification_sha256",
+      "prelabel_journal_identity_sha256",
+      "cycle_reconciliation_sha256",
+      "predictive_structural_nonedge_forecast_counts",
+      "predictive_structural_reconciliation_counts",
+      "structural_executable_positive_floor_reconciliation_count"
+    ],
+    "predictive_and_structural_tracks_use_same_verified_capability": true,
+    "generated_fixture_capability_allowed": false,
+    "missing_capability_status": "counterfactual_insufficient",
+    "qualified_net_pnl_without_capability": null,
+    "synthetic_gate_math_result_type": "non_economic_mechanism_diagnostic",
+    "synthetic_gate_math_can_emit_true_edge": false,
+    "synthetic_gate_math_can_emit_qualified_pnl": false
+  },
+  "edge_basis_policy": {
+    "schema_version": "btc-5m-15m-v07-edge-basis-policy.v3",
+    "structural_payoff_source": "verified_shared_terminal_settlement_rule_and_strike_ordering_only",
+    "structural_floor_definition": "minimum_feasible_shared_terminal_payoff_minus_full_depth_dynamic_fee_all_in_cost_at_actual_decision_quantity",
+    "structural_requires_both_legs_executable_at_quantity": true,
+    "structural_requires_strictly_positive_floor": true,
+    "insufficient_depth_is_structural_edge": false,
+    "nonpositive_fee_inclusive_floor_is_structural_edge": false,
+    "structural_scan_requires_monte_carlo": false,
+    "structural_scan_requires_predictor_history": false,
+    "structural_depends_on_shrinkage_or_validation_veto": false,
+    "structural_probability_and_brier_fields": "explicit_null_non_applicable",
+    "quantity_risk_budget_role": "upper_bound_not_quantity_target",
+    "quantity_quantum_shares": "0.000001",
+    "quantity_candidate_breakpoints": [
+      "joint_minimum_order_quantity",
+      "each_leg_cumulative_ask_depth_breakpoint",
+      "exact_fee_inclusive_risk_budget_boundary"
+    ],
+    "quantity_cost_method": "full_ask_depth_walk_with_captured_dynamic_fee_rounded_per_fill_level",
+    "structural_quantity_objective": "maximize_quantity_times_structural_net_floor_per_pair",
+    "structural_quantity_eligibility": "strictly_positive_floor_both_legs_full_quantity_and_total_cost_within_risk",
+    "structural_quantity_tie_break": [
+      "higher_structural_net_floor_per_pair",
+      "lower_quantity",
+      "lexicographically_lower_action_id"
+    ],
+    "predictive_basis_uses_forecast_and_model_scale_downside": true,
+    "predictive_quantity_objective": "maximize_quantity_times_uncertainty_adjusted_pnl_per_pair",
+    "predictive_quantity_eligibility": "per_pair_edge_strictly_above_minimum_and_adjusted_total_strictly_positive",
+    "predictive_quantity_tie_break": [
+      "higher_uncertainty_adjusted_pnl_per_pair",
+      "lower_quantity",
+      "lexicographically_lower_action_id"
+    ],
+    "audit_fields_required_in_decision_cycle_forecast_attempt_report": [
+      "edge_basis",
+      "edge_evaluation_quantity",
+      "structural_worst_case_payoff_per_pair",
+      "structural_net_floor_per_pair",
+      "structural_quantity_executable",
+      "quantity_selection_basis",
+      "quantity_candidate_breakpoint_count",
+      "selected_guaranteed_total_pnl",
+      "selected_uncertainty_adjusted_total_pnl",
+      "probability_diagnostics_applicable"
+    ],
+    "common_safety_checks_precede_all_candidates": true,
+    "structural_evaluated_before_monte_carlo_and_predictive_readiness": true,
+    "predictive_requires_simulation_shrinkage_and_validation_veto": true,
+    "predictive_qualification_excludes_structural_rows": true,
+    "structural_true_edge_gate_implemented": true,
+    "structural_gate_required_real_evidence": [
+      "builder_verified_immutable_capture_and_preexpiry_lock",
+      "100_distinct_common_expiries",
+      "100_explainable_structural_economic_attempts",
+      "decision_time_executable_positive_floor_every_attempt",
+      "complete_receipt_timed_execution_partial_timeout_unwind_and_settlement",
+      "positive_realized_structural_net_pnl",
+      "positive_common_expiry_bootstrap_lower_95",
+      "maximum_20_percent_positive_cluster_to_total_net_pnl"
+    ],
+    "structural_gate_requires_brier_ece_or_model_neighborhood": false,
+    "mixed_edge_basis_rows_cannot_combine_for_sample_gate": true,
+    "top_level_true_edge_is_predictive_or_structural_gate": true
+  },
   "prelabel_lock_policy": {
     "journal_source": "v07_prelabel_lock",
-    "journal_schema_version": "btc-5m-15m-v07-lock-journal.v2",
+    "journal_schema_version": "btc-5m-15m-v07-lock-journal.v4",
     "test_universe_receipt_before_earliest_test_decision": true,
     "test_universe_binds_expiry_and_pair_identities": true,
     "prediction_locked_at_equals_decision_at": true,
-    "prediction_and_receipt_before_label_available": true,
     "canonical_forecast_and_decision_hashes_required": true,
+    "public_evaluator_qualification_authority": false,
+    "builder_verified_evidence_chain_required": true,
+    "row_set_and_parameter_neighborhood_hash_binding": true,
+    "generated_fixture_builder_capability_allowed": false,
     "missing_journal_status": "counterfactual_insufficient",
-    "qualified_net_pnl_without_verified_lock": null
+    "qualified_net_pnl_without_verified_lock": null,
+    "prediction_lock_and_receipt_strictly_before_common_expiry": true,
+    "forecast_available_at_ms_equals_prediction_receipt_received_at_ms": true,
+    "backdated_lock_cannot_substitute_receipt_time": true,
+    "first_execution_not_before_forecast_available_plus_taker_delay": true,
+    "counterfactual_computation_availability_delay_ms": 5000,
+    "counterfactual_timing_is_production_runtime_validation": false
+  },
+  "timing_availability_policy": {
+    "schema_version": "btc-5m-15m-v07-timing-availability-policy.v1",
+    "verified_forecast_available_source": "immutable_prediction_receipt_received_at_ms",
+    "verified_receipt_strictly_before_common_expiry": true,
+    "first_execution_eligibility": "forecast_available_at_ms_plus_captured_taker_delay_ms",
+    "counterfactual_computation_availability_delay_ms": 5000,
+    "counterfactual_delay_is_measured_production_runtime": false,
+    "counterfactual_timing_role": "paper_replay_timing_diagnostic_only",
+    "effective_signal_to_execution_latency_serialized": true
   },
   "action_reconciliation_policy": {
     "every_locked_actionable_decision_reconciled": true,
@@ -222,5 +399,53 @@
     ],
     "causal_no_fill_counts_as_economic_attempt": false,
     "no_trade_forecast_retained": true
+  },
+  "quantity_selection_policy": {
+    "schema_version": "btc-5m-15m-v07-quantity-selection-policy.v1",
+    "quantity_is_optimization_variable": true,
+    "candidate_breakpoints": [
+      "common_minimum_order_size",
+      "each_jointly_executable_cumulative_ask_depth_break_on_either_leg",
+      "exact_six_decimal_risk_budget_boundary_with_actual_fee_rounding"
+    ],
+    "equal_quantity_required_on_both_legs": true,
+    "full_depth_walk_required": true,
+    "fee_method": "captured_dynamic_taker_fee_per_fill_level_with_actual_rounding",
+    "risk_budget_role": "upper_bound_not_target",
+    "structural_eligibility": "strictly_positive_fee_inclusive_floor_and_full_two_leg_execution",
+    "structural_objective": "maximize_quantity_times_structural_net_floor_per_pair",
+    "predictive_eligibility": "per_pair_minimum_edge_and_positive_uncertainty_adjusted_total_pnl",
+    "predictive_objective": "maximize_uncertainty_adjusted_total_pnl",
+    "stable_tie_break": [
+      "higher_total_objective",
+      "higher_per_pair_qualification_edge",
+      "lower_quantity",
+      "lexicographic_action_id"
+    ],
+    "audit_fields": [
+      "quantity_selection_basis",
+      "quantity_candidate_breakpoint_count",
+      "selected_guaranteed_total_pnl",
+      "selected_uncertainty_adjusted_total_pnl"
+    ]
+  },
+  "structural_primitive_policy": {
+    "schema_version": "btc-5m-15m-v07-structural-primitive-policy.v1",
+    "inputs": [
+      "verified_shared_terminal_settlement_rule",
+      "captured_strike_5",
+      "captured_strike_15",
+      "decision_time_books",
+      "captured_dynamic_fees",
+      "common_safety_and_timing_state"
+    ],
+    "feasible_outcomes_source": "strike_ordering_under_one_shared_terminal_twap_60",
+    "monte_carlo_distribution_required": false,
+    "predictor_history_required": false,
+    "volatility_shrinkage_brier_or_validation_veto_required": false,
+    "builder_scan_order": "common_safety_then_structural_then_predictive_simulation",
+    "positive_structural_candidate_survives_predictive_model_rejection": true,
+    "nonstructural_without_predictive_distribution": "no_trade_fail_closed",
+    "structural_probability_and_brier_fields": "explicit_non_applicable_null"
   }
 }

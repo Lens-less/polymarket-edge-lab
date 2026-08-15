@@ -14,11 +14,18 @@ from scripts import build_btc_twap_relative_value_v07_counterfactual as builder
 from src.edge_lab.btc_twap_relative_value_v07 import (
     CANONICAL_EVENT_CLUSTER_PREFIX,
     SharedTerminalModelConfig,
+    V07EdgeBasis,
+    V07ModelRejection,
     V07StrategyConfig,
     canonical_event_cluster_id,
 )
 from src.edge_lab.data_store import CaptureStore, canonical_json_bytes
 from src.edge_lab.settlement_regime import V06_SETTLEMENT_REGIME_ID
+from tests.test_btc_twap_relative_value_v07_replay import _replay as _structural_replay
+from tests.test_edge_lab_btc_twap_relative_value import (
+    _replay_observation,
+    _ReplayStub,
+)
 
 D = Decimal
 EXPIRY_MS = 1_800_000_000_000
@@ -190,6 +197,7 @@ def _build_case(
     resolution_5_received_at_ms: int = EXPIRY_MS + 5_000,
     resolution_15_received_at_ms: int = EXPIRY_MS + 7_000,
     tamper_rule_hash: bool = False,
+    generated_fixture: bool = True,
 ) -> tuple[dict[str, Any], Path]:
     capture_root = tmp_path / "capture"
     predictor_root = tmp_path / "predictor"
@@ -330,6 +338,9 @@ def _build_case(
                 DECISION_MS + 250,
                 DECISION_MS + 500,
                 DECISION_MS + 1_250,
+                DECISION_MS + 5_250,
+                DECISION_MS + 5_500,
+                DECISION_MS + 6_250,
             )
             for token_id, ask in (
                 (target_5["up_token_id"], "0.45"),
@@ -375,7 +386,7 @@ def _build_case(
     capture_config = {
         "schema_version": "btc-5m-15m-relative-value-capture.v1",
         "capture_started_at_ms": target_15["opens_at_ms"] - 1_000,
-        "generated_fixture": True,
+        "generated_fixture": generated_fixture,
         "paper_only": True,
         "public_only": True,
         "new_orders_disabled": True,
@@ -411,6 +422,149 @@ def _load(case: dict[str, Any], manifest_dir: Path) -> tuple[Any, ...]:
         model=SharedTerminalModelConfig(n_paths=100),
         strategy=V07StrategyConfig(),
     )
+
+
+def test_builder_structural_path_skips_model_simulation_and_predictor_history(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case, manifest_dir = _build_case(tmp_path)
+    context = _load(case, manifest_dir)[0]
+    structural_context = replace(
+        context,
+        settlement_state=replace(
+            context.settlement_state,
+            strike_5=D("100"),
+            strike_15=D("101"),
+        ),
+        predictor_prices=(),
+        actual_5_up=True,
+        actual_15_up=False,
+        replay=_structural_replay(
+            context.pair,
+            context.decision_at_ms,
+            forecast_available_at_ms=context.decision_at_ms + 5_000,
+            include_second=True,
+        ),
+    )
+
+    def reject_simulation(**_kwargs: Any) -> None:
+        raise AssertionError("structural path unexpectedly invoked Monte Carlo")
+
+    monkeypatch.setattr(
+        builder,
+        "simulate_shared_terminal_twap_60_distribution",
+        reject_simulation,
+    )
+    result = builder._run_setting(
+        setting_id="primary",
+        contexts=(structural_context,),
+        model=SharedTerminalModelConfig(n_paths=100),
+        strategy=V07StrategyConfig(),
+        candidate_weights=(D("0"), D("1")),
+        lock_index=None,
+    )
+
+    assert result.simulations == {}
+    assert result.shrinkage is None
+    assert result.validation_veto is None
+    assert len(result.cycles) == 1
+    assert result.cycles[0].decision.edge_basis is V07EdgeBasis.STRUCTURAL
+    assert result.forecasts[0].forecast_q_5_up is None
+    assert result.forecasts[0].forecast_q_15_up is None
+    assert result.forecasts[0].probability_diagnostics_applicable is False
+
+
+def test_predictive_training_rejection_preserves_structural_and_fails_nonstructural(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case, manifest_dir = _build_case(tmp_path)
+    context = _load(case, manifest_dir)[0]
+    structural_context = replace(
+        context,
+        settlement_state=replace(
+            context.settlement_state,
+            strike_5=D("100"),
+            strike_15=D("101"),
+        ),
+        predictor_prices=(),
+        actual_5_up=True,
+        actual_15_up=False,
+        replay=_structural_replay(
+            context.pair,
+            context.decision_at_ms,
+            forecast_available_at_ms=context.decision_at_ms + 5_000,
+            include_second=True,
+        ),
+    )
+    signal_books = {
+        token_id: _replay_observation(
+            token_id,
+            bid="0.59",
+            ask="0.60",
+            timestamp_ms=context.decision_at_ms - 100,
+            received_at_ms=context.decision_at_ms - 100,
+            source_event_id=f"nonstructural-signal-{token_id}",
+        )
+        for token_id in (
+            context.pair.market_5.up_token_id,
+            context.pair.market_5.down_token_id,
+            context.pair.market_15.up_token_id,
+            context.pair.market_15.down_token_id,
+        )
+    }
+    nonstructural_context = replace(
+        structural_context,
+        decision_tau_seconds=61,
+        predictor_prices=(),
+        replay=_ReplayStub(signal_books=signal_books, executable_books={}),
+    )
+    train_context = replace(
+        structural_context,
+        split="train",
+        decision_tau_seconds=101,
+        predictor_prices=(),
+    )
+    validation_context = replace(
+        structural_context,
+        split="validation",
+        decision_tau_seconds=102,
+        predictor_prices=(),
+    )
+
+    def reject_simulation(**_kwargs: Any) -> None:
+        raise V07ModelRejection("forced_training_rejection", "generated regression")
+
+    monkeypatch.setattr(
+        builder,
+        "simulate_shared_terminal_twap_60_distribution",
+        reject_simulation,
+    )
+    result = builder._run_setting(
+        setting_id="primary",
+        contexts=(
+            train_context,
+            validation_context,
+            structural_context,
+            nonstructural_context,
+        ),
+        model=SharedTerminalModelConfig(n_paths=100),
+        strategy=V07StrategyConfig(),
+        candidate_weights=(D("0"), D("1")),
+        lock_index=None,
+    )
+
+    cycles_by_tau = {cycle.decision_tau_seconds: cycle for cycle in result.cycles}
+    assert cycles_by_tau[60].decision.edge_basis is V07EdgeBasis.STRUCTURAL
+    assert cycles_by_tau[61].decision.edge_basis is V07EdgeBasis.NONE
+    assert (
+        "predictive_training_model_rejected_after_structural_scan:"
+        "forced_training_rejection"
+    ) in cycles_by_tau[61].decision.reason_codes
+    assert result.shrinkage is None
+    assert result.validation_veto is None
+    assert result.simulations == {}
 
 
 def test_raw_case_uses_official_resolution_receipts_for_label_availability(
@@ -623,11 +777,115 @@ def test_full_raw_counterfactual_builder_is_deterministic_and_nonpromotional(
     assert first["evaluation"]["status"] == "counterfactual_insufficient"
     assert first["evaluation"]["qualified_net_pnl"] is None
     assert first["evaluation"]["true_edge_gate_satisfied"] is False
+    assert (
+        first["evaluation"]["builder_verified_evidence"]["verified_chain_present"]
+        is False
+    )
+    assert first["prelabel_lock"]["builder_verified_evidence"] is None
     assert all(
         context["immutable_public_capture_evidence"] is False
         for context in first["contexts"]
     )
     assert first["safety"]["orders_submitted"] == 0
+    assert first["timing_policy"] == {
+        "forecast_available_at_ms_verified_source": (
+            "immutable_prediction_receipt_received_at_ms"
+        ),
+        "verified_receipt_strictly_before_common_expiry": True,
+        "first_execution_eligibility": (
+            "forecast_available_at_ms_plus_captured_taker_delay_ms"
+        ),
+        "counterfactual_computation_availability_delay_ms": 5000,
+        "counterfactual_delay_is_measured_production_runtime": False,
+        "counterfactual_timing_role": "paper_replay_timing_diagnostic_only",
+        "effective_signal_to_execution_latency_serialized": True,
+    }
+    timing = first["primary"]["timing"]
+    assert (
+        timing["forecast_availability_basis_counts"][
+            "verified_immutable_prediction_receipt"
+        ]
+        == 0
+    )
+    assert (
+        timing["forecast_availability_basis_counts"][
+            "preregistered_counterfactual_computation_delay"
+        ]
+        > 0
+    )
+    assert timing["counterfactual_delay_is_production_runtime_validation"] is False
+    assert timing["paper_replay_only"] is True
+
+
+def test_builder_without_lock_journal_stays_counterfactual_on_strict_captures(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cases: list[dict[str, Any]] = []
+    base_expiry_ms = 1_820_000_000_000
+    for index, split in enumerate(("train", "validation", "test")):
+        expiry_ms = base_expiry_ms + index * 3_600_000
+        monkeypatch.setitem(globals(), "EXPIRY_MS", expiry_ms)
+        monkeypatch.setitem(globals(), "DECISION_MS", expiry_ms - 60_000)
+        case_dir = tmp_path / split
+        case_dir.mkdir()
+        case, _ = _build_case(
+            case_dir,
+            rule_received_at_ms=expiry_ms - 70_000,
+            resolution_5_received_at_ms=expiry_ms + 5_000,
+            resolution_15_received_at_ms=expiry_ms + 7_000,
+            generated_fixture=False,
+        )
+        case.update(
+            {
+                "event_cluster_id": f"{split}-strict-capture",
+                "split": split,
+                "capture_root": f"{split}/{case['capture_root']}",
+                "predictor_root": f"{split}/{case['predictor_root']}",
+                "capture_config_path": (f"{split}/{case['capture_config_path']}"),
+            }
+        )
+        cases.append(case)
+
+    manifest_path = tmp_path / "counterfactual-manifest.json"
+    manifest_path.write_bytes(
+        canonical_json_bytes(
+            {
+                "schema_version": builder.MANIFEST_SCHEMA_VERSION,
+                "preregistration_path": str(PREREGISTRATION_PATH),
+                "cases": cases,
+            }
+        )
+        + b"\n"
+    )
+
+    report = builder.build_counterfactual_report(manifest_path=manifest_path)
+
+    assert all(
+        context["immutable_public_capture_evidence"] is True
+        for context in report["contexts"]
+    )
+    assert report["prelabel_lock"]["journal_supplied"] is False
+    assert report["prelabel_lock"]["builder_verified_evidence"] is None
+    assert report["evaluation"]["status"] == "counterfactual_insufficient"
+    assert report["evaluation"]["true_edge_gate_satisfied"] is False
+    assert report["evaluation"]["qualified_net_pnl"] is None
+
+
+def test_generated_fixture_cannot_receive_builder_capability(tmp_path: Path) -> None:
+    case, manifest_dir = _build_case(tmp_path, generated_fixture=True)
+    context = _load(case, manifest_dir)[0]
+
+    result = builder._builder_verified_evidence(
+        contexts=(context,),
+        primary=object(),  # type: ignore[arg-type]
+        lock_index=object(),  # type: ignore[arg-type]
+        preregistration_sha256="a" * 64,
+        parameter_neighborhood=object(),  # type: ignore[arg-type]
+    )
+
+    assert context.capture_config_evidence["generated_fixture"] is True
+    assert result is None
 
 
 def test_split_policy_rejects_canonical_cluster_renamed_as_new_case(
@@ -684,6 +942,7 @@ def test_split_policy_rejects_one_expiry_renamed_into_100_pairs() -> None:
         resolution_source_event_ids={},
         resolution_received_at_ms={},
         immutable_public_capture_evidence=False,
+        capture_config_evidence={},
     )
     contexts = tuple(
         replace(
@@ -756,6 +1015,73 @@ def test_split_policy_accepts_distinct_chronological_common_expiries(
 
     builder._assert_split_policy(tuple(contexts))
     assert len({context.expiry_cluster_id for context in contexts}) == 3
+
+
+def test_prelabel_lock_rejects_receipt_after_expiry_even_before_official_label(
+    tmp_path: Path,
+) -> None:
+    case, manifest_dir = _build_case(tmp_path / "case")
+    context = _load(case, manifest_dir)[0]
+    assert context.expiry_ms < context.label_available_at_ms
+    journal_root = tmp_path / "lock-journal"
+    preregistration_sha256 = hashlib.sha256(
+        PREREGISTRATION_PATH.read_bytes()
+    ).hexdigest()
+    universe_document = builder._test_universe_document(
+        (context,),
+        preregistration_sha256=preregistration_sha256,
+    )
+    universe_sha256 = hashlib.sha256(
+        canonical_json_bytes(universe_document)
+    ).hexdigest()
+    universe_receipt_ms = context.decision_at_ms - 1_000
+    late_prediction_receipt_ms = context.expiry_ms + 1_000
+    assert late_prediction_receipt_ms < context.label_available_at_ms
+    _freeze_batch(
+        journal_root,
+        source=builder.LOCK_JOURNAL_SOURCE,
+        batch_id="post-expiry-prediction-receipt",
+        rows=[
+            {
+                "received_at_ms": universe_receipt_ms,
+                "event_at_ms": universe_receipt_ms,
+                "payload": {
+                    "schema_version": builder.LOCK_JOURNAL_SCHEMA_VERSION,
+                    "kind": "test_universe_lock",
+                    "test_universe_sha256": universe_sha256,
+                    "locked_at_ms": universe_receipt_ms,
+                },
+            },
+            {
+                "received_at_ms": late_prediction_receipt_ms,
+                "event_at_ms": context.decision_at_ms,
+                "payload": {
+                    "schema_version": builder.LOCK_JOURNAL_SCHEMA_VERSION,
+                    "kind": "forecast_decision_lock",
+                    "test_universe_sha256": universe_sha256,
+                    "canonical_pair_id": context.canonical_pair_id,
+                    "expiry_ms": context.expiry_ms,
+                    "expiry_cluster_id": context.expiry_cluster_id,
+                    "decision_tau_seconds": context.decision_tau_seconds,
+                    "decision_at_ms": context.decision_at_ms,
+                    "prediction_locked_at_ms": context.decision_at_ms,
+                    "forecast_payload_sha256": "a" * 64,
+                    "decision_payload_sha256": "b" * 64,
+                },
+            },
+        ],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="forecast/decision lock receipt is not strictly pre-expiry",
+    ):
+        builder._load_prelabel_lock_index(
+            str(journal_root),
+            manifest_dir=tmp_path,
+            contexts=(context,),
+            preregistration_sha256=preregistration_sha256,
+        )
 
 
 def test_prelabel_lock_rejects_retrospectively_selected_test_universe(

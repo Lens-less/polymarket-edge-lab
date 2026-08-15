@@ -133,6 +133,157 @@ class StrikeOrdering(str, Enum):
     EQUAL = "strikes_equal"
 
 
+class V07EdgeBasis(str, Enum):
+    """Why a v0.7 candidate can have positive all-in value."""
+
+    NONE = "none"
+    PREDICTIVE = "predictive"
+    STRUCTURAL = "structural"
+
+
+class V07QuantitySelectionBasis(str, Enum):
+    """Preregistered objective used to choose the paper quantity."""
+
+    NONE = "none"
+    STRUCTURAL_MAX_GUARANTEED_TOTAL_PNL = "structural_max_guaranteed_total_pnl"
+    PREDICTIVE_MAX_UNCERTAINTY_ADJUSTED_TOTAL_PNL = (
+        "predictive_max_uncertainty_adjusted_total_pnl"
+    )
+
+
+class V07ForecastAvailabilityBasis(str, Enum):
+    """Clock used to decide when a computed forecast can reach execution."""
+
+    VERIFIED_IMMUTABLE_RECEIPT = "verified_immutable_prediction_receipt"
+    PREREGISTERED_COUNTERFACTUAL_DELAY = (
+        "preregistered_counterfactual_computation_delay"
+    )
+
+
+@dataclass(frozen=True)
+class V07PairDecision(PairDecision):
+    """v0.7 decision audit fields without changing the frozen base contract."""
+
+    edge_basis: V07EdgeBasis = V07EdgeBasis.NONE
+    edge_evaluation_quantity: Decimal | None = None
+    structural_worst_case_payoff_per_pair: Decimal | None = None
+    structural_net_floor_per_pair: Decimal | None = None
+    structural_quantity_executable: bool = False
+    qualification_edge_per_pair: Decimal | None = None
+    quantity_selection_basis: V07QuantitySelectionBasis = V07QuantitySelectionBasis.NONE
+    quantity_candidate_breakpoint_count: int = 0
+    selected_guaranteed_total_pnl: Decimal | None = None
+    selected_uncertainty_adjusted_total_pnl: Decimal | None = None
+    probability_diagnostics_applicable: bool = True
+    forecast_available_at_ms: int = 0
+    forecast_availability_basis: V07ForecastAvailabilityBasis = (
+        V07ForecastAvailabilityBasis.PREREGISTERED_COUNTERFACTUAL_DELAY
+    )
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if not isinstance(self.edge_basis, V07EdgeBasis):
+            raise TypeError("edge_basis must be V07EdgeBasis")
+        if not isinstance(self.structural_quantity_executable, bool):
+            raise TypeError("structural_quantity_executable must be bool")
+        if not isinstance(self.quantity_selection_basis, V07QuantitySelectionBasis):
+            raise TypeError(
+                "quantity_selection_basis must be V07QuantitySelectionBasis"
+            )
+        if (
+            isinstance(self.quantity_candidate_breakpoint_count, bool)
+            or not isinstance(self.quantity_candidate_breakpoint_count, int)
+            or self.quantity_candidate_breakpoint_count < 0
+        ):
+            raise ValueError("quantity_candidate_breakpoint_count must be non-negative")
+        if not isinstance(self.probability_diagnostics_applicable, bool):
+            raise TypeError("probability_diagnostics_applicable must be bool")
+        if not isinstance(
+            self.forecast_availability_basis,
+            V07ForecastAvailabilityBasis,
+        ):
+            raise TypeError(
+                "forecast_availability_basis must be V07ForecastAvailabilityBasis"
+            )
+        if (
+            isinstance(self.forecast_available_at_ms, bool)
+            or not isinstance(self.forecast_available_at_ms, int)
+            or self.forecast_available_at_ms < self.decision_at_ms
+        ):
+            raise ValueError(
+                "forecast_available_at_ms must be an integer at or after the decision"
+            )
+        for name in (
+            "edge_evaluation_quantity",
+            "structural_worst_case_payoff_per_pair",
+            "structural_net_floor_per_pair",
+            "qualification_edge_per_pair",
+            "selected_guaranteed_total_pnl",
+            "selected_uncertainty_adjusted_total_pnl",
+        ):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, _decimal(value, label=name))
+        if (
+            self.edge_evaluation_quantity is not None
+            and self.edge_evaluation_quantity <= ZERO
+        ):
+            raise ValueError("edge_evaluation_quantity must be positive")
+        if self.structural_quantity_executable:
+            if (
+                self.edge_evaluation_quantity is None
+                or self.structural_worst_case_payoff_per_pair is None
+                or self.structural_net_floor_per_pair is None
+            ):
+                raise ValueError(
+                    "executable structural audit requires quantity, payoff, and floor"
+                )
+        if self.edge_basis is V07EdgeBasis.STRUCTURAL:
+            if (
+                not self.structural_quantity_executable
+                or self.structural_net_floor_per_pair is None
+                or self.structural_net_floor_per_pair <= ZERO
+                or self.selected_guaranteed_total_pnl is None
+                or self.selected_guaranteed_total_pnl <= ZERO
+                or self.quantity_selection_basis
+                is not (V07QuantitySelectionBasis.STRUCTURAL_MAX_GUARANTEED_TOTAL_PNL)
+            ):
+                raise ValueError(
+                    "structural basis requires an executable positive optimized floor"
+                )
+            if self.probability_diagnostics_applicable:
+                raise ValueError(
+                    "structural decisions cannot claim predictive "
+                    "probability diagnostics"
+                )
+            if any(
+                value is not None
+                for value in (
+                    self.q_5_raw,
+                    self.q_15_raw,
+                    self.q_5_calibrated,
+                    self.q_15_calibrated,
+                )
+            ):
+                raise ValueError(
+                    "structural decisions require null predictive probability fields"
+                )
+        if self.edge_basis is V07EdgeBasis.PREDICTIVE:
+            if self.quantity_selection_basis is not (
+                V07QuantitySelectionBasis.PREDICTIVE_MAX_UNCERTAINTY_ADJUSTED_TOTAL_PNL
+            ):
+                raise ValueError("predictive decision has the wrong sizing objective")
+            if self.selected_uncertainty_adjusted_total_pnl is None:
+                raise ValueError("predictive decision requires adjusted total PnL")
+            if not self.probability_diagnostics_applicable:
+                raise ValueError("predictive decisions require probability diagnostics")
+        if (
+            self.action is not PairAction.NO_TRADE
+            and self.edge_basis is V07EdgeBasis.NONE
+        ):
+            raise ValueError("an actionable v0.7 decision requires an edge basis")
+
+
 @dataclass(frozen=True)
 class SharedTerminalTwap60Scenario:
     """One terminal state from one underlying path and one shared 60s TWAP."""
@@ -144,6 +295,86 @@ class SharedTerminalTwap60Scenario:
         if terminal <= ZERO:
             _reject("scenario_invalid", "terminal_twap_60 must be positive")
         object.__setattr__(self, "terminal_twap_60", terminal)
+
+
+@dataclass(frozen=True)
+class SharedTerminalPayoffStructure:
+    """Shared-terminal feasible states derived only from verified strikes."""
+
+    strike_5: Decimal
+    strike_15: Decimal
+    strike_ordering: StrikeOrdering
+
+    @classmethod
+    def from_strikes(
+        cls,
+        *,
+        strike_5: Decimal,
+        strike_15: Decimal,
+    ) -> SharedTerminalPayoffStructure:
+        strike5 = _decimal(strike_5, label="strike_5")
+        strike15 = _decimal(strike_15, label="strike_15")
+        if strike5 <= ZERO or strike15 <= ZERO:
+            _reject("scenario_invalid", "strikes must be positive")
+        ordering = (
+            StrikeOrdering.FIVE_BELOW_FIFTEEN
+            if strike5 < strike15
+            else (
+                StrikeOrdering.FIVE_ABOVE_FIFTEEN
+                if strike5 > strike15
+                else StrikeOrdering.EQUAL
+            )
+        )
+        return cls(
+            strike_5=strike5,
+            strike_15=strike15,
+            strike_ordering=ordering,
+        )
+
+    @property
+    def feasible_outcomes(self) -> tuple[str, ...]:
+        if self.strike_ordering is StrikeOrdering.FIVE_BELOW_FIFTEEN:
+            return ("5up_15up", "5up_15down", "5down_15down")
+        if self.strike_ordering is StrikeOrdering.FIVE_ABOVE_FIFTEEN:
+            return ("5up_15up", "5down_15up", "5down_15down")
+        return ("5up_15up", "5down_15down")
+
+    @staticmethod
+    def payoff_by_outcome(action: PairAction) -> Mapping[str, Decimal]:
+        if action is PairAction.LONG_15_UP_LONG_5_DOWN:
+            return MappingProxyType(
+                {
+                    "5up_15up": ONE,
+                    "5up_15down": ZERO,
+                    "5down_15up": TWO,
+                    "5down_15down": ONE,
+                }
+            )
+        if action is PairAction.LONG_5_UP_LONG_15_DOWN:
+            return MappingProxyType(
+                {
+                    "5up_15up": ONE,
+                    "5up_15down": TWO,
+                    "5down_15up": ZERO,
+                    "5down_15down": ONE,
+                }
+            )
+        raise ValueError("NO_TRADE has no payoff distribution")
+
+    def worst_case_payoff(self, action: PairAction) -> Decimal:
+        payoffs = self.payoff_by_outcome(action)
+        return min(payoffs[outcome] for outcome in self.feasible_outcomes)
+
+    def to_document(self) -> dict[str, Any]:
+        return {
+            "schema_version": "btc-5m-15m-shared-terminal-payoff-structure.v1",
+            "settlement_model_id": SETTLEMENT_MODEL_ID,
+            "strike_5": _decimal_text(self.strike_5),
+            "strike_15": _decimal_text(self.strike_15),
+            "strike_ordering": self.strike_ordering.value,
+            "feasible_outcomes": list(self.feasible_outcomes),
+            "monte_carlo_required": False,
+        }
 
 
 @dataclass(frozen=True)
@@ -267,11 +498,12 @@ class SharedTerminalTwap60Distribution:
 
     @staticmethod
     def _possible_outcomes(ordering: StrikeOrdering) -> tuple[str, ...]:
-        if ordering is StrikeOrdering.FIVE_BELOW_FIFTEEN:
-            return ("5up_15up", "5up_15down", "5down_15down")
-        if ordering is StrikeOrdering.FIVE_ABOVE_FIFTEEN:
-            return ("5up_15up", "5down_15up", "5down_15down")
-        return ("5up_15up", "5down_15down")
+        structure = SharedTerminalPayoffStructure(
+            strike_5=ONE,
+            strike_15=ONE,
+            strike_ordering=ordering,
+        )
+        return structure.feasible_outcomes
 
     @staticmethod
     def _assert_structure(
@@ -291,6 +523,29 @@ class SharedTerminalTwap60Distribution:
     def impossible_outcomes(self) -> tuple[str, ...]:
         possible = set(self._possible_outcomes(self.strike_ordering))
         return tuple(key for key in _OUTCOME_KEYS if key not in possible)
+
+    @property
+    def feasible_outcomes(self) -> tuple[str, ...]:
+        """Outcome keys that one shared terminal value can actually produce."""
+
+        return self.payoff_structure.feasible_outcomes
+
+    @property
+    def payoff_structure(self) -> SharedTerminalPayoffStructure:
+        return SharedTerminalPayoffStructure(
+            strike_5=self.strike_5,
+            strike_15=self.strike_15,
+            strike_ordering=self.strike_ordering,
+        )
+
+    @staticmethod
+    def payoff_by_outcome(action: PairAction) -> Mapping[str, Decimal]:
+        return SharedTerminalPayoffStructure.payoff_by_outcome(action)
+
+    def worst_case_payoff(self, action: PairAction) -> Decimal:
+        """Minimum payoff over structurally feasible shared-terminal states."""
+
+        return self.payoff_structure.worst_case_payoff(action)
 
     def projected_marginals(
         self,
@@ -353,17 +608,19 @@ class SharedTerminalTwap60Distribution:
         return MappingProxyType(probabilities)
 
     def payoffs(self, action: PairAction) -> tuple[Decimal, ...]:
-        if action is PairAction.LONG_15_UP_LONG_5_DOWN:
-            return tuple(
-                Decimal(int(up_15)) + Decimal(int(not up_5))
-                for up_5, up_15 in self.outcomes
-            )
-        if action is PairAction.LONG_5_UP_LONG_15_DOWN:
-            return tuple(
-                Decimal(int(up_5)) + Decimal(int(not up_15))
-                for up_5, up_15 in self.outcomes
-            )
-        raise ValueError("NO_TRADE has no payoff distribution")
+        payoff_by_outcome = self.payoff_by_outcome(action)
+        return tuple(
+            payoff_by_outcome[
+                "5up_15up"
+                if up_5 and up_15
+                else "5up_15down"
+                if up_5
+                else "5down_15up"
+                if up_15
+                else "5down_15down"
+            ]
+            for up_5, up_15 in self.outcomes
+        )
 
     @property
     def uncertainty_scale_marginals(
@@ -1290,9 +1547,7 @@ class ValidationVetoEvidence:
             "passed": self.passed,
             "evaluated_at_ms": self.evaluated_at_ms,
             "maximum_label_available_at_ms": self.maximum_label_available_at_ms,
-            "validation_expiry_cluster_ids": list(
-                self.validation_expiry_cluster_ids
-            ),
+            "validation_expiry_cluster_ids": list(self.validation_expiry_cluster_ids),
             "validation_pair_ids": list(self.validation_pair_ids),
             "selected_model_weight": _decimal_text(self.selected_model_weight),
             "blended_brier": {
@@ -1401,6 +1656,8 @@ def evaluate_validation_veto(
 @dataclass(frozen=True)
 class SharedTerminalDataHealth:
     decision_at_ms: int
+    forecast_available_at_ms: int
+    forecast_availability_basis: V07ForecastAvailabilityBasis
     terminal_twap_60_observed_at_ms: int
     terminal_twap_60_received_at_ms: int
     absolute_clock_drift_ms: int
@@ -1410,6 +1667,7 @@ class SharedTerminalDataHealth:
     def __post_init__(self) -> None:
         for name in (
             "decision_at_ms",
+            "forecast_available_at_ms",
             "terminal_twap_60_observed_at_ms",
             "terminal_twap_60_received_at_ms",
             "absolute_clock_drift_ms",
@@ -1417,6 +1675,15 @@ class SharedTerminalDataHealth:
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError(f"{name} must be non-negative")
+        if self.forecast_available_at_ms < self.decision_at_ms:
+            raise ValueError("forecast cannot be available before the decision")
+        if not isinstance(
+            self.forecast_availability_basis,
+            V07ForecastAvailabilityBasis,
+        ):
+            raise TypeError(
+                "forecast_availability_basis must be V07ForecastAvailabilityBasis"
+            )
         if self.shrinkage is not None and not isinstance(
             self.shrinkage,
             TrainOnlyShrinkageArtifact,
@@ -1466,6 +1733,7 @@ class V07StrategyConfig:
     uncertainty_multiplier: Decimal = Decimal("1.25")
     cvar_tail_probability: Decimal = Decimal("0.05")
     max_leg_delay_ms: int = 750
+    counterfactual_computation_availability_delay_ms: int = 5_000
     initial_cash: Decimal = Decimal("10000")
     settlement_regime: str = V06_SETTLEMENT_REGIME_ID
 
@@ -1514,10 +1782,15 @@ class V07StrategyConfig:
             "maximum_book_staleness_ms",
             "maximum_clock_drift_ms",
             "max_leg_delay_ms",
+            "counterfactual_computation_availability_delay_ms",
         ):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError(f"{name} must be non-negative")
+        if self.counterfactual_computation_availability_delay_ms <= 0:
+            raise ValueError(
+                "counterfactual computation availability delay must be positive"
+            )
 
     def execution_config(self) -> StrategyConfig:
         return StrategyConfig(
@@ -1544,6 +1817,17 @@ class _BuyQuote:
 
 
 @dataclass(frozen=True)
+class _PairQuote:
+    quantity: Decimal
+    first: _BuyQuote
+    second: _BuyQuote
+    notional_per_pair: Decimal
+    fee_per_pair: Decimal
+    cost_per_pair: Decimal
+    total_cost: Decimal
+
+
+@dataclass(frozen=True)
 class _Candidate:
     action: PairAction
     quantity: Decimal
@@ -1552,12 +1836,21 @@ class _Candidate:
     notional_per_pair: Decimal
     fee_per_pair: Decimal
     cost_per_pair: Decimal
-    gross_pnl_per_pair: Decimal
-    net_pnl_per_pair: Decimal
-    model_uncertainty_downside_per_pair: Decimal
-    adjusted_pnl_per_pair: Decimal
-    cvar_per_pair: Decimal
-    loss_probability: Decimal
+    gross_pnl_per_pair: Decimal | None
+    net_pnl_per_pair: Decimal | None
+    model_uncertainty_downside_per_pair: Decimal | None
+    adjusted_pnl_per_pair: Decimal | None
+    structural_worst_case_payoff_per_pair: Decimal
+    structural_net_floor_per_pair: Decimal
+    structural_quantity_executable: bool
+    edge_basis: V07EdgeBasis
+    qualification_edge_per_pair: Decimal
+    cvar_per_pair: Decimal | None
+    loss_probability: Decimal | None
+    quantity_selection_basis: V07QuantitySelectionBasis
+    quantity_candidate_breakpoint_count: int
+    selected_guaranteed_total_pnl: Decimal
+    selected_uncertainty_adjusted_total_pnl: Decimal | None
 
 
 def raw_top_ask_probability(
@@ -1634,20 +1927,140 @@ def _quote_buy(
     return _BuyQuote(notional=notional, fee=fee)
 
 
-def _candidate(
+def _quantity_units_ceiling(quantity: Decimal) -> int:
+    return int((quantity / SIZE_QUANTUM).to_integral_value(rounding=ROUND_CEILING))
+
+
+def _quantity_units_floor(quantity: Decimal) -> int:
+    return int((quantity / SIZE_QUANTUM).to_integral_value(rounding=ROUND_DOWN))
+
+
+def _pair_quote_at_quantity(
     *,
-    action: PairAction,
-    first_token_id: str,
-    second_token_id: str,
+    quantity: Decimal,
+    first_book: OrderBookSnapshot,
+    second_book: OrderBookSnapshot,
     first_contract: TwapMarketContract,
     second_contract: TwapMarketContract,
-    books: Mapping[str, OrderBookSnapshot],
-    distribution: SharedTerminalTwap60Distribution,
-    q_5_up: Decimal,
-    q_15_up: Decimal,
-    uncertainty_probability_pairs: Sequence[tuple[Decimal, Decimal]],
+) -> _PairQuote | None:
+    first_quote = _quote_buy(
+        first_book,
+        quantity=quantity,
+        fees=first_contract.fee_schedule,
+    )
+    second_quote = _quote_buy(
+        second_book,
+        quantity=quantity,
+        fees=second_contract.fee_schedule,
+    )
+    if first_quote is None or second_quote is None:
+        return None
+    total_cost = (
+        first_quote.notional
+        + first_quote.fee
+        + second_quote.notional
+        + second_quote.fee
+    )
+    return _PairQuote(
+        quantity=quantity,
+        first=first_quote,
+        second=second_quote,
+        notional_per_pair=(first_quote.notional + second_quote.notional) / quantity,
+        fee_per_pair=(first_quote.fee + second_quote.fee) / quantity,
+        cost_per_pair=total_cost / quantity,
+        total_cost=total_cost,
+    )
+
+
+def _maximum_affordable_quantity(
+    *,
+    minimum_quantity: Decimal,
+    maximum_depth_quantity: Decimal,
+    first_book: OrderBookSnapshot,
+    second_book: OrderBookSnapshot,
+    first_contract: TwapMarketContract,
+    second_contract: TwapMarketContract,
+    pair_risk_usdc: Decimal,
+) -> Decimal | None:
+    minimum_units = _quantity_units_ceiling(minimum_quantity)
+    maximum_units = _quantity_units_floor(maximum_depth_quantity)
+    affordable_units: int | None = None
+    while minimum_units <= maximum_units:
+        middle_units = (minimum_units + maximum_units) // 2
+        quantity = Decimal(middle_units) * SIZE_QUANTUM
+        quote = _pair_quote_at_quantity(
+            quantity=quantity,
+            first_book=first_book,
+            second_book=second_book,
+            first_contract=first_contract,
+            second_contract=second_contract,
+        )
+        if quote is not None and quote.total_cost <= pair_risk_usdc:
+            affordable_units = middle_units
+            minimum_units = middle_units + 1
+        else:
+            maximum_units = middle_units - 1
+    if affordable_units is None:
+        return None
+    return Decimal(affordable_units) * SIZE_QUANTUM
+
+
+def _joint_quantity_breakpoints(
+    *,
+    first_book: OrderBookSnapshot,
+    second_book: OrderBookSnapshot,
+    first_contract: TwapMarketContract,
+    second_contract: TwapMarketContract,
     config: V07StrategyConfig,
-) -> _Candidate | None:
+) -> tuple[Decimal, ...]:
+    """Enumerate preregistered joint depth and risk-budget quantities.
+
+    The set contains the common minimum order, every cumulative ask-depth break
+    from either leg that remains jointly executable, and the exact six-decimal
+    risk-budget boundary found with actual per-level fee rounding.
+    """
+
+    minimum_quantity = max(
+        first_book.minimum_order_size,
+        second_book.minimum_order_size,
+        first_contract.minimum_order_size,
+        second_contract.minimum_order_size,
+    )
+    minimum_quantity = Decimal(_quantity_units_ceiling(minimum_quantity)) * SIZE_QUANTUM
+    first_depth = sum((level.size for level in first_book.asks), ZERO)
+    second_depth = sum((level.size for level in second_book.asks), ZERO)
+    maximum_depth = min(first_depth, second_depth)
+    if maximum_depth < minimum_quantity:
+        return ()
+    maximum_affordable = _maximum_affordable_quantity(
+        minimum_quantity=minimum_quantity,
+        maximum_depth_quantity=maximum_depth,
+        first_book=first_book,
+        second_book=second_book,
+        first_contract=first_contract,
+        second_contract=second_contract,
+        pair_risk_usdc=config.pair_risk_usdc,
+    )
+    if maximum_affordable is None:
+        return ()
+    candidates = {minimum_quantity, maximum_affordable}
+    for book in (first_book, second_book):
+        cumulative = ZERO
+        for level in book.asks:
+            cumulative += level.size
+            quantity = Decimal(_quantity_units_floor(cumulative)) * SIZE_QUANTUM
+            if minimum_quantity <= quantity <= maximum_affordable:
+                candidates.add(quantity)
+    return tuple(sorted(candidates))
+
+
+def _healthy_candidate_books(
+    *,
+    first_token_id: str,
+    second_token_id: str,
+    books: Mapping[str, OrderBookSnapshot],
+    config: V07StrategyConfig,
+) -> tuple[OrderBookSnapshot, OrderBookSnapshot] | None:
     first_book = books.get(first_token_id)
     second_book = books.get(second_token_id)
     if first_book is None or second_book is None:
@@ -1666,94 +2079,133 @@ def _candidate(
             <= config.maximum_market_price
         ):
             return None
-    first_unit_fee = first_contract.fee_schedule.raw_fee(
-        ONE,
-        first_book.best_ask,
-        maker=False,
+    return first_book, second_book
+
+
+def _structural_candidate(
+    *,
+    action: PairAction,
+    first_token_id: str,
+    second_token_id: str,
+    first_contract: TwapMarketContract,
+    second_contract: TwapMarketContract,
+    books: Mapping[str, OrderBookSnapshot],
+    structure: SharedTerminalPayoffStructure,
+    config: V07StrategyConfig,
+) -> _Candidate | None:
+    selected_books = _healthy_candidate_books(
+        first_token_id=first_token_id,
+        second_token_id=second_token_id,
+        books=books,
+        config=config,
     )
-    second_unit_fee = second_contract.fee_schedule.raw_fee(
-        ONE,
-        second_book.best_ask,
-        maker=False,
-    )
-    indicative_unit_cost = (
-        first_book.best_ask + second_book.best_ask + first_unit_fee + second_unit_fee
-    )
-    if indicative_unit_cost <= ZERO:
+    if selected_books is None:
         return None
-    upper_quantity = (config.pair_risk_usdc / indicative_unit_cost).quantize(
-        SIZE_QUANTUM,
-        rounding=ROUND_DOWN,
+    first_book, second_book = selected_books
+    quantities = _joint_quantity_breakpoints(
+        first_book=first_book,
+        second_book=second_book,
+        first_contract=first_contract,
+        second_contract=second_contract,
+        config=config,
     )
-    minimum_quantity = max(
-        first_book.minimum_order_size,
-        second_book.minimum_order_size,
-        first_contract.minimum_order_size,
-        second_contract.minimum_order_size,
-    )
-    if upper_quantity < minimum_quantity:
+    if not quantities:
         return None
-    minimum_units = int(
-        (minimum_quantity / SIZE_QUANTUM).to_integral_value(rounding=ROUND_CEILING)
-    )
-    maximum_units = int(upper_quantity / SIZE_QUANTUM)
-    affordable: tuple[Decimal, _BuyQuote, _BuyQuote] | None = None
-    while minimum_units <= maximum_units:
-        middle_units = (minimum_units + maximum_units) // 2
-        quantity = Decimal(middle_units) * SIZE_QUANTUM
-        first_quote = _quote_buy(
-            first_book,
+    worst_case_payoff = structure.worst_case_payoff(action)
+    candidates: list[_Candidate] = []
+    for quantity in quantities:
+        quote = _pair_quote_at_quantity(
             quantity=quantity,
-            fees=first_contract.fee_schedule,
+            first_book=first_book,
+            second_book=second_book,
+            first_contract=first_contract,
+            second_contract=second_contract,
         )
-        second_quote = _quote_buy(
-            second_book,
-            quantity=quantity,
-            fees=second_contract.fee_schedule,
+        if quote is None or quote.total_cost > config.pair_risk_usdc:
+            continue
+        floor = worst_case_payoff - quote.cost_per_pair
+        guaranteed_total = quantity * floor
+        if floor <= ZERO or guaranteed_total <= ZERO:
+            continue
+        candidates.append(
+            _Candidate(
+                action=action,
+                quantity=quantity,
+                first_token_id=first_token_id,
+                second_token_id=second_token_id,
+                notional_per_pair=quote.notional_per_pair,
+                fee_per_pair=quote.fee_per_pair,
+                cost_per_pair=quote.cost_per_pair,
+                gross_pnl_per_pair=None,
+                net_pnl_per_pair=None,
+                model_uncertainty_downside_per_pair=None,
+                adjusted_pnl_per_pair=None,
+                structural_worst_case_payoff_per_pair=worst_case_payoff,
+                structural_net_floor_per_pair=floor,
+                structural_quantity_executable=True,
+                edge_basis=V07EdgeBasis.STRUCTURAL,
+                qualification_edge_per_pair=floor,
+                cvar_per_pair=None,
+                loss_probability=None,
+                quantity_selection_basis=(
+                    V07QuantitySelectionBasis.STRUCTURAL_MAX_GUARANTEED_TOTAL_PNL
+                ),
+                quantity_candidate_breakpoint_count=len(quantities),
+                selected_guaranteed_total_pnl=guaranteed_total,
+                selected_uncertainty_adjusted_total_pnl=None,
+            )
         )
-        total = (
-            first_quote.notional
-            + first_quote.fee
-            + second_quote.notional
-            + second_quote.fee
-            if first_quote is not None and second_quote is not None
-            else None
-        )
-        if total is not None and total <= config.pair_risk_usdc:
-            affordable = quantity, first_quote, second_quote
-            minimum_units = middle_units + 1
-        else:
-            maximum_units = middle_units - 1
-    if affordable is None:
+    if not candidates:
         return None
-    quantity, first_quote, second_quote = affordable
-    notional_per_pair = (first_quote.notional + second_quote.notional) / quantity
-    fee_per_pair = (first_quote.fee + second_quote.fee) / quantity
-    cost_per_pair = notional_per_pair + fee_per_pair
+    return min(
+        candidates,
+        key=lambda item: (
+            -item.selected_guaranteed_total_pnl,
+            -item.structural_net_floor_per_pair,
+            item.quantity,
+            item.action.value,
+        ),
+    )
+
+
+def _predictive_candidate_at_quantity(
+    *,
+    action: PairAction,
+    quantity: Decimal,
+    first_token_id: str,
+    second_token_id: str,
+    first_contract: TwapMarketContract,
+    second_contract: TwapMarketContract,
+    first_book: OrderBookSnapshot,
+    second_book: OrderBookSnapshot,
+    distribution: SharedTerminalTwap60Distribution,
+    q_5_up: Decimal,
+    q_15_up: Decimal,
+    uncertainty_probability_pairs: Sequence[tuple[Decimal, Decimal]],
+    config: V07StrategyConfig,
+    breakpoint_count: int,
+) -> _Candidate | None:
+    quote = _pair_quote_at_quantity(
+        quantity=quantity,
+        first_book=first_book,
+        second_book=second_book,
+        first_contract=first_contract,
+        second_contract=second_contract,
+    )
+    if quote is None or quote.total_cost > config.pair_risk_usdc:
+        return None
     probabilities = distribution.probabilities_from_marginals(
         q_5_up=q_5_up,
         q_15_up=q_15_up,
     )
-    payoff_by_outcome = (
-        {
-            "5up_15up": ONE,
-            "5up_15down": ZERO,
-            "5down_15up": TWO,
-            "5down_15down": ONE,
-        }
-        if action is PairAction.LONG_15_UP_LONG_5_DOWN
-        else {
-            "5up_15up": ONE,
-            "5up_15down": TWO,
-            "5down_15up": ZERO,
-            "5down_15down": ONE,
-        }
-    )
+    payoff_by_outcome = distribution.payoff_by_outcome(action)
+    structural_worst_case_payoff = distribution.worst_case_payoff(action)
+    structural_net_floor = structural_worst_case_payoff - quote.cost_per_pair
     mean_payoff = sum(
         probabilities[outcome] * payoff for outcome, payoff in payoff_by_outcome.items()
     )
-    gross = mean_payoff - notional_per_pair
-    net = mean_payoff - cost_per_pair
+    gross = mean_payoff - quote.notional_per_pair
+    net = mean_payoff - quote.cost_per_pair
     conditional_net = []
     for conditional_q5, conditional_q15 in uncertainty_probability_pairs:
         conditional_probabilities = distribution.probabilities_from_marginals(
@@ -1764,13 +2216,13 @@ def _candidate(
             conditional_probabilities[outcome] * payoff
             for outcome, payoff in payoff_by_outcome.items()
         )
-        conditional_net.append(conditional_mean_payoff - cost_per_pair)
+        conditional_net.append(conditional_mean_payoff - quote.cost_per_pair)
     model_uncertainty_downside = (
         max(ZERO, net - min(conditional_net)) if conditional_net else ZERO
     )
     adjusted = net - config.uncertainty_multiplier * model_uncertainty_downside
     weighted_pnl = sorted(
-        (payoff - cost_per_pair, probabilities[outcome])
+        (payoff - quote.cost_per_pair, probabilities[outcome])
         for outcome, payoff in payoff_by_outcome.items()
     )
     remaining = config.cvar_tail_probability
@@ -1790,29 +2242,134 @@ def _candidate(
         quantity=quantity,
         first_token_id=first_token_id,
         second_token_id=second_token_id,
-        notional_per_pair=notional_per_pair,
-        fee_per_pair=fee_per_pair,
-        cost_per_pair=cost_per_pair,
+        notional_per_pair=quote.notional_per_pair,
+        fee_per_pair=quote.fee_per_pair,
+        cost_per_pair=quote.cost_per_pair,
         gross_pnl_per_pair=gross,
         net_pnl_per_pair=net,
         model_uncertainty_downside_per_pair=model_uncertainty_downside,
         adjusted_pnl_per_pair=adjusted,
+        structural_worst_case_payoff_per_pair=structural_worst_case_payoff,
+        structural_net_floor_per_pair=structural_net_floor,
+        structural_quantity_executable=True,
+        edge_basis=V07EdgeBasis.PREDICTIVE,
+        qualification_edge_per_pair=adjusted,
         cvar_per_pair=cvar,
         loss_probability=loss_probability,
+        quantity_selection_basis=(
+            V07QuantitySelectionBasis.PREDICTIVE_MAX_UNCERTAINTY_ADJUSTED_TOTAL_PNL
+        ),
+        quantity_candidate_breakpoint_count=breakpoint_count,
+        selected_guaranteed_total_pnl=quantity * structural_net_floor,
+        selected_uncertainty_adjusted_total_pnl=quantity * adjusted,
+    )
+
+
+def _candidate(
+    *,
+    action: PairAction,
+    first_token_id: str,
+    second_token_id: str,
+    first_contract: TwapMarketContract,
+    second_contract: TwapMarketContract,
+    books: Mapping[str, OrderBookSnapshot],
+    distribution: SharedTerminalTwap60Distribution,
+    q_5_up: Decimal,
+    q_15_up: Decimal,
+    uncertainty_probability_pairs: Sequence[tuple[Decimal, Decimal]],
+    config: V07StrategyConfig,
+) -> _Candidate | None:
+    """Optimize a candidate over joint economic quantity breakpoints."""
+
+    structure = distribution.payoff_structure
+    structural = _structural_candidate(
+        action=action,
+        first_token_id=first_token_id,
+        second_token_id=second_token_id,
+        first_contract=first_contract,
+        second_contract=second_contract,
+        books=books,
+        structure=structure,
+        config=config,
+    )
+    if structural is not None:
+        return structural
+    selected_books = _healthy_candidate_books(
+        first_token_id=first_token_id,
+        second_token_id=second_token_id,
+        books=books,
+        config=config,
+    )
+    if selected_books is None:
+        return None
+    first_book, second_book = selected_books
+    quantities = _joint_quantity_breakpoints(
+        first_book=first_book,
+        second_book=second_book,
+        first_contract=first_contract,
+        second_contract=second_contract,
+        config=config,
+    )
+    candidates = tuple(
+        candidate
+        for quantity in quantities
+        if (
+            candidate := _predictive_candidate_at_quantity(
+                action=action,
+                quantity=quantity,
+                first_token_id=first_token_id,
+                second_token_id=second_token_id,
+                first_contract=first_contract,
+                second_contract=second_contract,
+                first_book=first_book,
+                second_book=second_book,
+                distribution=distribution,
+                q_5_up=q_5_up,
+                q_15_up=q_15_up,
+                uncertainty_probability_pairs=uncertainty_probability_pairs,
+                config=config,
+                breakpoint_count=len(quantities),
+            )
+        )
+        is not None
+    )
+    if not candidates:
+        return None
+    eligible = tuple(
+        item
+        for item in candidates
+        if item.qualification_edge_per_pair > config.minimum_net_expected_pnl_per_pair
+        and item.selected_uncertainty_adjusted_total_pnl is not None
+        and item.selected_uncertainty_adjusted_total_pnl > ZERO
+    )
+    pool = eligible or candidates
+    return min(
+        pool,
+        key=lambda item: (
+            -(
+                item.selected_uncertainty_adjusted_total_pnl
+                if item.selected_uncertainty_adjusted_total_pnl is not None
+                else Decimal("-Infinity")
+            ),
+            -item.qualification_edge_per_pair,
+            item.quantity,
+            item.action.value,
+        ),
     )
 
 
 def _no_trade(
     *,
-    distribution: SharedTerminalTwap60Distribution,
-    decision_at_ms: int,
+    distribution: SharedTerminalTwap60Distribution | None,
+    health: SharedTerminalDataHealth,
     reasons: Sequence[str],
     q_5_up: Decimal | None = None,
     q_15_up: Decimal | None = None,
-) -> PairDecision:
-    return PairDecision(
+) -> V07PairDecision:
+    probability_diagnostics_applicable = distribution is not None
+    return V07PairDecision(
         action=PairAction.NO_TRADE,
-        decision_at_ms=decision_at_ms,
+        decision_at_ms=health.decision_at_ms,
         quantity=ZERO,
         first_token_id=None,
         second_token_id=None,
@@ -1824,25 +2381,34 @@ def _no_trade(
         uncertainty_adjusted_pnl_per_pair=None,
         cvar_per_pair=None,
         loss_probability=None,
-        q_5_raw=distribution.q_5_up,
-        q_15_raw=distribution.q_15_up,
+        q_5_raw=distribution.q_5_up if distribution is not None else None,
+        q_15_raw=distribution.q_15_up if distribution is not None else None,
         q_5_calibrated=q_5_up,
         q_15_calibrated=q_15_up,
         reason_codes=tuple(reasons),
         qualification="development_shadow",
+        edge_basis=V07EdgeBasis.NONE,
+        structural_quantity_executable=False,
+        quantity_selection_basis=V07QuantitySelectionBasis.NONE,
+        quantity_candidate_breakpoint_count=0,
+        selected_guaranteed_total_pnl=None,
+        selected_uncertainty_adjusted_total_pnl=None,
+        probability_diagnostics_applicable=probability_diagnostics_applicable,
+        forecast_available_at_ms=health.forecast_available_at_ms,
+        forecast_availability_basis=health.forecast_availability_basis,
     )
 
 
-def _base_reasons(
+def _common_reasons(
     *,
     pair: SameExpiryPair,
     settlement_state: PairSettlementState,
-    distribution: SharedTerminalTwap60Distribution,
     books: Mapping[str, OrderBookSnapshot],
     health: SharedTerminalDataHealth,
     config: V07StrategyConfig,
-    locked_oos: bool,
 ) -> list[str]:
+    """Safety, causality, market, and timing checks shared by every edge basis."""
+
     reasons: list[str] = []
     if pair.market_5.settlement_regime != V06_SETTLEMENT_REGIME_ID or (
         pair.market_15.settlement_regime != V06_SETTLEMENT_REGIME_ID
@@ -1864,13 +2430,18 @@ def _base_reasons(
         or settlement_state.market_15_open_timestamp_ms != pair.market_15.opens_at_ms
     ):
         reasons.append("settlement_state_window_mismatch")
-    if settlement_state.strike_5 != distribution.strike_5 or (
-        settlement_state.strike_15 != distribution.strike_15
-    ):
-        reasons.append("settlement_state_strike_mismatch")
+    try:
+        SharedTerminalPayoffStructure.from_strikes(
+            strike_5=settlement_state.strike_5,
+            strike_15=settlement_state.strike_15,
+        )
+    except (TypeError, ValueError, V07ModelRejection):
+        reasons.append("settlement_state_strikes_invalid")
     tau_ms = pair.expires_at_ms - health.decision_at_ms
     if not config.tau_min_seconds * 1_000 <= tau_ms <= config.tau_max_seconds * 1_000:
         reasons.append("tau_outside_preregistered_window")
+    if health.forecast_available_at_ms >= pair.expires_at_ms:
+        reasons.append("forecast_not_available_before_common_expiry")
     observation_age = health.decision_at_ms - health.terminal_twap_60_observed_at_ms
     receipt_age = health.decision_at_ms - health.terminal_twap_60_received_at_ms
     if (
@@ -1900,52 +2471,285 @@ def _base_reasons(
             age = health.decision_at_ms - book.timestamp_ms
             if age < 0 or age > config.maximum_book_staleness_ms:
                 reasons.append(f"book_stale_or_future:{token_id}")
-    if locked_oos:
-        shrinkage = health.shrinkage
-        veto = health.validation_veto
-        if shrinkage is None:
-            reasons.append("train_only_shrinkage_missing")
-        elif (
-            shrinkage.fit_at_ms >= health.decision_at_ms
-            or shrinkage.maximum_label_available_at_ms >= shrinkage.fit_at_ms
-            or shrinkage.settlement_regime != V06_SETTLEMENT_REGIME_ID
-            or shrinkage.settlement_model_id != SETTLEMENT_MODEL_ID
-            or shrinkage.model_version != MODEL_VERSION
-        ):
-            reasons.append("train_only_shrinkage_invalid_or_leaky")
-        if veto is None:
-            reasons.append("validation_veto_missing")
-        elif (
-            not veto.passed
-            or veto.evaluated_at_ms >= health.decision_at_ms
-            or veto.maximum_label_available_at_ms >= veto.evaluated_at_ms
-            or shrinkage is None
-            or veto.shrinkage_artifact_hash != shrinkage.artifact_hash
-        ):
-            reasons.append("validation_veto_failed_or_leaky")
     return reasons
+
+
+def _predictive_readiness_reasons(
+    *,
+    settlement_state: PairSettlementState,
+    distribution: SharedTerminalTwap60Distribution | None,
+    health: SharedTerminalDataHealth,
+    locked_oos: bool,
+) -> list[str]:
+    """Readiness gates that apply only to forecast-dependent candidates."""
+
+    reasons: list[str] = []
+    if distribution is None:
+        reasons.append("predictive_distribution_unavailable_after_structural_scan")
+    elif (
+        settlement_state.strike_5 != distribution.strike_5
+        or settlement_state.strike_15 != distribution.strike_15
+    ):
+        reasons.append("settlement_state_strike_mismatch")
+    if not locked_oos:
+        return reasons
+    shrinkage = health.shrinkage
+    veto = health.validation_veto
+    if shrinkage is None:
+        reasons.append("train_only_shrinkage_missing")
+    elif (
+        shrinkage.fit_at_ms >= health.decision_at_ms
+        or shrinkage.maximum_label_available_at_ms >= shrinkage.fit_at_ms
+        or shrinkage.settlement_regime != V06_SETTLEMENT_REGIME_ID
+        or shrinkage.settlement_model_id != SETTLEMENT_MODEL_ID
+        or shrinkage.model_version != MODEL_VERSION
+    ):
+        reasons.append("train_only_shrinkage_invalid_or_leaky")
+    if veto is None:
+        reasons.append("validation_veto_missing")
+    elif (
+        not veto.passed
+        or veto.evaluated_at_ms >= health.decision_at_ms
+        or veto.maximum_label_available_at_ms >= veto.evaluated_at_ms
+        or shrinkage is None
+        or veto.shrinkage_artifact_hash != shrinkage.artifact_hash
+    ):
+        reasons.append("validation_veto_failed_or_leaky")
+    return reasons
+
+
+def _structural_candidate_set(
+    *,
+    pair: SameExpiryPair,
+    structure: SharedTerminalPayoffStructure,
+    books: Mapping[str, OrderBookSnapshot],
+    config: V07StrategyConfig,
+) -> tuple[_Candidate, ...]:
+    return tuple(
+        candidate
+        for candidate in (
+            _structural_candidate(
+                action=PairAction.LONG_15_UP_LONG_5_DOWN,
+                first_token_id=pair.market_15.up_token_id,
+                second_token_id=pair.market_5.down_token_id,
+                first_contract=pair.market_15,
+                second_contract=pair.market_5,
+                books=books,
+                structure=structure,
+                config=config,
+            ),
+            _structural_candidate(
+                action=PairAction.LONG_5_UP_LONG_15_DOWN,
+                first_token_id=pair.market_5.up_token_id,
+                second_token_id=pair.market_15.down_token_id,
+                first_contract=pair.market_5,
+                second_contract=pair.market_15,
+                books=books,
+                structure=structure,
+                config=config,
+            ),
+        )
+        if candidate is not None
+    )
+
+
+def _predictive_candidate_set(
+    *,
+    pair: SameExpiryPair,
+    distribution: SharedTerminalTwap60Distribution,
+    books: Mapping[str, OrderBookSnapshot],
+    q_5_up: Decimal,
+    q_15_up: Decimal,
+    uncertainty_probability_pairs: Sequence[tuple[Decimal, Decimal]],
+    config: V07StrategyConfig,
+) -> tuple[_Candidate, ...]:
+    return tuple(
+        candidate
+        for candidate in (
+            _candidate(
+                action=PairAction.LONG_15_UP_LONG_5_DOWN,
+                first_token_id=pair.market_15.up_token_id,
+                second_token_id=pair.market_5.down_token_id,
+                first_contract=pair.market_15,
+                second_contract=pair.market_5,
+                books=books,
+                distribution=distribution,
+                q_5_up=q_5_up,
+                q_15_up=q_15_up,
+                uncertainty_probability_pairs=uncertainty_probability_pairs,
+                config=config,
+            ),
+            _candidate(
+                action=PairAction.LONG_5_UP_LONG_15_DOWN,
+                first_token_id=pair.market_5.up_token_id,
+                second_token_id=pair.market_15.down_token_id,
+                first_contract=pair.market_5,
+                second_contract=pair.market_15,
+                books=books,
+                distribution=distribution,
+                q_5_up=q_5_up,
+                q_15_up=q_15_up,
+                uncertainty_probability_pairs=uncertainty_probability_pairs,
+                config=config,
+            ),
+        )
+        if candidate is not None and candidate.edge_basis is V07EdgeBasis.PREDICTIVE
+    )
+
+
+def _decision_from_candidate(
+    *,
+    candidate: _Candidate,
+    distribution: SharedTerminalTwap60Distribution | None,
+    health: SharedTerminalDataHealth,
+    q_5_up: Decimal | None,
+    q_15_up: Decimal | None,
+    reasons: Sequence[str],
+    action: PairAction | None = None,
+) -> V07PairDecision:
+    selected_action = candidate.action if action is None else action
+    actionable = selected_action is not PairAction.NO_TRADE
+    predictive = candidate.edge_basis is V07EdgeBasis.PREDICTIVE
+    return V07PairDecision(
+        action=selected_action,
+        decision_at_ms=health.decision_at_ms,
+        quantity=candidate.quantity if actionable else ZERO,
+        first_token_id=candidate.first_token_id if actionable else None,
+        second_token_id=candidate.second_token_id if actionable else None,
+        execution_notional_per_pair=candidate.notional_per_pair,
+        fee_per_pair=candidate.fee_per_pair,
+        execution_cost_per_pair=candidate.cost_per_pair,
+        expected_gross_pnl_per_pair=candidate.gross_pnl_per_pair,
+        expected_net_pnl_per_pair=candidate.net_pnl_per_pair,
+        uncertainty_adjusted_pnl_per_pair=candidate.adjusted_pnl_per_pair,
+        cvar_per_pair=candidate.cvar_per_pair,
+        loss_probability=candidate.loss_probability,
+        q_5_raw=(
+            distribution.q_5_up if predictive and distribution is not None else None
+        ),
+        q_15_raw=(
+            distribution.q_15_up if predictive and distribution is not None else None
+        ),
+        q_5_calibrated=q_5_up if predictive else None,
+        q_15_calibrated=q_15_up if predictive else None,
+        reason_codes=tuple(reasons),
+        qualification="development_shadow",
+        edge_basis=candidate.edge_basis,
+        edge_evaluation_quantity=candidate.quantity,
+        structural_worst_case_payoff_per_pair=(
+            candidate.structural_worst_case_payoff_per_pair
+        ),
+        structural_net_floor_per_pair=candidate.structural_net_floor_per_pair,
+        structural_quantity_executable=candidate.structural_quantity_executable,
+        qualification_edge_per_pair=candidate.qualification_edge_per_pair,
+        quantity_selection_basis=candidate.quantity_selection_basis,
+        quantity_candidate_breakpoint_count=(
+            candidate.quantity_candidate_breakpoint_count
+        ),
+        selected_guaranteed_total_pnl=candidate.selected_guaranteed_total_pnl,
+        selected_uncertainty_adjusted_total_pnl=(
+            candidate.selected_uncertainty_adjusted_total_pnl
+        ),
+        probability_diagnostics_applicable=predictive,
+        forecast_available_at_ms=health.forecast_available_at_ms,
+        forecast_availability_basis=health.forecast_availability_basis,
+    )
 
 
 def decide_shared_terminal_pair_trade(
     *,
     pair: SameExpiryPair,
     settlement_state: PairSettlementState,
-    distribution: SharedTerminalTwap60Distribution,
+    distribution: SharedTerminalTwap60Distribution | None,
     books: Mapping[str, OrderBookSnapshot],
     health: SharedTerminalDataHealth,
     config: V07StrategyConfig = V07StrategyConfig(),
     locked_oos: bool = True,
-) -> PairDecision:
-    """Choose one non-promotional v0.7 paper action from executable asks."""
+) -> V07PairDecision:
+    """Choose one non-promotional v0.7 paper action from executable asks.
 
-    reasons = _base_reasons(
+    Shared safety and causal checks run first.  Structural payoffs are derived
+    directly from the verified strikes and settlement rule; their quantity is
+    optimized before any Monte Carlo, shrinkage, Brier, or validation readiness
+    is consulted.  Predictive sizing is evaluated only when no positive
+    executable structural floor exists.
+    """
+
+    common_reasons = _common_reasons(
         pair=pair,
         settlement_state=settlement_state,
-        distribution=distribution,
         books=books,
         health=health,
         config=config,
+    )
+    if common_reasons:
+        return _no_trade(
+            distribution=distribution,
+            health=health,
+            reasons=(*common_reasons, "v07_counterfactual_non_promotional"),
+        )
+
+    structure = SharedTerminalPayoffStructure.from_strikes(
+        strike_5=settlement_state.strike_5,
+        strike_15=settlement_state.strike_15,
+    )
+    structural_candidates = _structural_candidate_set(
+        pair=pair,
+        structure=structure,
+        books=books,
+        config=config,
+    )
+    if structural_candidates:
+        best_structural = min(
+            structural_candidates,
+            key=lambda item: (
+                -item.selected_guaranteed_total_pnl,
+                -item.structural_net_floor_per_pair,
+                item.quantity,
+                item.action.value,
+            ),
+        )
+        return _decision_from_candidate(
+            candidate=best_structural,
+            distribution=None,
+            health=health,
+            q_5_up=None,
+            q_15_up=None,
+            reasons=(
+                "structural_evaluated_before_predictive_readiness",
+                "structural_evaluated_before_monte_carlo",
+                "quantity_optimized_for_guaranteed_total_pnl",
+                "structural_floor_positive_after_full_depth_and_fees",
+                "predictive_probability_diagnostics_not_applicable",
+                "v07_counterfactual_non_promotional",
+            ),
+        )
+
+    predictive_reasons = _predictive_readiness_reasons(
+        settlement_state=settlement_state,
+        distribution=distribution,
+        health=health,
         locked_oos=locked_oos,
+    )
+    if distribution is None:
+        return _no_trade(
+            distribution=None,
+            health=health,
+            reasons=(*predictive_reasons, "v07_counterfactual_non_promotional"),
+        )
+
+    raw_q5, raw_q15, raw_projected = distribution.projected_marginals(
+        q_5_up=distribution.q_5_up,
+        q_15_up=distribution.q_15_up,
+    )
+    raw_uncertainty_pairs = tuple(
+        distribution.projected_marginals(
+            q_5_up=conditional_q5,
+            q_15_up=conditional_q15,
+        )[:2]
+        for conditional_q5, conditional_q15 in (
+            distribution.uncertainty_scale_marginals.values()
+        )
     )
     market5 = executable_binary_ask_probability(
         books,
@@ -1962,14 +2766,17 @@ def decide_shared_terminal_pair_trade(
         fee_schedule=pair.market_15.fee_schedule,
     )
     if market5 is None or market15 is None:
-        reasons.append("executable_market_probability_missing")
-    if reasons:
+        predictive_reasons.append("executable_market_probability_missing")
+    if predictive_reasons:
         return _no_trade(
             distribution=distribution,
-            decision_at_ms=health.decision_at_ms,
-            reasons=(*reasons, "v07_counterfactual_non_promotional"),
+            health=health,
+            reasons=(*predictive_reasons, "v07_counterfactual_non_promotional"),
+            q_5_up=raw_q5,
+            q_15_up=raw_q15,
         )
     assert market5 is not None and market15 is not None
+
     projected = False
     if locked_oos:
         assert health.shrinkage is not None
@@ -1991,91 +2798,68 @@ def decide_shared_terminal_pair_trade(
             )
         )
     else:
-        q5, q15, projected = distribution.projected_marginals(
-            q_5_up=distribution.q_5_up,
-            q_15_up=distribution.q_15_up,
-        )
-        uncertainty_probability_pairs = tuple(
-            distribution.projected_marginals(
-                q_5_up=conditional_q5,
-                q_15_up=conditional_q15,
-            )[:2]
-            for conditional_q5, conditional_q15 in (
-                distribution.uncertainty_scale_marginals.values()
-            )
-        )
-    candidates = tuple(
-        item
-        for item in (
-            _candidate(
-                action=PairAction.LONG_15_UP_LONG_5_DOWN,
-                first_token_id=pair.market_15.up_token_id,
-                second_token_id=pair.market_5.down_token_id,
-                first_contract=pair.market_15,
-                second_contract=pair.market_5,
-                books=books,
-                distribution=distribution,
-                q_5_up=q5,
-                q_15_up=q15,
-                uncertainty_probability_pairs=uncertainty_probability_pairs,
-                config=config,
-            ),
-            _candidate(
-                action=PairAction.LONG_5_UP_LONG_15_DOWN,
-                first_token_id=pair.market_5.up_token_id,
-                second_token_id=pair.market_15.down_token_id,
-                first_contract=pair.market_5,
-                second_contract=pair.market_15,
-                books=books,
-                distribution=distribution,
-                q_5_up=q5,
-                q_15_up=q15,
-                uncertainty_probability_pairs=uncertainty_probability_pairs,
-                config=config,
-            ),
-        )
-        if item is not None
+        q5, q15 = raw_q5, raw_q15
+        projected = raw_projected
+        uncertainty_probability_pairs = raw_uncertainty_pairs
+
+    predictive_candidates = _predictive_candidate_set(
+        pair=pair,
+        distribution=distribution,
+        books=books,
+        q_5_up=q5,
+        q_15_up=q15,
+        uncertainty_probability_pairs=uncertainty_probability_pairs,
+        config=config,
     )
     audit_reasons = ["v07_counterfactual_non_promotional"]
     if projected:
         audit_reasons.append("marginals_projected_to_shared_terminal_structure")
-    if not candidates:
+    if not predictive_candidates:
         return _no_trade(
             distribution=distribution,
-            decision_at_ms=health.decision_at_ms,
-            reasons=("no_candidate_has_healthy_executable_depth", *audit_reasons),
+            health=health,
+            reasons=(
+                "no_predictive_candidate_has_healthy_executable_depth",
+                *audit_reasons,
+            ),
             q_5_up=q5,
             q_15_up=q15,
         )
-    best = max(candidates, key=lambda item: item.adjusted_pnl_per_pair)
+    best = min(
+        predictive_candidates,
+        key=lambda item: (
+            -(
+                item.selected_uncertainty_adjusted_total_pnl
+                if item.selected_uncertainty_adjusted_total_pnl is not None
+                else ZERO
+            ),
+            -item.qualification_edge_per_pair,
+            item.quantity,
+            item.action.value,
+        ),
+    )
     action = best.action
-    if best.adjusted_pnl_per_pair <= config.minimum_net_expected_pnl_per_pair:
+    if (
+        best.qualification_edge_per_pair <= config.minimum_net_expected_pnl_per_pair
+        or best.selected_uncertainty_adjusted_total_pnl is None
+        or best.selected_uncertainty_adjusted_total_pnl <= ZERO
+    ):
         action = PairAction.NO_TRADE
         audit_reasons.insert(0, "net_edge_below_preregistered_threshold")
-    return PairDecision(
+    audit_reasons.extend(
+        (
+            "quantity_optimized_for_uncertainty_adjusted_total_pnl",
+            "predictive_edge_depends_on_forecast",
+        )
+    )
+    return _decision_from_candidate(
+        candidate=best,
+        distribution=distribution,
+        health=health,
+        q_5_up=q5,
+        q_15_up=q15,
+        reasons=audit_reasons,
         action=action,
-        decision_at_ms=health.decision_at_ms,
-        quantity=best.quantity if action is not PairAction.NO_TRADE else ZERO,
-        first_token_id=best.first_token_id
-        if action is not PairAction.NO_TRADE
-        else None,
-        second_token_id=(
-            best.second_token_id if action is not PairAction.NO_TRADE else None
-        ),
-        execution_notional_per_pair=best.notional_per_pair,
-        fee_per_pair=best.fee_per_pair,
-        execution_cost_per_pair=best.cost_per_pair,
-        expected_gross_pnl_per_pair=best.gross_pnl_per_pair,
-        expected_net_pnl_per_pair=best.net_pnl_per_pair,
-        uncertainty_adjusted_pnl_per_pair=best.adjusted_pnl_per_pair,
-        cvar_per_pair=best.cvar_per_pair,
-        loss_probability=best.loss_probability,
-        q_5_raw=distribution.q_5_up,
-        q_15_raw=distribution.q_15_up,
-        q_5_calibrated=q5,
-        q_15_calibrated=q15,
-        reason_codes=tuple(audit_reasons),
-        qualification="development_shadow",
     )
 
 
@@ -2089,11 +2873,16 @@ __all__ = [
     "SharedTerminalDataHealth",
     "SharedTerminalModelConfig",
     "SharedTerminalSimulationResult",
+    "SharedTerminalPayoffStructure",
     "SharedTerminalTwap60Distribution",
     "SharedTerminalTwap60Scenario",
     "StrikeOrdering",
     "TrainOnlyShrinkageArtifact",
+    "V07EdgeBasis",
+    "V07ForecastAvailabilityBasis",
+    "V07QuantitySelectionBasis",
     "V07ModelRejection",
+    "V07PairDecision",
     "V07StrategyConfig",
     "ValidationVetoEvidence",
     "canonical_expiry_cluster_id",

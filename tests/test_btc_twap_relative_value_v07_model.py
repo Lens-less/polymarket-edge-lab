@@ -15,14 +15,19 @@ from src.edge_lab.btc_twap_relative_value import (
 )
 from src.edge_lab.btc_twap_relative_value_v07 import (
     ProbabilityPairTrainingRow,
+    SharedTerminalDataHealth,
     SharedTerminalModelConfig,
     SharedTerminalTwap60Distribution,
     SharedTerminalTwap60Scenario,
     StrikeOrdering,
     TrainOnlyShrinkageArtifact,
+    V07EdgeBasis,
+    V07ForecastAvailabilityBasis,
     V07ModelRejection,
+    V07QuantitySelectionBasis,
     V07StrategyConfig,
     _candidate,
+    decide_shared_terminal_pair_trade,
     evaluate_validation_veto,
     executable_binary_ask_probability,
     raw_top_ask_probability,
@@ -30,6 +35,15 @@ from src.edge_lab.btc_twap_relative_value_v07 import (
 )
 from src.edge_lab.data_store import canonical_json_bytes
 from src.edge_lab.execution import ExecutionFeeSchedule
+from tests.test_btc_twap_relative_value_v07_replay import (
+    _artifacts as _v07_artifacts,
+)
+from tests.test_btc_twap_relative_value_v07_replay import (
+    _settlement_state as _v07_settlement_state,
+)
+from tests.test_btc_twap_relative_value_v07_replay import (
+    _v07_pair,
+)
 from tests.test_edge_lab_btc_twap_relative_value import same_expiry_pair
 
 D = Decimal
@@ -428,12 +442,13 @@ def _depth_book(
     *,
     bids: tuple[tuple[str, str], ...],
     asks: tuple[tuple[str, str], ...],
+    timestamp_ms: int = 1,
 ) -> OrderBookSnapshot:
     return OrderBookSnapshot.from_tuples(
         token_id,
         bids=tuple((D(price), D(size)) for price, size in bids),
         asks=tuple((D(price), D(size)) for price, size in asks),
-        timestamp_ms=1,
+        timestamp_ms=timestamp_ms,
         tick_size=D("0.01"),
         minimum_order_size=D("1"),
     )
@@ -556,13 +571,13 @@ def test_qualification_penalty_has_no_inverse_sqrt_path_count_term(
         strike_15=D("101"),
     )
     books = {
-        pair.market_5.up_token_id: _depth_book(
-            pair.market_5.up_token_id,
+        pair.market_15.up_token_id: _depth_book(
+            pair.market_15.up_token_id,
             bids=(("0.39", "100"),),
             asks=(("0.40", "100"),),
         ),
-        pair.market_15.down_token_id: _depth_book(
-            pair.market_15.down_token_id,
+        pair.market_5.down_token_id: _depth_book(
+            pair.market_5.down_token_id,
             bids=(("0.39", "100"),),
             asks=(("0.40", "100"),),
         ),
@@ -575,19 +590,19 @@ def test_qualification_penalty_has_no_inverse_sqrt_path_count_term(
     )
 
     candidate = _candidate(
-        action=PairAction.LONG_5_UP_LONG_15_DOWN,
-        first_token_id=pair.market_5.up_token_id,
-        second_token_id=pair.market_15.down_token_id,
-        first_contract=pair.market_5,
-        second_contract=pair.market_15,
+        action=PairAction.LONG_15_UP_LONG_5_DOWN,
+        first_token_id=pair.market_15.up_token_id,
+        second_token_id=pair.market_5.down_token_id,
+        first_contract=pair.market_15,
+        second_contract=pair.market_5,
         books=books,
         distribution=distribution,
         q_5_up=D("0.5"),
         q_15_up=D("0"),
         uncertainty_probability_pairs=(
-            (D("0.6"), D("0")),
-            (D("0.5"), D("0")),
             (D("0.4"), D("0")),
+            (D("0.5"), D("0")),
+            (D("0.6"), D("0")),
         ),
         config=config,
     )
@@ -596,3 +611,454 @@ def test_qualification_penalty_has_no_inverse_sqrt_path_count_term(
     assert candidate.model_uncertainty_downside_per_pair == D("0.1")
     assert candidate.adjusted_pnl_per_pair == (candidate.net_pnl_per_pair - D("0.125"))
     assert candidate.adjusted_pnl_per_pair <= config.minimum_net_expected_pnl_per_pair
+
+
+def _structural_test_distribution() -> SharedTerminalTwap60Distribution:
+    return SharedTerminalTwap60Distribution.from_scenarios(
+        tuple(
+            SharedTerminalTwap60Scenario(D(value)) for value in ("99", "100.5", "102")
+        ),
+        strike_5=D("100"),
+        strike_15=D("101"),
+    )
+
+
+def test_structural_floor_is_positive_only_after_full_depth_and_fees() -> None:
+    pair = same_expiry_pair()
+    distribution = _structural_test_distribution()
+    books = {
+        pair.market_5.up_token_id: _depth_book(
+            pair.market_5.up_token_id,
+            bids=(("0.39", "100"),),
+            asks=(("0.40", "100"),),
+        ),
+        pair.market_15.down_token_id: _depth_book(
+            pair.market_15.down_token_id,
+            bids=(("0.39", "100"),),
+            asks=(("0.40", "100"),),
+        ),
+    }
+
+    candidate = _candidate(
+        action=PairAction.LONG_5_UP_LONG_15_DOWN,
+        first_token_id=pair.market_5.up_token_id,
+        second_token_id=pair.market_15.down_token_id,
+        first_contract=pair.market_5,
+        second_contract=pair.market_15,
+        books=books,
+        distribution=distribution,
+        q_5_up=D("0.5"),
+        q_15_up=D("0.2"),
+        uncertainty_probability_pairs=((D("0.5"), D("0.2")),),
+        config=V07StrategyConfig(),
+    )
+
+    assert candidate is not None
+    assert candidate.structural_worst_case_payoff_per_pair == D("1")
+    assert candidate.structural_quantity_executable
+    assert candidate.cost_per_pair < D("1")
+    assert candidate.structural_net_floor_per_pair == (D("1") - candidate.cost_per_pair)
+    assert candidate.structural_net_floor_per_pair > D("0")
+    assert candidate.edge_basis is V07EdgeBasis.STRUCTURAL
+    assert (
+        candidate.qualification_edge_per_pair == candidate.structural_net_floor_per_pair
+    )
+
+
+def test_theoretical_floor_is_not_arbitrage_without_depth_or_after_fees() -> None:
+    pair = same_expiry_pair()
+    distribution = _structural_test_distribution()
+    insufficient_books = {
+        pair.market_5.up_token_id: _depth_book(
+            pair.market_5.up_token_id,
+            bids=(("0.39", "4"),),
+            asks=(("0.40", "4"),),
+        ),
+        pair.market_15.down_token_id: _depth_book(
+            pair.market_15.down_token_id,
+            bids=(("0.39", "4"),),
+            asks=(("0.40", "4"),),
+        ),
+    }
+    kwargs = {
+        "action": PairAction.LONG_5_UP_LONG_15_DOWN,
+        "first_token_id": pair.market_5.up_token_id,
+        "second_token_id": pair.market_15.down_token_id,
+        "first_contract": pair.market_5,
+        "second_contract": pair.market_15,
+        "distribution": distribution,
+        "q_5_up": D("0.8"),
+        "q_15_up": D("0.1"),
+        "uncertainty_probability_pairs": ((D("0.8"), D("0.1")),),
+        "config": V07StrategyConfig(),
+    }
+
+    assert _candidate(books=insufficient_books, **kwargs) is None
+
+    expensive_books = {
+        pair.market_5.up_token_id: _depth_book(
+            pair.market_5.up_token_id,
+            bids=(("0.49", "100"),),
+            asks=(("0.50", "100"),),
+        ),
+        pair.market_15.down_token_id: _depth_book(
+            pair.market_15.down_token_id,
+            bids=(("0.49", "100"),),
+            asks=(("0.50", "100"),),
+        ),
+    }
+    expensive = _candidate(books=expensive_books, **kwargs)
+
+    assert expensive is not None
+    assert expensive.structural_worst_case_payoff_per_pair == D("1")
+    assert expensive.cost_per_pair >= D("1")
+    assert expensive.structural_net_floor_per_pair <= D("0")
+    assert expensive.edge_basis is V07EdgeBasis.PREDICTIVE
+
+
+def test_nonstructural_direction_remains_predictive() -> None:
+    pair = same_expiry_pair()
+    distribution = _structural_test_distribution()
+    books = {
+        pair.market_15.up_token_id: _depth_book(
+            pair.market_15.up_token_id,
+            bids=(("0.39", "100"),),
+            asks=(("0.40", "100"),),
+        ),
+        pair.market_5.down_token_id: _depth_book(
+            pair.market_5.down_token_id,
+            bids=(("0.39", "100"),),
+            asks=(("0.40", "100"),),
+        ),
+    }
+
+    candidate = _candidate(
+        action=PairAction.LONG_15_UP_LONG_5_DOWN,
+        first_token_id=pair.market_15.up_token_id,
+        second_token_id=pair.market_5.down_token_id,
+        first_contract=pair.market_15,
+        second_contract=pair.market_5,
+        books=books,
+        distribution=distribution,
+        q_5_up=D("0.2"),
+        q_15_up=D("0.8"),
+        uncertainty_probability_pairs=((D("0.2"), D("0.8")),),
+        config=V07StrategyConfig(),
+    )
+
+    assert candidate is not None
+    assert candidate.structural_worst_case_payoff_per_pair == D("0")
+    assert candidate.structural_net_floor_per_pair < D("0")
+    assert candidate.edge_basis is V07EdgeBasis.PREDICTIVE
+    assert candidate.qualification_edge_per_pair == candidate.adjusted_pnl_per_pair
+
+
+def _two_level_pair_books(
+    *,
+    first_token_id: str,
+    second_token_id: str,
+) -> dict[str, OrderBookSnapshot]:
+    return {
+        first_token_id: _depth_book(
+            first_token_id,
+            bids=(("0.39", "105"),),
+            asks=(("0.40", "5"), ("0.60", "100")),
+        ),
+        second_token_id: _depth_book(
+            second_token_id,
+            bids=(("0.39", "105"),),
+            asks=(("0.40", "5"), ("0.60", "100")),
+        ),
+    }
+
+
+def test_structural_sizing_maximizes_guaranteed_total_instead_of_risk_usage() -> None:
+    pair = same_expiry_pair()
+    distribution = _structural_test_distribution()
+    books = _two_level_pair_books(
+        first_token_id=pair.market_5.up_token_id,
+        second_token_id=pair.market_15.down_token_id,
+    )
+
+    candidate = _candidate(
+        action=PairAction.LONG_5_UP_LONG_15_DOWN,
+        first_token_id=pair.market_5.up_token_id,
+        second_token_id=pair.market_15.down_token_id,
+        first_contract=pair.market_5,
+        second_contract=pair.market_15,
+        books=books,
+        distribution=distribution,
+        q_5_up=D("0.8"),
+        q_15_up=D("0.1"),
+        uncertainty_probability_pairs=((D("0.8"), D("0.1")),),
+        config=V07StrategyConfig(pair_risk_usdc=D("25")),
+    )
+
+    assert candidate is not None
+    assert candidate.edge_basis is V07EdgeBasis.STRUCTURAL
+    assert candidate.quantity == D("5.000000")
+    assert candidate.cost_per_pair == D("0.8336")
+    assert candidate.structural_net_floor_per_pair == D("0.1664")
+    assert candidate.selected_guaranteed_total_pnl == D("0.8320000000")
+    assert candidate.selected_guaranteed_total_pnl > D("0")
+    assert candidate.quantity_candidate_breakpoint_count == 2
+    assert candidate.quantity_selection_basis is (
+        V07QuantitySelectionBasis.STRUCTURAL_MAX_GUARANTEED_TOTAL_PNL
+    )
+
+
+def test_higher_risk_budget_cannot_remove_existing_structural_edge() -> None:
+    pair = same_expiry_pair()
+    distribution = _structural_test_distribution()
+    books = _two_level_pair_books(
+        first_token_id=pair.market_5.up_token_id,
+        second_token_id=pair.market_15.down_token_id,
+    )
+
+    def candidate_for(risk: str):
+        return _candidate(
+            action=PairAction.LONG_5_UP_LONG_15_DOWN,
+            first_token_id=pair.market_5.up_token_id,
+            second_token_id=pair.market_15.down_token_id,
+            first_contract=pair.market_5,
+            second_contract=pair.market_15,
+            books=books,
+            distribution=distribution,
+            q_5_up=D("0.8"),
+            q_15_up=D("0.1"),
+            uncertainty_probability_pairs=((D("0.8"), D("0.1")),),
+            config=V07StrategyConfig(pair_risk_usdc=D(risk)),
+        )
+
+    low = candidate_for("4.168")
+    high = candidate_for("25")
+    assert low is not None and high is not None
+    assert low.edge_basis is high.edge_basis is V07EdgeBasis.STRUCTURAL
+    assert low.quantity == high.quantity == D("5.000000")
+    assert low.selected_guaranteed_total_pnl == high.selected_guaranteed_total_pnl
+    assert high.selected_guaranteed_total_pnl > D("0")
+
+
+def test_predictive_sizing_chooses_small_positive_edge_before_deep_negative_depth() -> (
+    None
+):
+    pair = same_expiry_pair()
+    distribution = _structural_test_distribution()
+    books = _two_level_pair_books(
+        first_token_id=pair.market_15.up_token_id,
+        second_token_id=pair.market_5.down_token_id,
+    )
+
+    candidate = _candidate(
+        action=PairAction.LONG_15_UP_LONG_5_DOWN,
+        first_token_id=pair.market_15.up_token_id,
+        second_token_id=pair.market_5.down_token_id,
+        first_contract=pair.market_15,
+        second_contract=pair.market_5,
+        books=books,
+        distribution=distribution,
+        q_5_up=D("0.1"),
+        q_15_up=D("0.05"),
+        uncertainty_probability_pairs=((D("0.1"), D("0.05")),),
+        config=V07StrategyConfig(
+            pair_risk_usdc=D("25"),
+            uncertainty_multiplier=D("0"),
+        ),
+    )
+
+    assert candidate is not None
+    assert candidate.edge_basis is V07EdgeBasis.PREDICTIVE
+    assert candidate.quantity == D("5.000000")
+    assert candidate.adjusted_pnl_per_pair == D("0.1164")
+    assert candidate.selected_uncertainty_adjusted_total_pnl == D("0.5820000000")
+    assert candidate.quantity_selection_basis is (
+        V07QuantitySelectionBasis.PREDICTIVE_MAX_UNCERTAINTY_ADJUSTED_TOTAL_PNL
+    )
+
+
+def test_structural_decision_requires_no_monte_carlo_distribution() -> None:
+    pair = _v07_pair()
+    decision_at_ms = pair.expires_at_ms - 60_000
+
+    decision = decide_shared_terminal_pair_trade(
+        pair=pair,
+        settlement_state=_v07_settlement_state(pair),
+        distribution=None,
+        books=_decision_books(decision_at_ms=decision_at_ms),
+        health=_decision_health(decision_at_ms, with_veto=False),
+        config=V07StrategyConfig(uncertainty_multiplier=D("0")),
+        locked_oos=True,
+    )
+
+    assert decision.action is PairAction.LONG_5_UP_LONG_15_DOWN
+    assert decision.edge_basis is V07EdgeBasis.STRUCTURAL
+    assert decision.q_5_raw is None
+    assert decision.q_15_raw is None
+    assert decision.probability_diagnostics_applicable is False
+    assert "structural_evaluated_before_monte_carlo" in decision.reason_codes
+
+
+def test_nonstructural_direction_without_distribution_fails_closed() -> None:
+    pair = _v07_pair()
+    decision_at_ms = pair.expires_at_ms - 60_000
+
+    decision = decide_shared_terminal_pair_trade(
+        pair=pair,
+        settlement_state=_v07_settlement_state(pair),
+        distribution=None,
+        books=_decision_books(
+            decision_at_ms=decision_at_ms,
+            structural_ask="0.60",
+            nonstructural_ask="0.10",
+        ),
+        health=_decision_health(decision_at_ms, with_veto=True),
+        config=V07StrategyConfig(uncertainty_multiplier=D("0")),
+        locked_oos=True,
+    )
+
+    assert decision.action is PairAction.NO_TRADE
+    assert decision.edge_basis is V07EdgeBasis.NONE
+    assert "predictive_distribution_unavailable_after_structural_scan" in (
+        decision.reason_codes
+    )
+
+
+def _decision_books(
+    *,
+    decision_at_ms: int,
+    structural_ask: str = "0.40",
+    nonstructural_ask: str = "0.40",
+) -> dict[str, OrderBookSnapshot]:
+    pair = _v07_pair()
+    return {
+        pair.market_5.up_token_id: _depth_book(
+            pair.market_5.up_token_id,
+            bids=(("0.39", "100"),),
+            asks=((structural_ask, "100"),),
+            timestamp_ms=decision_at_ms,
+        ),
+        pair.market_15.down_token_id: _depth_book(
+            pair.market_15.down_token_id,
+            bids=(("0.39", "100"),),
+            asks=((structural_ask, "100"),),
+            timestamp_ms=decision_at_ms,
+        ),
+        pair.market_15.up_token_id: _depth_book(
+            pair.market_15.up_token_id,
+            bids=(("0.09", "100"),),
+            asks=((nonstructural_ask, "100"),),
+            timestamp_ms=decision_at_ms,
+        ),
+        pair.market_5.down_token_id: _depth_book(
+            pair.market_5.down_token_id,
+            bids=(("0.09", "100"),),
+            asks=((nonstructural_ask, "100"),),
+            timestamp_ms=decision_at_ms,
+        ),
+    }
+
+
+def _decision_health(
+    decision_at_ms: int,
+    *,
+    with_veto: bool,
+    failed_veto: bool = False,
+) -> SharedTerminalDataHealth:
+    shrinkage, veto = _v07_artifacts(decision_at_ms)
+    selected_veto = veto if with_veto else None
+    if selected_veto is not None and failed_veto:
+        selected_veto = replace(
+            selected_veto,
+            passed=False,
+            reason_codes=("forced_predictive_veto_failure",),
+        )
+    return SharedTerminalDataHealth(
+        decision_at_ms=decision_at_ms,
+        forecast_available_at_ms=decision_at_ms + 5_000,
+        forecast_availability_basis=(
+            V07ForecastAvailabilityBasis.PREREGISTERED_COUNTERFACTUAL_DELAY
+        ),
+        terminal_twap_60_observed_at_ms=decision_at_ms - 100,
+        terminal_twap_60_received_at_ms=decision_at_ms - 100,
+        absolute_clock_drift_ms=20,
+        shrinkage=shrinkage,
+        validation_veto=selected_veto,
+    )
+
+
+@pytest.mark.parametrize("failed_veto", (False, True))
+def test_structural_candidate_precedes_missing_or_failed_predictive_veto(
+    failed_veto: bool,
+) -> None:
+    pair = _v07_pair()
+    decision_at_ms = pair.expires_at_ms - 60_000
+    health = _decision_health(
+        decision_at_ms,
+        with_veto=failed_veto,
+        failed_veto=failed_veto,
+    )
+
+    decision = decide_shared_terminal_pair_trade(
+        pair=pair,
+        settlement_state=_v07_settlement_state(pair),
+        distribution=_structural_test_distribution(),
+        books=_decision_books(decision_at_ms=decision_at_ms),
+        health=health,
+        config=V07StrategyConfig(uncertainty_multiplier=D("0")),
+        locked_oos=True,
+    )
+
+    assert decision.action is PairAction.LONG_5_UP_LONG_15_DOWN
+    assert decision.edge_basis is V07EdgeBasis.STRUCTURAL
+    assert decision.structural_quantity_executable
+    assert decision.structural_net_floor_per_pair is not None
+    assert decision.structural_net_floor_per_pair > D("0")
+    assert "structural_evaluated_before_predictive_readiness" in decision.reason_codes
+    assert "validation_veto_missing" not in decision.reason_codes
+    assert "validation_veto_failed_or_leaky" not in decision.reason_codes
+
+
+def test_nonstructural_opportunity_remains_blocked_without_predictive_veto() -> None:
+    pair = _v07_pair()
+    decision_at_ms = pair.expires_at_ms - 60_000
+
+    decision = decide_shared_terminal_pair_trade(
+        pair=pair,
+        settlement_state=_v07_settlement_state(pair),
+        distribution=_structural_test_distribution(),
+        books=_decision_books(
+            decision_at_ms=decision_at_ms,
+            structural_ask="0.60",
+            nonstructural_ask="0.10",
+        ),
+        health=_decision_health(decision_at_ms, with_veto=False),
+        config=V07StrategyConfig(uncertainty_multiplier=D("0")),
+        locked_oos=True,
+    )
+
+    assert decision.action is PairAction.NO_TRADE
+    assert decision.edge_basis is V07EdgeBasis.NONE
+    assert "validation_veto_missing" in decision.reason_codes
+
+
+def test_common_safety_failure_blocks_structural_candidate() -> None:
+    pair = _v07_pair()
+    decision_at_ms = pair.expires_at_ms - 60_000
+    unsafe_state = replace(
+        _v07_settlement_state(pair),
+        market_5_rule_hash="f" * 64,
+    )
+
+    decision = decide_shared_terminal_pair_trade(
+        pair=pair,
+        settlement_state=unsafe_state,
+        distribution=_structural_test_distribution(),
+        books=_decision_books(decision_at_ms=decision_at_ms),
+        health=_decision_health(decision_at_ms, with_veto=False),
+        config=V07StrategyConfig(uncertainty_multiplier=D("0")),
+        locked_oos=True,
+    )
+
+    assert decision.action is PairAction.NO_TRADE
+    assert decision.edge_basis is V07EdgeBasis.NONE
+    assert "settlement_rule_hash_mismatch" in decision.reason_codes
