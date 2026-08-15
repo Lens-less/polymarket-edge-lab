@@ -74,9 +74,10 @@ from src.edge_lab.btc_twap_relative_value_v07_evaluation import (  # noqa: E402
     LockedOOSForecastRow,
     ParameterNeighborhoodEvidence,
     PreLabelLockProvenance,
-    _evaluate_builder_verified_locked_oos_evidence,
-    _issue_builder_verified_evidence,
-    _issue_verified_prelabel_lock_provenance,
+    PreLabelLockStatus,
+    V07EvidenceStatus,
+    V07LockedOOSEvaluation,
+    evaluate_gate_mechanism_diagnostic,
     evaluate_locked_oos_evidence,
 )
 from src.edge_lab.btc_twap_relative_value_v07_replay import (  # noqa: E402
@@ -95,13 +96,13 @@ from src.edge_lab.settlement_regime import (  # noqa: E402
 )
 
 MANIFEST_SCHEMA_VERSION = "btc-5m-15m-v07-counterfactual-manifest.v2"
-REPORT_SCHEMA_VERSION = "btc-5m-15m-v07-counterfactual-report.v7"
+REPORT_SCHEMA_VERSION = "btc-5m-15m-v07-counterfactual-report.v8"
 LOCK_JOURNAL_SCHEMA_VERSION = "btc-5m-15m-v07-lock-journal.v4"
 LOCK_JOURNAL_SOURCE = "v07_locked_oos_journal"
 CAPTURE_CONFIG_SCHEMA_VERSION = "btc-5m-15m-relative-value-capture.v1"
 SOURCE_BASELINE = "c557160d0c98e195a988f4353bbe19a3b00b3576"
 EXPECTED_PREREGISTRATION_SHA256 = (
-    "22471ab2906d654b17474509a96f0e656906f9b7a87fa5b7487d57e55ab2f206"
+    "de79f3e4d43b513a7c71e3196877ee110f04f7d31cec4b3cd060f6184f541bfe"
 )
 _MANIFEST_KEYS = frozenset(
     {
@@ -470,19 +471,19 @@ def _verify_preregistration(
         raise ValueError("v0.7 preregistration must remain an undeployed draft")
     if preregistration.get("source_baseline") != SOURCE_BASELINE:
         raise ValueError("v0.7 preregistration source baseline mismatch")
-    if preregistration.get("drafted_at") != "2026-08-15T13:21:59Z":
+    if preregistration.get("drafted_at") != "2026-08-15T15:37:51Z":
         raise ValueError("v0.7 preregistration draft timestamp mismatch")
     draft_context = _mapping(
         preregistration.get("draft_context"),
         label="preregistration.draft_context",
     )
     if dict(draft_context) != {
-        "revision": "v6_review_remediation",
+        "revision": "v7_windows_portability_and_trust_boundary_correction",
         "created_after_known_v06_shadow_results": True,
         "known_v06_settled_attempts": 48,
         "known_v06_independent_expiry_clusters": 24,
         "known_v06_net_pnl_usdc": "87.523635",
-        "known_v06_results_role": ("known_before_v6_draft_not_locked_oos_input"),
+        "known_v06_results_role": ("known_before_v7_draft_not_locked_oos_input"),
         "provides_ex_ante_qualification_for_known_v06_results": False,
     }:
         raise ValueError("v0.7 preregistration draft context mismatch")
@@ -646,7 +647,9 @@ def _verify_preregistration(
         ),
         "net_pnl_must_be_positive": True,
         "diagnostic_positive_sample_pnl_field": ("diagnostic_positive_sample_pnl"),
-        "positive_net_pnl_user_check_requires_builder_verified_chain": True,
+        "positive_net_pnl_user_check_requires_builder_authoritative_revalidation": (
+            True
+        ),
         "synthetic_or_generated_fixture_can_pass_user_check": False,
     }:
         raise ValueError("preregistration non-promotional sample gate mismatch")
@@ -656,7 +659,7 @@ def _verify_preregistration(
         label="preregistration.true_edge_gates",
     )
     if hashlib.sha256(canonical_json_bytes(dict(true_edge))).hexdigest() != (
-        "1afea0f18abb2da132ef08a799053f6fe7375ca006f521a273b9760a41566e6b"
+        "7e126171f61729522ec380ae067a279a330eb3a961a2059400b2bffda43079fb"
     ):
         raise ValueError("preregistration true-edge gate mismatch")
 
@@ -697,7 +700,7 @@ def _verify_preregistration(
     if hashlib.sha256(
         canonical_json_bytes(dict(builder_evidence_policy))
     ).hexdigest() != (
-        "43b9fc7128f4abe3064b7d09e12389a756262954c43e20c6fb2f3cdd8f2caef1"
+        "100c82349f212aa1f7b273fd171ae2d4c5f080c0e6bc7de6b3cc4f1a5c061612"
     ):
         raise ValueError("preregistration builder-evidence policy mismatch")
 
@@ -794,9 +797,13 @@ def _verify_preregistration(
         "prediction_locked_at_equals_decision_at": True,
         "canonical_forecast_and_decision_hashes_required": True,
         "public_evaluator_qualification_authority": False,
-        "builder_verified_evidence_chain_required": True,
+        "builder_authoritative_revalidation_required": True,
         "row_set_and_parameter_neighborhood_hash_binding": True,
-        "generated_fixture_builder_capability_allowed": False,
+        "generic_caller_rows_plus_chain_authority_issuer_distributed": False,
+        "generated_fixture_builder_authority_allowed": False,
+        "trust_model": "api_misuse_guard_not_cryptographic_provenance",
+        "adversarial_provenance_claimed": False,
+        "arbitrary_local_code_execution_out_of_scope": True,
         "missing_journal_status": "counterfactual_insufficient",
         "qualified_net_pnl_without_verified_lock": None,
         "prediction_lock_and_receipt_strictly_before_common_expiry": True,
@@ -2126,7 +2133,8 @@ def _prelabel_lock_provenance(
     if decision_hash != receipt.decision_payload_sha256:
         raise ValueError("decision payload does not match its pre-label lock receipt")
     universe = lock_index.universe
-    return _issue_verified_prelabel_lock_provenance(
+    return PreLabelLockProvenance._create(
+        status=PreLabelLockStatus.VERIFIED,
         test_universe_sha256=universe.test_universe_sha256,
         test_universe_locked_at_ms=universe.locked_at_ms,
         test_universe_received_at_ms=universe.received_at_ms,
@@ -2853,46 +2861,58 @@ def _strict_context_capture_evidence(context: _RawDecisionContext) -> bool:
     )
 
 
-def _builder_verified_evidence(
+def _evaluate_builder_authoritative_run(
     *,
     contexts: Sequence[_RawDecisionContext],
     primary: _SettingResult,
     lock_index: _PreLabelLockIndex | None,
     preregistration_sha256: str,
     parameter_neighborhood: ParameterNeighborhoodEvidence | None,
-) -> Any | None:
-    """Issue row-bound authority only after the builder's full verification chain."""
+) -> tuple[V07LockedOOSEvaluation, Mapping[str, Any] | None]:
+    """Evaluate one builder run after revalidating its loaded evidence spine.
 
+    The supported authority boundary is the high-level builder CLI, which reads
+    capture roots and the pre-expiry journal before this function is reached.
+    This is an API-misuse guard, not cryptographic protection from arbitrary
+    local Python execution or source modification.
+    """
+
+    evaluation = evaluate_locked_oos_evidence(
+        forecasts=primary.forecasts,
+        economic_attempts=primary.attempts,
+        parameter_neighborhood=parameter_neighborhood,
+    )
     if lock_index is None:
-        return None
+        return evaluation, None
     test_contexts = tuple(context for context in contexts if context.split == "test")
     if not test_contexts:
-        return None
+        return evaluation, None
     generated_fixture_count = sum(
         context.capture_config_evidence.get("generated_fixture") is True
         for context in test_contexts
     )
     if generated_fixture_count:
-        return None
+        return evaluation, None
     strict_contexts = tuple(
         context
         for context in test_contexts
         if _strict_context_capture_evidence(context)
     )
     if len(strict_contexts) != len(test_contexts):
-        return None
+        return evaluation, None
     if any(not row.lock_provenance.verified for row in primary.forecasts):
-        return None
+        return evaluation, None
     if any(not row.lock_provenance.verified for row in primary.attempts):
-        return None
+        return evaluation, None
     if any(
         row.forecast_availability_basis
         is not V07ForecastAvailabilityBasis.VERIFIED_IMMUTABLE_RECEIPT
         or row.forecast_available_at_ms >= row.expiry_ms
-        or row.lock_provenance.prediction_received_at_ms != row.forecast_available_at_ms
+        or row.lock_provenance.prediction_received_at_ms
+        != row.forecast_available_at_ms
         for row in primary.forecasts
     ):
-        return None
+        return evaluation, None
     if any(
         row.forecast_availability_basis
         is not V07ForecastAvailabilityBasis.VERIFIED_IMMUTABLE_RECEIPT
@@ -2900,7 +2920,7 @@ def _builder_verified_evidence(
         or row.first_execution_not_before_ms != row.forecast_available_at_ms + 250
         for row in primary.attempts
     ):
-        return None
+        return evaluation, None
 
     contexts_by_pair_tau = {
         (context.canonical_pair_id, context.decision_tau_seconds): context
@@ -2928,13 +2948,44 @@ def _builder_verified_evidence(
     if actionable_count != len(primary.attempts):
         raise ValueError("reconciliation ledger does not match actionable cycles")
 
+    universe_hashes = {
+        row.lock_provenance.test_universe_sha256 for row in primary.forecasts
+    }
+    universe_hashes.update(
+        row.lock_provenance.test_universe_sha256 for row in primary.attempts
+    )
+    if universe_hashes != {lock_index.universe.test_universe_sha256}:
+        raise ValueError("builder rows do not bind to the verified test universe")
+
+    def hash_documents(documents: Sequence[Mapping[str, Any]]) -> str:
+        return hashlib.sha256(canonical_json_bytes(list(documents))).hexdigest()
+
+    forecast_documents = sorted(
+        (row.to_document() for row in primary.forecasts),
+        key=lambda item: (
+            item["expiry_ms"],
+            item["decision_tau_seconds"],
+            item["canonical_pair_id"],
+        ),
+    )
+    reconciliation_documents = sorted(
+        (row.to_document() for row in primary.attempts),
+        key=lambda item: item["attempt_id"],
+    )
+    neighborhood_document: Mapping[str, Any] = (
+        {"parameter_neighborhood": None}
+        if parameter_neighborhood is None
+        else parameter_neighborhood.to_document()
+    )
     context_documents = [
         {
             "canonical_pair_id": context.canonical_pair_id,
             "expiry_ms": context.expiry_ms,
             "expiry_cluster_id": context.expiry_cluster_id,
             "decision_tau_seconds": context.decision_tau_seconds,
-            "capture_config_evidence": _json_document(context.capture_config_evidence),
+            "capture_config_evidence": _json_document(
+                context.capture_config_evidence
+            ),
             "capture_identity": _json_document(context.capture_identity),
         }
         for context in sorted(test_contexts, key=lambda item: item.identity)
@@ -2950,14 +3001,12 @@ def _builder_verified_evidence(
                 ),
             )
         ],
-        "reconciliations": [
-            row.to_document()
-            for row in sorted(primary.attempts, key=lambda item: item.attempt_id)
-        ],
+        "reconciliations": reconciliation_documents,
     }
     verification_chain = {
-        "schema_version": "btc-5m-15m-v07-builder-verification-chain.v4",
-        "builder_id": ("scripts.build_btc_twap_relative_value_v07_counterfactual"),
+        "schema_version": "btc-5m-15m-v07-builder-verification-chain.v5",
+        "builder_id": "scripts.build_btc_twap_relative_value_v07_counterfactual",
+        "supported_entry_point": "build_counterfactual_report",
         "source_baseline": SOURCE_BASELINE,
         "preregistration_sha256": preregistration_sha256,
         "capture_config_schema_version": CAPTURE_CONFIG_SCHEMA_VERSION,
@@ -3006,13 +3055,143 @@ def _builder_verified_evidence(
         "cycle_reconciliation_sha256": hashlib.sha256(
             canonical_json_bytes(cycle_reconciliation_document)
         ).hexdigest(),
+        "forecast_rows_sha256": hash_documents(forecast_documents),
+        "reconciliation_rows_sha256": hash_documents(reconciliation_documents),
+        "parameter_neighborhood_sha256": hashlib.sha256(
+            canonical_json_bytes(neighborhood_document)
+        ).hexdigest(),
     }
-    return _issue_builder_verified_evidence(
+    verification_sha256 = hashlib.sha256(
+        canonical_json_bytes(verification_chain)
+    ).hexdigest()
+
+    predictive_rows = tuple(
+        row
+        for row in primary.attempts
+        if row.edge_basis is V07EdgeBasis.PREDICTIVE
+    )
+    structural_rows = tuple(
+        row
+        for row in primary.attempts
+        if row.edge_basis is V07EdgeBasis.STRUCTURAL
+    )
+
+    def complete_track(rows: Sequence[LockedOOSEconomicAttempt]) -> bool:
+        return bool(rows) and all(
+            row.complete_cost_evidence
+            and row.complete_execution_evidence
+            and row.complete_settlement_evidence
+            and row.immutable_public_capture_evidence
+            and (row.explainable if row.economic_attempt else row.causal_no_fill)
+            for row in rows
+        )
+
+    predictive_complete = complete_track(predictive_rows)
+    structural_complete = complete_track(structural_rows) and all(
+        row.structural_quantity_executable
+        and row.structural_net_floor_per_pair is not None
+        and row.structural_net_floor_per_pair > 0
+        and row.selected_guaranteed_total_pnl is not None
+        and row.selected_guaranteed_total_pnl > 0
+        and not row.probability_diagnostics_applicable
+        for row in structural_rows
+    )
+    complete_evidence = complete_track(primary.attempts)
+    diagnostic = evaluate_gate_mechanism_diagnostic(
         forecasts=primary.forecasts,
         economic_attempts=primary.attempts,
         parameter_neighborhood=parameter_neighborhood,
-        verification_chain=verification_chain,
     )
+    predictive_true = (
+        diagnostic.mathematical_predictive_gate_conditions_satisfied
+        and predictive_complete
+    )
+    structural_true = (
+        diagnostic.mathematical_structural_gate_conditions_satisfied
+        and structural_complete
+    )
+    true_edge = predictive_true or structural_true
+    predictive_qualified = (
+        evaluation.predictive_net_pnl if predictive_true else None
+    )
+    structural_qualified = (
+        evaluation.structural_net_pnl if structural_true else None
+    )
+    qualified_values = tuple(
+        value
+        for value in (predictive_qualified, structural_qualified)
+        if value is not None
+    )
+    qualified_net_pnl = (
+        sum(qualified_values, Decimal("0")) if qualified_values else None
+    )
+    if true_edge:
+        status = V07EvidenceStatus.TRUE_EDGE_GATE_SATISFIED
+    elif not (
+        diagnostic.sample_gate_passed
+        or diagnostic.structural_sample_gate_passed
+    ):
+        status = V07EvidenceStatus.INSUFFICIENT_DATA
+    elif not (
+        evaluation.predictive_diagnostic_positive_sample_pnl
+        or evaluation.structural_diagnostic_positive_sample_pnl
+    ):
+        status = V07EvidenceStatus.NOT_PROFITABLE
+    else:
+        status = V07EvidenceStatus.POSITIVE_BUT_NOT_TRUE_EDGE
+
+    removed_reasons = {
+        "positive_sample_pnl_is_diagnostic_without_builder_verification",
+        "builder_verified_evidence_chain_missing",
+        "auditable_prelabel_manifest_prediction_decision_lock_missing",
+    }
+    if predictive_complete:
+        removed_reasons.add("cost_execution_or_settlement_evidence_incomplete")
+    if structural_complete:
+        removed_reasons.add(
+            "structural_cost_execution_or_settlement_evidence_incomplete"
+        )
+    reason_codes = tuple(
+        reason for reason in evaluation.reason_codes if reason not in removed_reasons
+    )
+    evaluation = replace(
+        evaluation,
+        status=status,
+        qualified_net_pnl=qualified_net_pnl,
+        predictive_qualified_net_pnl=predictive_qualified,
+        predictive_true_edge_gate_satisfied=predictive_true,
+        structural_qualified_net_pnl=structural_qualified,
+        structural_true_edge_gate_satisfied=structural_true,
+        positive_net_pnl_user_check_passed=true_edge,
+        true_edge_gate_satisfied=true_edge,
+        auditable_prelabel_lock_evidence=True,
+        builder_verified_evidence_chain=True,
+        builder_verification_sha256=verification_sha256,
+        complete_cost_and_execution_evidence=complete_evidence,
+        predictive_complete_cost_and_execution_evidence=predictive_complete,
+        structural_complete_cost_and_execution_evidence=structural_complete,
+        reason_codes=reason_codes,
+    )
+    authority_document = MappingProxyType(
+        {
+            "schema_version": (
+                "btc-5m-15m-v07-builder-authoritative-evidence.v5"
+            ),
+            "supported_entry_point": "build_counterfactual_report",
+            "verification_chain_sha256": verification_sha256,
+            "verification_chain": verification_chain,
+            "trust_model": "api_misuse_guard_not_cryptographic_provenance",
+            "external_signature_or_third_party_timestamp_present": False,
+            "adversarial_provenance_claimed": False,
+            "arbitrary_local_code_execution_out_of_scope": True,
+            "residual_threat": (
+                "an actor with arbitrary local Python execution or source-modification "
+                "authority can invoke or alter private internals and synthesize an "
+                "authority-shaped result"
+            ),
+        }
+    )
+    return evaluation, authority_document
 
 
 def build_counterfactual_report(
@@ -3095,26 +3274,12 @@ def build_counterfactual_report(
         )
     )
     preregistration_sha256 = _sha256(preregistration_path)
-    builder_verification = _builder_verified_evidence(
+    evaluation, builder_authority = _evaluate_builder_authoritative_run(
         contexts=contexts,
         primary=primary,
         lock_index=lock_index,
         preregistration_sha256=preregistration_sha256,
         parameter_neighborhood=neighborhood,
-    )
-    evaluation = (
-        evaluate_locked_oos_evidence(
-            forecasts=primary.forecasts,
-            economic_attempts=primary.attempts,
-            parameter_neighborhood=neighborhood,
-        )
-        if builder_verification is None
-        else _evaluate_builder_verified_locked_oos_evidence(
-            forecasts=primary.forecasts,
-            economic_attempts=primary.attempts,
-            parameter_neighborhood=neighborhood,
-            builder_verification=builder_verification,
-        )
     )
     context_documents = [
         {
@@ -3218,9 +3383,20 @@ def build_counterfactual_report(
         },
         "qualification_authority": {
             "public_evaluator_can_grant_qualification": False,
-            "builder_verified_row_bound_capability_required": True,
+            "supported_authority_entry_point": "build_counterfactual_report",
+            "builder_authoritative_revalidation_required": True,
+            "generic_caller_rows_plus_chain_issuer_distributed": False,
             "caller_rows_hashes_timestamps_and_evidence_flags_are_authority": False,
-            "generated_fixture_capability_allowed": False,
+            "generated_fixture_builder_authority_allowed": False,
+            "trust_model": "api_misuse_guard_not_cryptographic_provenance",
+            "external_signature_or_third_party_timestamp_present": False,
+            "adversarial_provenance_claimed": False,
+            "arbitrary_local_code_execution_out_of_scope": True,
+            "residual_threat": (
+                "arbitrary local Python execution or source modification can "
+                "invoke or alter private internals and synthesize an "
+                "authority-shaped result"
+            ),
         },
         "timing_policy": {
             "forecast_available_at_ms_verified_source": (
@@ -3277,10 +3453,13 @@ def build_counterfactual_report(
             ),
             "builder_verified_evidence": (
                 None
-                if builder_verification is None
-                else builder_verification.to_document()
+                if builder_authority is None
+                else _json_document(builder_authority)
             ),
             "caller_supplied_evidence_flags_are_not_authority": True,
+            "trust_model": "api_misuse_guard_not_cryptographic_provenance",
+            "arbitrary_local_code_execution_out_of_scope": True,
+            "adversarial_provenance_claimed": False,
         },
         "primary": _setting_document(primary, include_cycles=True),
         "sensitivity": {

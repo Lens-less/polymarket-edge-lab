@@ -467,12 +467,32 @@ def _sha256_path(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _integrity_pair_token(manifest_path: Path, raw_path: Path) -> bytes:
-    """Return a compact identity for one manifest/raw validation pair.
+_INTEGRITY_TOKEN_STAT_FIELDS = (
+    "st_dev",
+    "st_ino",
+    "st_mode",
+    "st_nlink",
+    "st_uid",
+    "st_gid",
+    "st_rdev",
+    "st_size",
+    "st_mtime_ns",
+    "st_ctime_ns",
+)
 
-    The token deliberately includes lexical and followed metadata for both
-    paths.  Content validation may be reused only while inode, type, size,
-    link count, ownership, and nanosecond change timestamps are unchanged.
+
+def _integrity_pair_token(
+    manifest_path: Path,
+    raw_path: Path,
+) -> bytes | None:
+    """Return a cache identity, or ``None`` when the platform cannot supply it.
+
+    On platforms that expose every required stat field, the byte sequence is
+    identical to the original POSIX token: lexical paths followed by lstat and
+    stat metadata in the same field order.  If any field is unavailable, no
+    weaker substitute is encoded.  The caller then performs full manifest and
+    content-hash validation and deliberately does not cache that result.
+
     Access time is excluded because the validation read itself may update it.
     """
 
@@ -482,23 +502,15 @@ def _integrity_pair_token(manifest_path: Path, raw_path: Path) -> bytes:
         digest.update(len(encoded_path).to_bytes(8, "big"))
         digest.update(encoded_path)
         for metadata in (path.lstat(), path.stat()):
-            for field in (
-                "st_dev",
-                "st_ino",
-                "st_mode",
-                "st_nlink",
-                "st_uid",
-                "st_gid",
-                "st_rdev",
-                "st_size",
-                "st_mtime_ns",
-                "st_ctime_ns",
-            ):
-                digest.update(
-                    int(getattr(metadata, field)).to_bytes(
-                        16, "big", signed=True
-                    )
-                )
+            values: list[int] = []
+            for field in _INTEGRITY_TOKEN_STAT_FIELDS:
+                try:
+                    value = getattr(metadata, field)
+                except AttributeError:
+                    return None
+                values.append(int(value))
+            for value in values:
+                digest.update(value.to_bytes(16, "big", signed=True))
     return digest.digest()
 
 

@@ -85,10 +85,13 @@ def test_v07_draft_assets_are_present_and_internally_hashed() -> None:
     assert preregistration["source_baseline"] == (
         "c557160d0c98e195a988f4353bbe19a3b00b3576"
     )
-    assert preregistration["drafted_at"] == "2026-08-15T13:21:59Z"
+    assert preregistration["drafted_at"] == "2026-08-15T15:37:51Z"
     draft_context = preregistration["draft_context"]
     assert isinstance(draft_context, dict)
     assert draft_context["created_after_known_v06_shadow_results"] is True
+    assert draft_context["revision"] == (
+        "v7_windows_portability_and_trust_boundary_correction"
+    )
     assert draft_context["known_v06_settled_attempts"] == 48
     assert (
         draft_context["provides_ex_ante_qualification_for_known_v06_results"] is False
@@ -123,7 +126,15 @@ def test_v07_draft_assets_are_present_and_internally_hashed() -> None:
     assert lock_policy["missing_journal_status"] == "counterfactual_insufficient"
     assert lock_policy["test_universe_binds_expiry_and_pair_identities"] is True
     assert lock_policy["public_evaluator_qualification_authority"] is False
-    assert lock_policy["builder_verified_evidence_chain_required"] is True
+    assert lock_policy["builder_authoritative_revalidation_required"] is True
+    assert (
+        lock_policy["generic_caller_rows_plus_chain_authority_issuer_distributed"]
+        is False
+    )
+    assert lock_policy["trust_model"] == (
+        "api_misuse_guard_not_cryptographic_provenance"
+    )
+    assert lock_policy["adversarial_provenance_claimed"] is False
     assert (
         lock_policy["prediction_lock_and_receipt_strictly_before_common_expiry"] is True
     )
@@ -135,7 +146,22 @@ def test_v07_draft_assets_are_present_and_internally_hashed() -> None:
     builder_policy = preregistration["builder_verified_evidence_policy"]
     assert isinstance(builder_policy, dict)
     assert builder_policy["public_evaluator_can_grant_qualification"] is False
-    assert builder_policy["generated_fixture_capability_allowed"] is False
+    assert builder_policy["generated_fixture_builder_authority_allowed"] is False
+    assert (
+        builder_policy[
+            "generic_caller_rows_plus_caller_chain_issuer_helpers_distributed"
+        ]
+        is False
+    )
+    assert builder_policy["trust_model"] == (
+        "api_misuse_guard_not_cryptographic_provenance"
+    )
+    assert (
+        builder_policy["external_signature_or_third_party_timestamp_present"]
+        is False
+    )
+    assert builder_policy["adversarial_provenance_claimed"] is False
+    assert builder_policy["arbitrary_local_code_execution_out_of_scope"] is True
     assert builder_policy["synthetic_gate_math_can_emit_true_edge"] is False
     assert builder_policy["synthetic_gate_math_can_emit_qualified_pnl"] is False
     edge_policy = preregistration["edge_basis_policy"]
@@ -192,9 +218,23 @@ def test_v07_draft_assets_are_present_and_internally_hashed() -> None:
         concentration["structural_gate_requires_brier_ece_or_model_neighborhood"]
         is False
     )
+    assert concentration["builder_authoritative_supported_entry_point"] == (
+        "build_counterfactual_report"
+    )
+    assert (
+        concentration[
+            "builder_authority_is_api_misuse_guard_not_cryptographic_provenance"
+        ]
+        is True
+    )
+    assert concentration["arbitrary_local_code_execution_out_of_scope"] is True
+    assert concentration["external_unforgeable_receipt_present"] is False
+    assert concentration["adversarial_provenance_claimed"] is False
     user_check = preregistration["non_promotional_user_check"]
     assert (
-        user_check["positive_net_pnl_user_check_requires_builder_verified_chain"]
+        user_check[
+            "positive_net_pnl_user_check_requires_builder_authoritative_revalidation"
+        ]
         is True
     )
     assert user_check["synthetic_or_generated_fixture_can_pass_user_check"] is False
@@ -209,7 +249,10 @@ def test_v07_draft_assets_are_present_and_internally_hashed() -> None:
     assert "event_cluster_id` is only a human-readable alias" in strategy_text
     assert "v07-common-expiry-sha256:" in strategy_text
     assert "Capture configuration is fail-closed" in strategy_text
-    assert "Builder-issued qualification authority" in strategy_text
+    assert "Builder-authoritative supported API and trust boundary" in strategy_text
+    assert "API misuse guard" in strategy_text
+    assert "not a cryptographic or adversarial provenance system" in strategy_text
+    assert "explicit residual threat" in strategy_text
     assert "structural_net_floor_per_pair" in strategy_text
     assert "after the v0.6 development-shadow result of 48" in strategy_text
     assert "forecast_available_at_ms" in strategy_text

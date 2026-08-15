@@ -33,11 +33,6 @@ BOOTSTRAP_SEED = 712
 ECE_BINS = 10
 CAPTURED_TAKER_DELAY_MS = 250
 _SHA256_RE = re.compile(r"[0-9a-f]{64}")
-_LOCK_PROVENANCE_ISSUER = object()
-_BUILDER_EVIDENCE_ISSUER = object()
-_BUILDER_ID = "scripts.build_btc_twap_relative_value_v07_counterfactual"
-_SOURCE_BASELINE = "c557160d0c98e195a988f4353bbe19a3b00b3576"
-_CAPTURE_CONFIG_SCHEMA_VERSION = "btc-5m-15m-relative-value-capture.v1"
 
 
 def _decimal(value: Any, *, label: str) -> Decimal:
@@ -112,7 +107,7 @@ class PreLabelLockStatus(str, Enum):
 
 @dataclass(frozen=True, init=False)
 class PreLabelLockProvenance:
-    """Lock receipts issued only by the verified builder path."""
+    """Builder-path lock receipt contract; not cryptographic provenance."""
 
     status: PreLabelLockStatus
     test_universe_sha256: str | None = None
@@ -125,7 +120,6 @@ class PreLabelLockProvenance:
     forecast_payload_sha256: str | None = None
     decision_payload_sha256: str | None = None
     reason: str | None = None
-    _issuer_token: object | None = field(default=None, repr=False, compare=False)
 
     def __init__(self, *_args: Any, **_kwargs: Any) -> None:
         raise TypeError(
@@ -148,7 +142,6 @@ class PreLabelLockProvenance:
         forecast_payload_sha256: str | None = None,
         decision_payload_sha256: str | None = None,
         reason: str | None = None,
-        issuer_token: object | None = None,
     ) -> PreLabelLockProvenance:
         instance = object.__new__(cls)
         values = {
@@ -163,7 +156,6 @@ class PreLabelLockProvenance:
             "forecast_payload_sha256": forecast_payload_sha256,
             "decision_payload_sha256": decision_payload_sha256,
             "reason": reason,
-            "_issuer_token": issuer_token,
         }
         for name, value in values.items():
             object.__setattr__(instance, name, value)
@@ -225,16 +217,14 @@ class PreLabelLockProvenance:
 
     @property
     def verified(self) -> bool:
-        return (
-            self.status is PreLabelLockStatus.VERIFIED
-            and self._issuer_token is _LOCK_PROVENANCE_ISSUER
-        )
+        return self.status is PreLabelLockStatus.VERIFIED
 
     def to_document(self) -> dict[str, Any]:
         payload = {
-            "schema_version": "btc-5m-15m-v07-prelabel-lock-provenance.v3",
+            "schema_version": "btc-5m-15m-v07-prelabel-lock-provenance.v4",
             "status": self.status.value,
-            "builder_issued_verified_receipt": self.verified,
+            "builder_path_receipt_contract_verified": self.verified,
+            "cryptographically_unforgeable": False,
             "test_universe_sha256": self.test_universe_sha256,
             "test_universe_locked_at_ms": self.test_universe_locked_at_ms,
             "test_universe_received_at_ms": self.test_universe_received_at_ms,
@@ -253,34 +243,6 @@ class PreLabelLockProvenance:
             ).hexdigest(),
         }
 
-
-def _issue_verified_prelabel_lock_provenance(
-    *,
-    test_universe_sha256: str,
-    test_universe_locked_at_ms: int,
-    test_universe_received_at_ms: int,
-    test_universe_receipt_id: str,
-    prediction_locked_at_ms: int,
-    prediction_received_at_ms: int,
-    prediction_receipt_id: str,
-    forecast_payload_sha256: str,
-    decision_payload_sha256: str,
-) -> PreLabelLockProvenance:
-    """Issue an opaque verified receipt after builder journal verification."""
-
-    return PreLabelLockProvenance._create(
-        status=PreLabelLockStatus.VERIFIED,
-        test_universe_sha256=test_universe_sha256,
-        test_universe_locked_at_ms=test_universe_locked_at_ms,
-        test_universe_received_at_ms=test_universe_received_at_ms,
-        test_universe_receipt_id=test_universe_receipt_id,
-        prediction_locked_at_ms=prediction_locked_at_ms,
-        prediction_received_at_ms=prediction_received_at_ms,
-        prediction_receipt_id=prediction_receipt_id,
-        forecast_payload_sha256=forecast_payload_sha256,
-        decision_payload_sha256=decision_payload_sha256,
-        issuer_token=_LOCK_PROVENANCE_ISSUER,
-    )
 
 
 @dataclass(frozen=True)
@@ -1009,257 +971,6 @@ def _neighborhood_sha256(
     return hashlib.sha256(canonical_json_bytes(document)).hexdigest()
 
 
-@dataclass(frozen=True, init=False)
-class _BuilderVerifiedEvidence:
-    """Opaque capability binding evaluated rows to a verified builder chain."""
-
-    preregistration_sha256: str
-    test_universe_sha256: str
-    verification_chain_sha256: str
-    forecast_rows_sha256: str
-    attempt_rows_sha256: str
-    parameter_neighborhood_sha256: str
-    _issuer_token: object = field(repr=False, compare=False)
-
-    @property
-    def verified(self) -> bool:
-        return self._issuer_token is _BUILDER_EVIDENCE_ISSUER
-
-    def to_document(self) -> dict[str, Any]:
-        return {
-            "schema_version": "btc-5m-15m-v07-builder-verified-evidence.v4",
-            "builder_id": _BUILDER_ID,
-            "source_baseline": _SOURCE_BASELINE,
-            "preregistration_sha256": self.preregistration_sha256,
-            "test_universe_sha256": self.test_universe_sha256,
-            "verification_chain_sha256": self.verification_chain_sha256,
-            "forecast_rows_sha256": self.forecast_rows_sha256,
-            "attempt_rows_sha256": self.attempt_rows_sha256,
-            "parameter_neighborhood_sha256": (self.parameter_neighborhood_sha256),
-            "opaque_builder_capability_verified": self.verified,
-        }
-
-
-_VERIFICATION_CHAIN_KEYS = frozenset(
-    {
-        "schema_version",
-        "builder_id",
-        "source_baseline",
-        "preregistration_sha256",
-        "capture_config_schema_version",
-        "strict_capture_config_count",
-        "generated_fixture_count",
-        "immutable_capture_count",
-        "test_context_count",
-        "forecast_count",
-        "reconciliation_count",
-        "predictive_forecast_count",
-        "structural_forecast_count",
-        "non_edge_forecast_count",
-        "predictive_reconciliation_count",
-        "structural_reconciliation_count",
-        "structural_executable_positive_floor_reconciliation_count",
-        "preexpiry_prediction_receipt_count",
-        "receipt_timed_replay_count",
-        "counterfactual_timing_count",
-        "test_universe_sha256",
-        "prelabel_lock_journal_identity_sha256",
-        "capture_config_and_tree_verification_sha256",
-        "cycle_reconciliation_sha256",
-    }
-)
-
-
-def _issue_builder_verified_evidence(
-    *,
-    forecasts: Sequence[LockedOOSForecastRow],
-    economic_attempts: Sequence[LockedOOSEconomicAttempt],
-    parameter_neighborhood: ParameterNeighborhoodEvidence | None,
-    verification_chain: Mapping[str, Any],
-) -> _BuilderVerifiedEvidence:
-    """Bind rows to builder-verified captures, journal receipts, and replay."""
-
-    chain = dict(verification_chain)
-    if set(chain) != _VERIFICATION_CHAIN_KEYS:
-        raise ValueError("builder verification chain has an invalid field set")
-    if chain["schema_version"] != ("btc-5m-15m-v07-builder-verification-chain.v4"):
-        raise ValueError("builder verification chain schema mismatch")
-    if chain["builder_id"] != _BUILDER_ID:
-        raise ValueError("builder verification chain issuer mismatch")
-    if chain["source_baseline"] != _SOURCE_BASELINE:
-        raise ValueError("builder verification chain baseline mismatch")
-    if chain["capture_config_schema_version"] != _CAPTURE_CONFIG_SCHEMA_VERSION:
-        raise ValueError("builder verification chain capture schema mismatch")
-    preregistration_sha256 = _sha256(
-        chain["preregistration_sha256"],
-        label="preregistration_sha256",
-    )
-    test_universe_sha256 = _sha256(
-        chain["test_universe_sha256"],
-        label="test_universe_sha256",
-    )
-    for name in (
-        "prelabel_lock_journal_identity_sha256",
-        "capture_config_and_tree_verification_sha256",
-        "cycle_reconciliation_sha256",
-    ):
-        _sha256(chain[name], label=name)
-    for name in (
-        "strict_capture_config_count",
-        "generated_fixture_count",
-        "immutable_capture_count",
-        "test_context_count",
-        "forecast_count",
-        "reconciliation_count",
-        "predictive_forecast_count",
-        "structural_forecast_count",
-        "non_edge_forecast_count",
-        "predictive_reconciliation_count",
-        "structural_reconciliation_count",
-        "structural_executable_positive_floor_reconciliation_count",
-        "preexpiry_prediction_receipt_count",
-        "receipt_timed_replay_count",
-        "counterfactual_timing_count",
-    ):
-        _non_negative_int(chain[name], label=name)
-    if chain["generated_fixture_count"] != 0:
-        raise ValueError("generated fixtures cannot receive verified evidence")
-    if chain["test_context_count"] <= 0:
-        raise ValueError("verified builder evidence requires test contexts")
-    if chain["strict_capture_config_count"] != chain["test_context_count"]:
-        raise ValueError("not every test context has a strict capture config")
-    if chain["immutable_capture_count"] != chain["test_context_count"]:
-        raise ValueError("not every test context has immutable capture evidence")
-    frozen_forecasts = tuple(forecasts)
-    frozen_attempts = tuple(economic_attempts)
-    if chain["forecast_count"] != len(frozen_forecasts):
-        raise ValueError("builder verification forecast count mismatch")
-    if chain["reconciliation_count"] != len(frozen_attempts):
-        raise ValueError("builder verification reconciliation count mismatch")
-    predictive_forecast_count = sum(
-        row.edge_basis is V07EdgeBasis.PREDICTIVE for row in frozen_forecasts
-    )
-    structural_forecast_count = sum(
-        row.edge_basis is V07EdgeBasis.STRUCTURAL for row in frozen_forecasts
-    )
-    non_edge_forecast_count = sum(
-        row.edge_basis is V07EdgeBasis.NONE for row in frozen_forecasts
-    )
-    if chain["predictive_forecast_count"] != predictive_forecast_count:
-        raise ValueError("builder predictive forecast count mismatch")
-    if chain["structural_forecast_count"] != structural_forecast_count:
-        raise ValueError("builder structural forecast count mismatch")
-    if chain["non_edge_forecast_count"] != non_edge_forecast_count:
-        raise ValueError("builder non-edge forecast count mismatch")
-    if (
-        predictive_forecast_count + structural_forecast_count + non_edge_forecast_count
-        != len(frozen_forecasts)
-    ):
-        raise ValueError("builder forecast edge-basis partition is incomplete")
-    predictive_reconciliation_count = sum(
-        row.edge_basis is V07EdgeBasis.PREDICTIVE for row in frozen_attempts
-    )
-    structural_reconciliation_count = sum(
-        row.edge_basis is V07EdgeBasis.STRUCTURAL for row in frozen_attempts
-    )
-    if chain["predictive_reconciliation_count"] != (predictive_reconciliation_count):
-        raise ValueError("builder predictive reconciliation count mismatch")
-    if chain["structural_reconciliation_count"] != (structural_reconciliation_count):
-        raise ValueError("builder structural reconciliation count mismatch")
-    if predictive_reconciliation_count + structural_reconciliation_count != len(
-        frozen_attempts
-    ):
-        raise ValueError("builder reconciliation edge-basis partition is incomplete")
-    structural_floor_count = sum(
-        row.edge_basis is V07EdgeBasis.STRUCTURAL
-        and row.structural_quantity_executable
-        and row.structural_net_floor_per_pair is not None
-        and row.structural_net_floor_per_pair > ZERO
-        and row.selected_guaranteed_total_pnl is not None
-        and row.selected_guaranteed_total_pnl > ZERO
-        for row in frozen_attempts
-    )
-    if (
-        chain["structural_executable_positive_floor_reconciliation_count"]
-        != structural_floor_count
-    ):
-        raise ValueError("builder structural positive-floor count mismatch")
-    if structural_floor_count != structural_reconciliation_count:
-        raise ValueError(
-            "every structural reconciliation must bind an executable positive floor"
-        )
-    if chain["preexpiry_prediction_receipt_count"] != len(frozen_forecasts):
-        raise ValueError("not every forecast has a pre-expiry prediction receipt")
-    if chain["receipt_timed_replay_count"] != len(frozen_attempts):
-        raise ValueError("not every reconciliation is receipt-timed")
-    if chain["counterfactual_timing_count"] != 0:
-        raise ValueError("builder-verified evidence cannot use counterfactual timing")
-    if not frozen_forecasts:
-        raise ValueError("verified builder evidence requires forecast rows")
-    if any(not row.lock_provenance.verified for row in frozen_forecasts):
-        raise ValueError("forecast rows lack builder-issued pre-label receipts")
-    if any(not row.lock_provenance.verified for row in frozen_attempts):
-        raise ValueError("reconciliation rows lack builder-issued pre-label receipts")
-    if any(
-        row.forecast_availability_basis
-        is not V07ForecastAvailabilityBasis.VERIFIED_IMMUTABLE_RECEIPT
-        or row.forecast_available_at_ms >= row.expiry_ms
-        or row.lock_provenance.prediction_received_at_ms != row.forecast_available_at_ms
-        for row in frozen_forecasts
-    ):
-        raise ValueError("forecast rows are not pre-expiry receipt-timed")
-    if any(
-        row.forecast_availability_basis
-        is not V07ForecastAvailabilityBasis.VERIFIED_IMMUTABLE_RECEIPT
-        or row.forecast_available_at_ms >= row.expiry_ms
-        or row.first_execution_not_before_ms
-        != row.forecast_available_at_ms + CAPTURED_TAKER_DELAY_MS
-        for row in frozen_attempts
-    ):
-        raise ValueError("reconciliation rows are not receipt-timed")
-    universe_hashes = {
-        row.lock_provenance.test_universe_sha256 for row in frozen_forecasts
-    }
-    universe_hashes.update(
-        row.lock_provenance.test_universe_sha256 for row in frozen_attempts
-    )
-    if universe_hashes != {test_universe_sha256}:
-        raise ValueError("verified rows do not bind to one test universe")
-    instance = object.__new__(_BuilderVerifiedEvidence)
-    values = {
-        "preregistration_sha256": preregistration_sha256,
-        "test_universe_sha256": test_universe_sha256,
-        "verification_chain_sha256": hashlib.sha256(
-            canonical_json_bytes(chain)
-        ).hexdigest(),
-        "forecast_rows_sha256": _forecast_rows_sha256(frozen_forecasts),
-        "attempt_rows_sha256": _attempt_rows_sha256(frozen_attempts),
-        "parameter_neighborhood_sha256": _neighborhood_sha256(parameter_neighborhood),
-        "_issuer_token": _BUILDER_EVIDENCE_ISSUER,
-    }
-    for name, value in values.items():
-        object.__setattr__(instance, name, value)
-    return instance
-
-
-def _validate_builder_verified_evidence(
-    evidence: _BuilderVerifiedEvidence,
-    *,
-    forecasts: Sequence[LockedOOSForecastRow],
-    economic_attempts: Sequence[LockedOOSEconomicAttempt],
-    parameter_neighborhood: ParameterNeighborhoodEvidence | None,
-) -> None:
-    if not isinstance(evidence, _BuilderVerifiedEvidence) or not evidence.verified:
-        raise TypeError("builder evidence capability is invalid")
-    if evidence.forecast_rows_sha256 != _forecast_rows_sha256(forecasts):
-        raise ValueError("builder evidence does not bind the forecast rows")
-    if evidence.attempt_rows_sha256 != _attempt_rows_sha256(economic_attempts):
-        raise ValueError("builder evidence does not bind the reconciliation rows")
-    if evidence.parameter_neighborhood_sha256 != _neighborhood_sha256(
-        parameter_neighborhood
-    ):
-        raise ValueError("builder evidence does not bind the parameter neighborhood")
-
 
 class V07EvidenceStatus(str, Enum):
     INSUFFICIENT_DATA = "insufficient_data"
@@ -1323,7 +1034,7 @@ class V07LockedOOSEvaluation:
         predictive_bootstrap = self.predictive_bootstrap_cluster_mean_lower_95
         predictive_binding = self.largest_positive_cluster_to_total_net_pnl
         return {
-            "schema_version": "btc-5m-15m-v07-locked-oos-evaluation.v6",
+            "schema_version": "btc-5m-15m-v07-locked-oos-evaluation.v7",
             "status": self.status.value,
             "qualification_basis": "independent_predictive_or_structural_gate",
             "builder_verified_evidence": {
@@ -1332,6 +1043,12 @@ class V07LockedOOSEvaluation:
                 "caller_supplied_rows_or_booleans_are_not_qualification_authority": (
                     True
                 ),
+                "supported_api_boundary": (
+                    "builder_cli_revalidated_capture_roots_and_preexpiry_journal"
+                ),
+                "trust_model": "api_misuse_guard_not_cryptographic_provenance",
+                "arbitrary_local_code_execution_out_of_scope": True,
+                "adversarially_unforgeable_receipt_available": False,
             },
             "sample_counts": {
                 "settled_expiry_clusters": self.settled_expiry_cluster_count,
@@ -1829,7 +1546,6 @@ def _evaluate_locked_oos_evidence(
     forecasts: Sequence[LockedOOSForecastRow],
     economic_attempts: Sequence[LockedOOSEconomicAttempt],
     parameter_neighborhood: ParameterNeighborhoodEvidence | None,
-    builder_verification: _BuilderVerifiedEvidence | None,
 ) -> V07LockedOOSEvaluation:
     frozen_forecasts = _validated_forecasts(forecasts)
     reconciliations = tuple(economic_attempts)
@@ -1880,14 +1596,11 @@ def _evaluate_locked_oos_evidence(
             if getattr(row, name) != getattr(forecast, name):
                 raise ValueError(f"reconciliation {name} differs from forecast")
 
-    builder_verified = builder_verification is not None
-    if builder_verification is not None:
-        _validate_builder_verified_evidence(
-            builder_verification,
-            forecasts=frozen_forecasts,
-            economic_attempts=reconciliations,
-            parameter_neighborhood=parameter_neighborhood,
-        )
+    # The row evaluator is intentionally diagnostic-only.  Economic authority is
+    # attached only by the high-level builder after it re-reads and revalidates the
+    # capture roots, strict configuration, pre-expiry journal, and replay ledger.
+    builder_verified = False
+    builder_verification_sha256: str | None = None
 
     forecast_clusters = {row.expiry_cluster_id for row in frozen_forecasts}
     economic_rows = tuple(row for row in reconciliations if row.economic_attempt)
@@ -2135,11 +1848,7 @@ def _evaluate_locked_oos_evidence(
         true_edge_gate_satisfied=true_edge,
         auditable_prelabel_lock_evidence=common_auditable_lock,
         builder_verified_evidence_chain=builder_verified,
-        builder_verification_sha256=(
-            None
-            if builder_verification is None
-            else builder_verification.verification_chain_sha256
-        ),
+        builder_verification_sha256=builder_verification_sha256,
         bootstrap_cluster_mean_lower_95=predictive_bootstrap,
         predictive_bootstrap_cluster_mean_lower_95=predictive_bootstrap,
         structural_bootstrap_cluster_mean_lower_95=structural_bootstrap,
@@ -2338,32 +2047,16 @@ def evaluate_locked_oos_evidence(
     """Public evaluator: validate rows but never grant economic qualification.
 
     Caller-created dataclasses, receipt-looking strings, and evidence booleans are
-    descriptive inputs only.  Only the builder's private, row-bound verification
-    capability can authorize a true-edge evaluation.
+    descriptive inputs only.  Qualification is performed only by the supported
+    high-level builder CLI after it revalidates capture roots and the pre-expiry
+    journal.  This API boundary is a misuse guard, not cryptographic provenance
+    against arbitrary local Python execution or source modification.
     """
 
     return _evaluate_locked_oos_evidence(
         forecasts=forecasts,
         economic_attempts=economic_attempts,
         parameter_neighborhood=parameter_neighborhood,
-        builder_verification=None,
-    )
-
-
-def _evaluate_builder_verified_locked_oos_evidence(
-    *,
-    forecasts: Sequence[LockedOOSForecastRow],
-    economic_attempts: Sequence[LockedOOSEconomicAttempt],
-    parameter_neighborhood: ParameterNeighborhoodEvidence | None,
-    builder_verification: _BuilderVerifiedEvidence,
-) -> V07LockedOOSEvaluation:
-    """Private builder entry point after raw-capture and journal verification."""
-
-    return _evaluate_locked_oos_evidence(
-        forecasts=forecasts,
-        economic_attempts=economic_attempts,
-        parameter_neighborhood=parameter_neighborhood,
-        builder_verification=builder_verification,
     )
 
 

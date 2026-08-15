@@ -732,6 +732,7 @@ def test_raw_case_rejects_symlinks_inside_immutable_capture_tree(
         _load(case, manifest_dir)
 
 
+@pytest.mark.timeout(90)
 def test_full_raw_counterfactual_builder_is_deterministic_and_nonpromotional(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -872,20 +873,11 @@ def test_builder_without_lock_journal_stays_counterfactual_on_strict_captures(
     assert report["evaluation"]["qualified_net_pnl"] is None
 
 
-def test_generated_fixture_cannot_receive_builder_capability(tmp_path: Path) -> None:
-    case, manifest_dir = _build_case(tmp_path, generated_fixture=True)
-    context = _load(case, manifest_dir)[0]
-
-    result = builder._builder_verified_evidence(
-        contexts=(context,),
-        primary=object(),  # type: ignore[arg-type]
-        lock_index=object(),  # type: ignore[arg-type]
-        preregistration_sha256="a" * 64,
-        parameter_neighborhood=object(),  # type: ignore[arg-type]
-    )
-
-    assert context.capture_config_evidence["generated_fixture"] is True
-    assert result is None
+def test_generic_builder_authority_issuer_is_not_distributed() -> None:
+    assert not hasattr(builder, "_builder_verified_evidence")
+    assert not hasattr(builder, "_issue_builder_verified_evidence")
+    assert not hasattr(builder, "_evaluate_builder_verified_locked_oos_evidence")
+    assert hasattr(builder, "build_counterfactual_report")
 
 
 def test_split_policy_rejects_canonical_cluster_renamed_as_new_case(

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 
 import pytest
 
+from src.edge_lab import btc_twap_relative_value_v07_evaluation as evaluation_module
 from src.edge_lab.btc_twap_relative_value_v07 import (
     CANONICAL_EVENT_CLUSTER_PREFIX,
     V07EdgeBasis,
@@ -15,8 +17,8 @@ from src.edge_lab.btc_twap_relative_value_v07_evaluation import (
     LockedOOSForecastRow,
     ParameterNeighborhoodEvidence,
     PreLabelLockProvenance,
+    PreLabelLockStatus,
     V07EvidenceStatus,
-    _issue_verified_prelabel_lock_provenance,
     evaluate_gate_mechanism_diagnostic,
     evaluate_locked_oos_evidence,
 )
@@ -46,7 +48,8 @@ def _verified_lock(
     received_at_ms: int | None = None,
 ) -> PreLabelLockProvenance:
     receipt_at_ms = decision_at_ms + 1 if received_at_ms is None else received_at_ms
-    return _issue_verified_prelabel_lock_provenance(
+    return PreLabelLockProvenance._create(
+        status=PreLabelLockStatus.VERIFIED,
         test_universe_sha256=hashlib.sha256(b"universe").hexdigest(),
         test_universe_locked_at_ms=100,
         test_universe_received_at_ms=200,
@@ -223,6 +226,34 @@ def _stable_neighborhood() -> ParameterNeighborhoodEvidence:
         required_setting_ids=required,
         net_pnl_by_setting={setting: D("1") for setting in required},
     )
+
+
+def test_generic_private_authority_issuers_are_not_distributed() -> None:
+    for name in (
+        "_issue_verified_prelabel_lock_provenance",
+        "_issue_builder_verified_evidence",
+        "_evaluate_builder_verified_locked_oos_evidence",
+    ):
+        assert not hasattr(evaluation_module, name)
+        assert name not in evaluation_module.__all__
+
+
+def test_private_row_evaluator_has_no_authority_parameter() -> None:
+    signature = inspect.signature(evaluation_module._evaluate_locked_oos_evidence)
+    assert "builder_verification_sha256" not in signature.parameters
+    assert "verification_chain" not in signature.parameters
+    assert "authority" not in signature.parameters
+
+
+def test_verified_lock_contract_disclaims_cryptographic_provenance() -> None:
+    provenance = _verified_lock(
+        decision_at_ms=1_060,
+        expiry_ms=2_000,
+        suffix="trust-boundary",
+    )
+    document = provenance.to_document()
+    assert document["builder_path_receipt_contract_verified"] is True
+    assert document["cryptographically_unforgeable"] is False
 
 
 def test_verified_lock_provenance_cannot_be_publicly_constructed() -> None:
@@ -532,7 +563,8 @@ def test_structurally_impossible_actual_outcome_is_rejected() -> None:
 
 
 def test_post_expiry_prelabel_prediction_receipt_fails_closed() -> None:
-    provenance = _issue_verified_prelabel_lock_provenance(
+    provenance = PreLabelLockProvenance._create(
+        status=PreLabelLockStatus.VERIFIED,
         test_universe_sha256="0" * 64,
         test_universe_locked_at_ms=100,
         test_universe_received_at_ms=200,

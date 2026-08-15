@@ -1,21 +1,21 @@
 {
   "schema_version": "btc-5m-15m-relative-value-preregistration.v07-draft",
   "evidence_track_id": "btc-counterfactual-v07-20260815",
-  "drafted_at": "2026-08-15T13:21:59Z",
+  "drafted_at": "2026-08-15T15:37:51Z",
   "deployment_status": "not_deployed_counterfactual_draft",
   "source_baseline": "c557160d0c98e195a988f4353bbe19a3b00b3576",
   "draft_context": {
-    "revision": "v6_review_remediation",
+    "revision": "v7_windows_portability_and_trust_boundary_correction",
     "created_after_known_v06_shadow_results": true,
     "known_v06_settled_attempts": 48,
     "known_v06_independent_expiry_clusters": 24,
     "known_v06_net_pnl_usdc": "87.523635",
-    "known_v06_results_role": "known_before_v6_draft_not_locked_oos_input",
+    "known_v06_results_role": "known_before_v7_draft_not_locked_oos_input",
     "provides_ex_ante_qualification_for_known_v06_results": false
   },
   "strategy_spec": {
     "path": "STRATEGY_SPEC.md",
-    "sha256": "86b37300d51cfc9250d424a69e83527fb64a337554fc1950d04831d394c6619c"
+    "sha256": "7c384c23e6e8b7224450672ab441803af069997e6c9dd59204cd6e7d4d5e5028"
   },
   "scope": {
     "asset": "BTC",
@@ -128,8 +128,8 @@
     "minimum_explainable_locked_oos_economic_attempts": 100,
     "net_pnl_must_be_positive": true,
     "diagnostic_positive_sample_pnl_field": "diagnostic_positive_sample_pnl",
-    "positive_net_pnl_user_check_requires_builder_verified_chain": true,
-    "synthetic_or_generated_fixture_can_pass_user_check": false
+    "synthetic_or_generated_fixture_can_pass_user_check": false,
+    "positive_net_pnl_user_check_requires_builder_authoritative_revalidation": true
   },
   "true_edge_gates": {
     "expiry_cluster_bootstrap_resamples": 5000,
@@ -155,7 +155,6 @@
     "coherent_depth_fee_market_baseline_both_horizons": true,
     "auditable_prelabel_manifest_prediction_decision_lock_required": true,
     "pair_hashes_do_not_count_as_independent_clusters": true,
-    "builder_verified_evidence_chain_required": true,
     "public_evaluator_can_grant_qualification": false,
     "prediction_receipt_strictly_before_common_expiry": true,
     "receipt_timestamp_is_forecast_available_at_ms": true,
@@ -179,7 +178,13 @@
     "structural_qualified_net_pnl_null_until_structural_gate": true,
     "synthetic_mechanism_diagnostic_can_return_economic_status": false,
     "synthetic_generated_or_mechanism_diagnostic_can_qualify_either_track": false,
-    "structural_gate_requires_brier_ece_or_model_neighborhood": false
+    "structural_gate_requires_brier_ece_or_model_neighborhood": false,
+    "builder_authoritative_supported_entry_point": "build_counterfactual_report",
+    "builder_authority_is_api_misuse_guard_not_cryptographic_provenance": true,
+    "arbitrary_local_code_execution_out_of_scope": true,
+    "external_unforgeable_receipt_present": false,
+    "adversarial_provenance_claimed": false,
+    "builder_authoritative_revalidation_required": true
   },
   "fail_closed": [
     "No independent 30s/60s terminal values are allowed in v0.7.",
@@ -196,14 +201,16 @@
     "No live order, credential, authenticated endpoint, proxy URL, signing, or production mutation.",
     "No synthetic fixture, pair rename, or correlated tau row counts toward independent economic gates.",
     "The public evaluator never grants qualification from caller-created rows, receipt-shaped strings, or self-reported evidence booleans.",
-    "Only a builder-issued capability bound to strict captures, pre-expiry receipt timing, receipt-timed replay reconciliation, row hashes, and edge-basis counts can authorize qualification.",
+    "The distributed evaluator module exposes no generic caller-rows-plus-caller-chain authority issuer.",
+    "Builder authority is an API misuse guard only; no external signature or third-party timestamp is present, adversarial provenance is not claimed, and arbitrary local Python execution or source modification remains an explicit residual threat.",
+    "Only the supported high-level builder path may authorize qualification after it re-reads and verifies strict captures, pre-expiry receipt timing, receipt-timed replay reconciliation, row hashes, and edge-basis counts.",
     "After common safety checks, structural candidates are derived from strikes and settlement rules before Monte Carlo; missing predictor history, shrinkage, or validation veto cannot erase an executable positive structural floor.",
     "Risk budget is an upper bound, not a target quantity; structural and predictive sizes optimize their preregistered total-PnL objectives over joint depth and fee-inclusive budget breakpoints.",
     "Structural and predictive PnL, sample counts, bootstrap, concentration, gate flags, and qualified PnL remain separate; 50 plus 50 cannot satisfy either 100-attempt gate.",
-    "A structural true-edge result requires real builder-verified provenance, real receipt-timed execution and settlement, at least 100 structural attempts at 100 common expiries, positive realized PnL, positive bootstrap lower bound, and at most 20 percent binding concentration.",
+    "A structural true-edge result requires builder-authoritative revalidation of immutable captures and pre-expiry journal receipts, real receipt-timed execution and settlement, at least 100 structural attempts at 100 common expiries, positive realized PnL, positive bootstrap lower bound, and at most 20 percent binding concentration.",
     "A theoretical structural floor never substitutes for actual fills, partials, timeouts, unwinds, settlement, or realized PnL.",
     "Synthetic gate arithmetic uses a non-economic diagnostic result type and can never emit predictive or structural TRUE_EDGE or non-null qualified PnL.",
-    "This v6 draft postdates the known 48-attempt v0.6 shadow result and provides no ex-ante qualification for it.",
+    "This v7 draft postdates the known 48-attempt v0.6 shadow result and provides no ex-ante qualification for it.",
     "The frozen v0.5/v0.6 tracks and 500-attempt promotion policy are unchanged."
   ],
   "causal_metadata_policy": {
@@ -259,9 +266,11 @@
     "strict_brier_improvement_required": true
   },
   "builder_verified_evidence_policy": {
-    "schema_version": "btc-5m-15m-v07-builder-verified-evidence-policy.v3",
+    "schema_version": "btc-5m-15m-v07-builder-verified-evidence-policy.v4",
     "public_evaluator_can_grant_qualification": false,
-    "qualification_authority": "opaque_builder_issued_row_bound_capability",
+    "supported_authority_entry_point": "scripts.build_btc_twap_relative_value_v07_counterfactual.build_counterfactual_report",
+    "qualification_authority": "builder_cli_revalidated_capture_roots_and_preexpiry_journal",
+    "generic_caller_rows_plus_caller_chain_issuer_helpers_distributed": false,
     "caller_dataclasses_hashes_timestamps_and_evidence_flags_authoritative": false,
     "required_builder_verifications": [
       "strict_capture_config_generated_fixture_false",
@@ -273,7 +282,7 @@
       "edge_basis_forecast_and_reconciliation_partition_counts",
       "structural_positive_floor_sizing_and_reconciliation_binding"
     ],
-    "capability_binds": [
+    "verification_digest_binds": [
       "preregistration_sha256",
       "test_universe_sha256",
       "forecast_rows_sha256",
@@ -286,10 +295,16 @@
       "predictive_structural_reconciliation_counts",
       "structural_executable_positive_floor_reconciliation_count"
     ],
-    "predictive_and_structural_tracks_use_same_verified_capability": true,
-    "generated_fixture_capability_allowed": false,
-    "missing_capability_status": "counterfactual_insufficient",
-    "qualified_net_pnl_without_capability": null,
+    "predictive_and_structural_tracks_use_same_builder_verification_digest": true,
+    "generated_fixture_builder_authority_allowed": false,
+    "missing_builder_authority_status": "counterfactual_insufficient",
+    "qualified_net_pnl_without_builder_authority": null,
+    "trust_model": "api_misuse_guard_not_cryptographic_provenance",
+    "external_signature_or_third_party_timestamp_present": false,
+    "adversarial_provenance_claimed": false,
+    "arbitrary_local_code_execution_out_of_scope": true,
+    "residual_threat": "arbitrary_local_python_execution_or_source_modification_can_invoke_or_alter_private_internals_and_synthesize_authority_shaped_results",
+    "adversarial_provenance_requires_external_independently_verifiable_receipt": true,
     "synthetic_gate_math_result_type": "non_economic_mechanism_diagnostic",
     "synthetic_gate_math_can_emit_true_edge": false,
     "synthetic_gate_math_can_emit_qualified_pnl": false
@@ -368,9 +383,7 @@
     "prediction_locked_at_equals_decision_at": true,
     "canonical_forecast_and_decision_hashes_required": true,
     "public_evaluator_qualification_authority": false,
-    "builder_verified_evidence_chain_required": true,
     "row_set_and_parameter_neighborhood_hash_binding": true,
-    "generated_fixture_builder_capability_allowed": false,
     "missing_journal_status": "counterfactual_insufficient",
     "qualified_net_pnl_without_verified_lock": null,
     "prediction_lock_and_receipt_strictly_before_common_expiry": true,
@@ -378,7 +391,13 @@
     "backdated_lock_cannot_substitute_receipt_time": true,
     "first_execution_not_before_forecast_available_plus_taker_delay": true,
     "counterfactual_computation_availability_delay_ms": 5000,
-    "counterfactual_timing_is_production_runtime_validation": false
+    "counterfactual_timing_is_production_runtime_validation": false,
+    "builder_authoritative_revalidation_required": true,
+    "trust_model": "api_misuse_guard_not_cryptographic_provenance",
+    "adversarial_provenance_claimed": false,
+    "arbitrary_local_code_execution_out_of_scope": true,
+    "generic_caller_rows_plus_chain_authority_issuer_distributed": false,
+    "generated_fixture_builder_authority_allowed": false
   },
   "timing_availability_policy": {
     "schema_version": "btc-5m-15m-v07-timing-availability-policy.v1",

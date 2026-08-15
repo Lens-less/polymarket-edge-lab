@@ -4,7 +4,7 @@
 
 This is an **opt-in, paper-only counterfactual research track**. It is a draft preregistration, not evidence of deployment, trading, profitability, or production readiness. The frozen v0.5 and v0.6 tracks, hashes, evidence directories, action paths, qualification rules, dependencies, lock files, safety guards, and promotion policy remain unchanged.
 
-This v6 draft was generated at `2026-08-15T13:21:59Z`, after the v0.6 development-shadow result of 48 settled attempts across 24 common expiries and net `+87.523635` USDC was already known. It therefore supplies no ex-ante or preregistered qualification for those 48 known attempts, does not retest them as locked OOS evidence, and must not be cited as though it predated their outcomes.
+This v7 draft was generated at `2026-08-15T15:37:51Z`, after the v0.6 development-shadow result of 48 settled attempts across 24 common expiries and net `+87.523635` USDC was already known. It therefore supplies no ex-ante or preregistered qualification for those 48 known attempts, does not retest them as locked OOS evidence, and must not be cited as though it predated their outcomes.
 
 The eligible universe is one same-expiry BTC pair: the final 5-minute market nested inside one 15-minute market, with both public rules bound to the current Chainlink BTC/USD 60-second TWAP settlement regime.
 
@@ -84,22 +84,17 @@ The journal must contain:
 
 Receipts at or after common expiry, retrospectively selected test-universe receipts, hash mismatches, duplicate receipts, or missing claimed receipts fail closed. Being earlier than a later official-resolution receipt is insufficient, and a backdated `prediction_locked_at_ms` can never replace the immutable receipt clock. A replay without this journal is explicitly `counterfactual_insufficient`; it may produce diagnostics and counterfactual PnL but can never satisfy `true_edge_gate_satisfied` or produce non-null `qualified_net_pnl`.
 
-## Builder-issued qualification authority
+## Builder-authoritative supported API and trust boundary
 
-The public evaluator is deliberately non-authoritative. Caller-created dataclasses, receipt-shaped hashes or timestamps, and self-reported `complete_*` or `immutable_public_capture_evidence` booleans are descriptive inputs only. The public entry point always remains `counterfactual_insufficient` and always emits `qualified_net_pnl: null`, even when 100 caller-created rows are profitable and appear to carry verified receipts.
+The supported public evaluator is deliberately non-authoritative. Caller-created dataclasses, receipt-shaped hashes or timestamps, and self-reported `complete_*` or `immutable_public_capture_evidence` booleans are descriptive inputs only. The public entry point always remains `counterfactual_insufficient` and always emits `qualified_net_pnl: null`, even when 100 caller-created rows are profitable and appear to carry verified receipts.
 
-Economic qualification requires an opaque, builder-issued capability that is unavailable from the public evaluator API. The builder may issue it only after it has actually verified all of the following in the same run:
+The only supported qualification path is the high-level counterfactual builder CLI. In one unmodified process it reads the manifest, capture roots, strict capture configuration, and pre-expiry lock journal; recomputes file and tree identities; verifies payload-bound receipts and receipt-timed replay; reconciles every actionable decision; and derives the row-set and evidence-chain digests itself. The distributed evaluator module exposes no generic helper that accepts caller rows plus a caller-supplied verification chain and turns them into qualification authority.
 
-- exact strict capture configuration and `generated_fixture: false` for every test context;
-- immutable capture and predictor tree identity;
-- the pre-label test-universe and per-decision lock journal;
-- one replay cycle per locked test context and one reconciliation row per actionable decision;
-- canonical row-set hashes for forecasts and reconciliations;
-- the exact diagnostic parameter-neighborhood document.
+This boundary is an **API misuse guard**, not a cryptographic or adversarial provenance system. The bundle contains no external signature, hardware-backed key, transparency-log inclusion proof, or independent third-party timestamp. A process owner with arbitrary local Python execution or source-modification authority can import private internals, synthesize objects, monkeypatch checks, or alter control flow. That private-import/source-modification capability is an explicit residual threat and is not claimed to be closed by this repository. Adversarial provenance would require an external, independently verifiable receipt or signature outside the attacker-controlled process.
 
-The capability binds the preregistration hash, test-universe hash, forecast-row hash, reconciliation-row hash, neighborhood hash, capture/config verification hash, journal identity hash, cycle/reconciliation hash, predictive/structural/non-edge forecast counts, predictive/structural reconciliation counts, and the count of structural reconciliations with executable positive floors. Any changed row or neighborhood invalidates it. Missing journal evidence, any generated fixture, missing reconciliation, or a public-evaluator call cannot receive qualification authority.
+Within the supported, unmodified builder path, the verification digest binds the preregistration hash, test-universe hash, forecast-row hash, reconciliation-row hash, neighborhood hash, capture/config verification hash, journal identity hash, cycle/reconciliation hash, predictive/structural/non-edge forecast counts, predictive/structural reconciliation counts, and the count of structural reconciliations with executable positive floors. Missing journal evidence, any generated fixture, missing reconciliation, or a public-evaluator call remains non-authoritative and fail-closed.
 
-Synthetic gate arithmetic is exercised only through a dedicated non-economic mechanism diagnostic. That diagnostic can show which mathematical thresholds would be met, but its result type is permanently `non_economic_mechanism_diagnostic`, `true_edge_gate_satisfied` is false, and qualified PnL is null. No generated or synthetic test invokes the economic evaluator with fabricated builder authority or emits a true-edge economic result object.
+Synthetic gate arithmetic is exercised only through a dedicated non-economic mechanism diagnostic. That diagnostic can show which mathematical thresholds would be met, but its result type is permanently `non_economic_mechanism_diagnostic`, `true_edge_gate_satisfied` is false, and qualified PnL is null. Generated and synthetic tests do not establish adversarial provenance or economic qualification.
 
 ## Forecast availability and paper-replay timing
 
@@ -161,11 +156,11 @@ Tau rows are not independent, and different market or condition IDs at the same 
 
 The raw mathematical diagnostic `diagnostic_positive_sample_pnl` reports only whether sample-count and arithmetic-positive-PnL conditions are met; it is explicitly non-qualifying. The qualified-semantics field `positive_net_pnl_user_check_passed` requires a complete real builder-verified predictive or structural gate. Synthetic, generated, public-evaluator, or self-reported rows therefore leave that field false even when their arithmetic sample PnL is positive.
 
-v6 implements an independent fail-closed structural true-edge gate alongside the predictive gate. Predictive and structural evidence use two independent sample gates. Each track separately requires at least 100 distinct captured common expiries, at least 100 explainable locked-OOS economic attempts of that same `edge_basis`, and positive realized track net PnL. A mixed sample of 50 predictive and 50 structural attempts satisfies neither track. Causal no-fills remain in track PnL and cluster bootstrap as zero, but do not count as economic attempts.
+v7 retains an independent fail-closed structural true-edge gate alongside the predictive gate. Predictive and structural evidence use two independent sample gates. Each track separately requires at least 100 distinct captured common expiries, at least 100 explainable locked-OOS economic attempts of that same `edge_basis`, and positive realized track net PnL. A mixed sample of 50 predictive and 50 structural attempts satisfies neither track. Causal no-fills remain in track PnL and cluster bootstrap as zero, but do not count as economic attempts.
 
 Both true-edge tracks require the same real evidence spine:
 
-- a real builder-issued capability bound to strict immutable public captures with `generated_fixture: false`;
+- a builder-authoritative verification digest derived by the supported high-level CLI from strict immutable public captures with `generated_fixture: false`;
 - verified test-universe and per-decision receipts whose forecast availability is strictly before common expiry;
 - receipt-timed replay with no pre-receipt surface, complete depth/fee evidence, partial-fill/timeout/unwind handling, official settlement evidence, and one-to-one reconciliation;
 - positive realized track net PnL;
@@ -179,7 +174,7 @@ The structural track does not require Brier, ECE, model-neighborhood stability, 
 
 `predictive_true_edge_gate_satisfied` and `structural_true_edge_gate_satisfied` are serialized separately, with separate qualified PnL values. Top-level `true_edge_gate_satisfied` is the logical OR of the two complete track gates; top-level qualified PnL is non-null only for tracks that actually pass. `positive_net_pnl_user_check_passed` shares this qualified semantics and cannot be satisfied by raw arithmetic alone.
 
-Without the builder-issued verification chain, status is `counterfactual_insufficient`, `positive_net_pnl_user_check_passed` is false, both true-edge flags are false, and all qualified PnL fields are `null`, regardless of caller-provided receipts, evidence booleans, retrospective sample size, theoretical floors, or PnL. Generated fixtures and mechanism diagnostics prove implementation arithmetic only and can never emit an economic predictive or structural true-edge result.
+Without the supported builder-authoritative revalidation path, status is `counterfactual_insufficient`, `positive_net_pnl_user_check_passed` is false, both true-edge flags are false, and all qualified PnL fields are `null`, regardless of caller-provided receipts, evidence booleans, retrospective sample size, theoretical floors, or PnL. Generated fixtures and mechanism diagnostics prove implementation arithmetic only and can never emit an economic predictive or structural true-edge result.
 
 ## Diagnostic sensitivity grid
 
