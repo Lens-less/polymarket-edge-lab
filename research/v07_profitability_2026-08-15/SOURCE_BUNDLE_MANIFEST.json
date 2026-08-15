@@ -1,0 +1,80 @@
+{
+  "schema_version": "poly-mm-chatgpt-pro-source-bundle.v1",
+  "created_at_utc": "2026-08-15T03:25:17.1510734Z",
+  "repository": "https://github.com/Lens-less/poly-mm.git",
+  "branch": "codex/settlement-regime-v06",
+  "source_commit": "c557160d0c98e195a988f4353bbe19a3b00b3576",
+  "origin_main_at_scan": "cd53a106690fb9bc4a67f70a06f01f925980024e",
+  "tracked_worktree_changes_at_scan": [],
+  "preexisting_untracked_paths": [
+    "research/btc_5m_15m_relative_value_paper_v05_linux_2026-08-13/DEPLOYMENT_REPORT.md",
+    "research/settlement_regime_break_2026-08-14/V06_LIVE_REVIEW_AND_NEXT_PLAN.md",
+    "research/v06_review_2026-08-15/V06_REVIEW.md"
+  ],
+  "bundle_overlays": [
+    {
+      "path": "research/v06_review_2026-08-15/V06_REVIEW.md",
+      "sha256": "cec655a765f4c34b7ac3b7ac5ce3cc3eee89d6123ef442bc72fed7e3c17b43d8",
+      "origin": "preexisting_untracked_review"
+    },
+    {
+      "path": "research/v07_profitability_2026-08-15/CHATGPT_PRO_IMPLEMENTATION_TASK.md",
+      "sha256": "5bfc7ee40d7506346027aa7f3c4fc39753e1152a983a3b4643194e1f753efd34",
+      "origin": "codex_generated_task_brief"
+    },
+    {
+      "path": "research/v07_profitability_2026-08-15/CHATGPT_PRO_EDGE_AUDIT_TASK.md",
+      "sha256": "459eb273ab709e9338f87d76397732fdc3811effe485f4c0aa35bae0f40e05dc",
+      "origin": "codex_generated_task_brief"
+    }
+  ],
+  "archive": {
+    "filename": "poly-mm-chatgpt-pro-c557160-20260815T0313Z.zip",
+    "persistent_local_path": "C:/Users/28340/Desktop/poly-mm-artifacts/poly-mm-chatgpt-pro-c557160-20260815T0313Z.zip",
+    "size_bytes": 1286032,
+    "sha256": "3fdcf7eef59f811cf7935c6953ea3b1bd822967bddbd298e72336d458c2708c0",
+    "entry_count_including_directory_entries": 242,
+    "uncompressed_file_bytes": 6002949
+  },
+  "included_scope": [
+    "root project guidance and Python dependency metadata",
+    "src/edge_lab",
+    "scripts",
+    "tests",
+    "deploy/aws paper_v05, paper_v06, rawcap, and watch assets",
+    "v0.5 and v0.6 strategy specifications, preregistrations, and service configs",
+    "settlement-regime specification and compact recovery/registry evidence",
+    "sanitized current v0.6 review with aggregate shadow-trade evidence",
+    "selected prior edge-discovery and profitability summary artifacts",
+    "the two ChatGPT Pro task briefs"
+  ],
+  "excluded_scope": [
+    ".git and all repository history objects",
+    "node_modules, virtual environments, caches, compiled bytecode, build and dist outputs",
+    "runtime data, raw captures, databases, logs, service state, and browser state",
+    ".env files, .env.example, credentials, cookies, tokens, private keys, and certificate/key containers",
+    "host-specific deployment reports and the live review containing an exact cloud instance identifier",
+    "large unrelated or reproducible raw research datasets"
+  ],
+  "secret_scan": {
+    "tools": [
+      "ripgrep 15.1.0-compatible PCRE2 known-secret-format scan",
+      "PowerShell suspicious filename and generic credential-assignment metadata scan",
+      "ZIP entry policy verification"
+    ],
+    "gitleaks_available": false,
+    "trufflehog_available": false,
+    "suspicious_filename_matches": 0,
+    "known_secret_format_matches": 0,
+    "generic_assignment_candidates": 39,
+    "generic_assignment_disposition": "Manually reviewed without exposing values; all were code/type identifiers or deliberate fake sentinels in security tests, not live credentials.",
+    "forbidden_zip_entries": 0,
+    "result": "pass",
+    "limitation": "Pattern and metadata scanning cannot mathematically prove the absence of every possible secret; scope minimization and explicit exclusions are the primary controls."
+  },
+  "notes": [
+    "No package.json exists; this is a Python/uv project.",
+    "The archive does not include the two other preexisting untracked operational reports.",
+    "The archive is intended only for the two explicitly authorized ChatGPT Pro engineering conversations."
+  ]
+}
