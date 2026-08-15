@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "btc-5m-15m-v07-counterfactual-manifest.v2",
+  "title": "BTC 5m/15m v0.7 immutable-capture counterfactual manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "preregistration_path",
+    "cases"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "btc-5m-15m-v07-counterfactual-manifest.v2"
+    },
+    "preregistration_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "prelabel_lock_journal_root": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "description": "Optional immutable CaptureStore journal. Without it, evidence is counterfactual_insufficient."
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "event_cluster_id",
+          "canonical_event_cluster_id",
+          "split",
+          "capture_root",
+          "predictor_root",
+          "capture_config_path",
+          "decision_tau_seconds"
+        ],
+        "properties": {
+          "event_cluster_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Human-readable alias only; never counted as an independent cluster."
+          },
+          "canonical_event_cluster_id": {
+            "type": "string",
+            "pattern": "^v07-expiry-pair-sha256:[0-9a-f]{64}$",
+            "description": "Pair-integrity key derived from captured common expiry and both market/condition identities. It is not an independent statistical cluster key."
+          },
+          "split": {
+            "enum": [
+              "train",
+              "validation",
+              "test"
+            ]
+          },
+          "capture_root": {
+            "type": "string",
+            "minLength": 1
+          },
+          "predictor_root": {
+            "type": "string",
+            "minLength": 1
+          },
+          "capture_config_path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "history_roots": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "default": []
+          },
+          "decision_tau_seconds": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "integer",
+              "minimum": 45,
+              "maximum": 240
+            }
+          }
+        }
+      }
+    }
+  },
+  "description": "The common expiry is derived only from immutable captured market targets. Manifest-provided expiry timestamps are forbidden."
+}

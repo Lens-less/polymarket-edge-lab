@@ -1,0 +1,226 @@
+{
+  "schema_version": "btc-5m-15m-relative-value-preregistration.v07-draft",
+  "evidence_track_id": "btc-counterfactual-v07-20260815",
+  "drafted_at": "2026-08-15T00:00:00Z",
+  "deployment_status": "not_deployed_counterfactual_draft",
+  "source_baseline": "c557160d0c98e195a988f4353bbe19a3b00b3576",
+  "strategy_spec": {
+    "path": "STRATEGY_SPEC.md",
+    "sha256": "913ad12736033b38183aa26f6c956869bddb95b3c3bc89b6f0b2b307dbffd0b5"
+  },
+  "scope": {
+    "asset": "BTC",
+    "horizons": [
+      "5m",
+      "15m"
+    ],
+    "pair_rule": "same_expiry_only",
+    "settlement_regime": "chainlink_twap_60s_5m_and_60s_15m.v1",
+    "settlement_model_id": "shared_terminal_twap_60.v1",
+    "model_version": "btc_5m_15m_shared_terminal_twap_60.v07",
+    "paper_only": true,
+    "live_orders_disabled": true,
+    "credentials_allowed": false,
+    "authenticated_endpoints_allowed": false,
+    "proxy_urls_allowed": false
+  },
+  "model": {
+    "schema_version": "btc-5m-15m-shared-terminal-model-config.v1",
+    "settlement_model_id": "shared_terminal_twap_60.v1",
+    "model_version": "btc_5m_15m_shared_terminal_twap_60.v07",
+    "minimum_history_seconds": 300,
+    "n_paths": 8192,
+    "seed": 712,
+    "annualized_volatility_floor": "0.25",
+    "return_intervals_seconds": [
+      15,
+      60
+    ],
+    "student_t_df": 5,
+    "uncertainty_scales": [
+      "0.75",
+      "1",
+      "1.5"
+    ],
+    "uncertainty_weights": [
+      "0.2",
+      "0.6",
+      "0.2"
+    ],
+    "jeffreys_alpha": "0.5",
+    "maximum_predictor_staleness_ms": 5000,
+    "empirical_oracle_residual_distribution": null,
+    "residual_policy": "fixed_zero_after_causal_chainlink_minus_local_basis"
+  },
+  "model_config_sha256": "c659476776359771a6f8df6f13f5fc27c05d6a27636591fedb35bc92745fd626",
+  "frozen_strategy": {
+    "tau_min_seconds": 45,
+    "tau_max_seconds": 240,
+    "maximum_spread_each_leg": "0.03",
+    "maximum_chainlink_staleness_ms": 5000,
+    "maximum_book_staleness_ms": 750,
+    "maximum_clock_drift_ms": 100,
+    "minimum_market_price": "0.05",
+    "maximum_market_price": "0.95",
+    "pair_risk_usdc": "25",
+    "minimum_net_expected_pnl_per_pair": "0.015",
+    "uncertainty_multiplier": "1.25",
+    "cvar_tail_probability": "0.05",
+    "max_leg_delay_ms": 750,
+    "initial_cash": "10000",
+    "settlement_regime": "chainlink_twap_60s_5m_and_60s_15m.v1",
+    "market_baseline_quantity": "5"
+  },
+  "train_only_shrinkage": {
+    "candidate_model_weights": [
+      "0",
+      "0.25",
+      "0.5",
+      "0.75",
+      "1"
+    ],
+    "selection_metric": "cluster_equal_mean_of_two_horizon_brier",
+    "tie_break": "lowest_model_weight"
+  },
+  "split_policy": {
+    "method": "chronological_common_expiry_disjoint",
+    "shuffle": false,
+    "parameters_selected_on": "train_only",
+    "validation_role": "veto_only_no_retraining",
+    "test_is_locked": true,
+    "label_must_predate_fit_or_veto": true,
+    "label_available_at_definition": "max_expiry_closing_receipt_and_both_official_resolution_receipts",
+    "independent_cluster_key": "sha256_capture_derived_common_expiry_ms_only",
+    "pair_integrity_key": "sha256_common_expiry_5m_market_condition_15m_market_condition",
+    "manifest_expiry_ms_role": "forbidden_not_accepted",
+    "manifest_event_cluster_id_role": "diagnostic_alias_only_not_counted",
+    "one_pair_per_common_expiry": "required",
+    "duplicate_common_expiry_across_pair_alias_case_or_split": "reject",
+    "prelabel_test_universe_lock_required_for_true_edge": true
+  },
+  "sensitivity_grid": {
+    "diagnostic_only": true,
+    "action_changing": false,
+    "volatility_floor_offsets": [
+      "-0.05",
+      "+0.05"
+    ],
+    "model_weight_offsets": [
+      "-0.25",
+      "+0.25"
+    ],
+    "common_random_numbers_across_model_configs": true,
+    "boundary_policy": "omit_out_of_range_neighbors_no_duplicate_primary"
+  },
+  "non_promotional_user_check": {
+    "minimum_distinct_settled_expiry_clusters": 100,
+    "settled_expiry_cluster_definition": "distinct_capture_derived_common_expiries_with_at_least_one_explainable_economic_attempt",
+    "minimum_explainable_locked_oos_economic_attempts": 100,
+    "net_pnl_must_be_positive": true
+  },
+  "true_edge_gates": {
+    "expiry_cluster_bootstrap_resamples": 5000,
+    "expiry_cluster_bootstrap_seed": 712,
+    "bootstrap_statistic": "mean_cluster_net_pnl",
+    "bootstrap_lower_95_quantile_method": "sorted_order_statistic_at_ceil_0.05_times_resamples_minus_one",
+    "bootstrap_mean_net_pnl_lower_95_must_exceed": "0",
+    "complete_cost_execution_and_settlement_evidence": true,
+    "brier_must_beat_executable_market_both_horizons": true,
+    "brier_weighting": "equal_common_expiry_then_equal_tau_within_expiry",
+    "ece_maximum_both_horizons": "0.05",
+    "ece_bins": 10,
+    "ece_bin_edges": "equal_width_on_closed_unit_interval",
+    "ece_weighting": "equal_common_expiry_then_equal_tau_within_expiry",
+    "neighboring_settings_must_be_positive": true,
+    "qualified_net_pnl_null_until_all_gates_pass": true,
+    "maximum_largest_positive_cluster_to_total_net_pnl": "0.20",
+    "binding_concentration_numerator": "largest_positive_expiry_cluster_net_pnl",
+    "binding_concentration_denominator": "total_net_pnl",
+    "nonpositive_total_net_pnl_concentration": "unavailable_and_gate_fails",
+    "diagnostic_largest_positive_to_total_positive_pnl": true,
+    "diagnostic_largest_absolute_to_total_absolute_pnl": true,
+    "coherent_depth_fee_market_baseline_both_horizons": true,
+    "auditable_prelabel_manifest_prediction_decision_lock_required": true,
+    "pair_hashes_do_not_count_as_independent_clusters": true
+  },
+  "fail_closed": [
+    "No independent 30s/60s terminal values are allowed in v0.7.",
+    "No Monte Carlo standard-error or inverse-sqrt-path-count qualification penalty.",
+    "Binding market baseline walks frozen-size decision-time depth, includes dynamic fees, and uses the same structural projection as the forecast.",
+    "Capture config requires the exact v1 schema, explicit true paper/public/orders-disabled flags, and an explicit boolean generated_fixture field.",
+    "Manifest aliases and pair hashes never define independent clusters; capture-derived common expiry controls all counts, metrics, and splits.",
+    "One common expiry may have only one 5m/15m pair, one case, one alias, and one split.",
+    "Post-label prediction receipts and retrospectively selected test-universe receipts are rejected.",
+    "No missing raw history, required book surface, fee, rule, clock, boundary, timestamp, resolution, or reconciliation value is imputed.",
+    "Every locked actionable decision is reconciled, including causal zero-PnL no-fills.",
+    "No live order, credential, authenticated endpoint, proxy URL, signing, or production mutation.",
+    "No synthetic fixture, pair rename, or correlated tau row counts toward independent economic gates.",
+    "The frozen v0.5/v0.6 tracks and 500-attempt promotion policy are unchanged."
+  ],
+  "causal_metadata_policy": {
+    "rules_and_fee_snapshots_received_by": "earliest_decision_at_ms_per_expiry_cluster",
+    "capture_config_path": "capture_root/capture-config.json",
+    "capture_config_sha256_recorded": true,
+    "capture_config_schema_version": "btc-5m-15m-relative-value-capture.v1",
+    "capture_config_required_true_fields": [
+      "paper_only",
+      "public_only",
+      "new_orders_disabled"
+    ],
+    "capture_config_generated_fixture_explicit_bool_required": true,
+    "capture_started_no_later_than_earliest_decision": true,
+    "reconstruct_and_verify_rule_hash": true,
+    "official_resolution_receipt_not_before_expiry": true,
+    "both_official_resolutions_required": true,
+    "exact_taker_delay_ms": 250,
+    "missing_required_execution_surface": "abort_case",
+    "pair_integrity_identity": "common_expiry_plus_both_market_and_condition_ids",
+    "independent_cluster_identity": "capture_derived_common_expiry_ms_only",
+    "one_pair_per_common_expiry": true,
+    "prelabel_lock_journal_optional_for_counterfactual_but_required_for_true_edge": true,
+    "actionable_decision_reconciliation": "one_row_or_invalid_window"
+  },
+  "model_uncertainty_qualification": {
+    "method": "fixed_volatility_scale_conditional_ev_downside",
+    "conditional_scales": [
+      "0.75",
+      "1",
+      "1.5"
+    ],
+    "downside": "max_0_mixture_net_ev_minus_minimum_fixed_scale_net_ev",
+    "adjusted_edge": "mixture_net_ev_minus_uncertainty_multiplier_times_downside",
+    "monte_carlo_standard_error_penalty": false,
+    "inverse_sqrt_n_paths_term": false
+  },
+  "binding_market_baseline": {
+    "name": "coherent_depth_fee_executable_market",
+    "target_quantity_shares": "5",
+    "depth_method": "walk_decision_time_asks_to_frozen_quantity",
+    "fee_method": "captured_dynamic_taker_fee_per_fill_level",
+    "normalization": "all_in_up_cost_over_all_in_up_plus_down_cost",
+    "shared_terminal_projection": true,
+    "top_of_book_ask_probability_role": "diagnostic_only",
+    "strict_brier_improvement_required": true
+  },
+  "prelabel_lock_policy": {
+    "journal_source": "v07_prelabel_lock",
+    "journal_schema_version": "btc-5m-15m-v07-lock-journal.v2",
+    "test_universe_receipt_before_earliest_test_decision": true,
+    "test_universe_binds_expiry_and_pair_identities": true,
+    "prediction_locked_at_equals_decision_at": true,
+    "prediction_and_receipt_before_label_available": true,
+    "canonical_forecast_and_decision_hashes_required": true,
+    "missing_journal_status": "counterfactual_insufficient",
+    "qualified_net_pnl_without_verified_lock": null
+  },
+  "action_reconciliation_policy": {
+    "every_locked_actionable_decision_reconciled": true,
+    "allowed_rows": [
+      "settled_fill_partial_unwind_or_failed_unhedged",
+      "causal_no_fill_zero_pnl",
+      "invalid_window_on_missing_required_surface"
+    ],
+    "causal_no_fill_counts_as_economic_attempt": false,
+    "no_trade_forecast_retained": true
+  }
+}
