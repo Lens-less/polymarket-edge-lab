@@ -1,0 +1,66 @@
+# /etc/systemd/system/polymm-btc-twap-paper-v04.service
+[Unit]
+Description=BTC 5m/15m relative-value paper service v0.4
+After=network-online.target chronyd.service
+Wants=network-online.target chronyd.service
+
+[Service]
+Type=simple
+User=polybot
+Group=polybot
+WorkingDirectory=/opt/poly-mm
+Environment=PYTHONUNBUFFERED=1
+ExecStartPre=/opt/poly-mm/.venv/bin/python /opt/poly-mm/scripts/run_btc_twap_relative_value_service.py --config /opt/poly-mm/research/btc_5m_15m_relative_value_paper_v04_linux_2026-08-13/SERVICE_CONFIG.json --validate-only
+ExecStart=/opt/poly-mm/.venv/bin/python /opt/poly-mm/scripts/run_btc_twap_relative_value_service.py --config /opt/poly-mm/research/btc_5m_15m_relative_value_paper_v04_linux_2026-08-13/SERVICE_CONFIG.json
+Restart=always
+RestartSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/opt/poly-mm
+ReadWritePaths=/var/lib/poly-mm
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
+
+# /etc/systemd/system/polymm-btc-twap-paper-v04-health.service
+[Unit]
+Description=Read-only BTC 5m/15m paper health snapshot v0.4
+After=polymm-btc-twap-paper-v04.service
+
+[Service]
+Type=oneshot
+User=polybot
+Group=polybot
+WorkingDirectory=/opt/poly-mm
+ExecStart=/usr/local/bin/polymm-btc-twap-paper-v04-healthcheck
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/opt/poly-mm
+ReadWritePaths=/var/lib/poly-mm
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+
+# /etc/systemd/system/polymm-btc-twap-paper-v04-health.timer
+[Unit]
+Description=Every-5-minute BTC 5m/15m paper health snapshot v0.4
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Unit=polymm-btc-twap-paper-v04-health.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

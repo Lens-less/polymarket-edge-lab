@@ -10,8 +10,9 @@ import os
 import sys
 import tempfile
 from collections import Counter
+from collections.abc import Mapping
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -23,7 +24,61 @@ from src.edge_lab.btc_twap_relative_value import (  # noqa: E402
     ValidationEvidence,
     evaluate_validation,
 )
+from src.edge_lab.btc_twap_relative_value_oos_metrics import (  # noqa: E402
+    OOSForecastRow,
+    OOSTradeRow,
+    bootstrap_cluster_mean_lower_95,
+    brier_score,
+    direction_exposure_below_single_leg,
+    expected_calibration_error,
+    maximum_absolute_event_contribution_share,
+    signal_strength_net_pnl_monotonic,
+)
 from src.edge_lab.data_store import canonical_json_bytes  # noqa: E402
+
+_REPORT_SCHEMA_VERSION = "btc-5m-15m-relative-value-pilot-report.v2"
+_VERIFICATION_VERSION = "v2"
+_HORIZONS = ("5m", "15m")
+
+
+def _require_mapping(value: object, *, label: str) -> Mapping[str, object]:
+    if not isinstance(value, Mapping):
+        raise TypeError(f"{label} must be an object")
+    return value
+
+
+def _require_string(value: object, *, label: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{label} must be a non-empty string")
+    return value
+
+
+def _require_bool(value: object, *, label: str) -> bool:
+    if not isinstance(value, bool):
+        raise TypeError(f"{label} must be bool")
+    return value
+
+
+def _require_non_negative_int(value: object, *, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{label} must be a non-negative integer")
+    return value
+
+
+def _require_decimal(value: object, *, label: str) -> Decimal:
+    if isinstance(value, bool) or isinstance(value, float):
+        raise TypeError(f"{label} must be decimal")
+    try:
+        parsed = value if isinstance(value, Decimal) else Decimal(str(value))
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError(f"{label} must be decimal") from exc
+    if not parsed.is_finite():
+        raise ValueError(f"{label} must be finite")
+    return parsed
+
+
+def _decimal_text(value: Decimal | None) -> str | None:
+    return None if value is None else str(value)
 
 
 def _load_verified_report(path: Path) -> dict[str, Any]:
@@ -41,6 +96,71 @@ def _load_verified_report(path: Path) -> dict[str, Any]:
         or report.get("new_orders_disabled") is not True
     ):
         raise ValueError(f"report is not fail-closed paper evidence: {path}")
+    schema_version = report.get("schema_version")
+    verification = report.get("verification")
+    if (
+        schema_version == _REPORT_SCHEMA_VERSION
+        or report.get("verified_report_v2") is not None
+        or verification is not None
+    ):
+        if schema_version != _REPORT_SCHEMA_VERSION:
+            raise ValueError(
+                f"legacy or unsupported report schema {schema_version}: {path}"
+            )
+        if (
+            _require_bool(report.get("verified_report_v2"), label="verified_report_v2")
+            is not True
+        ):
+            raise ValueError(f"report must be verified_report_v2=true: {path}")
+        verification_mapping = _require_mapping(
+            verification,
+            label="verification",
+        )
+        if (
+            _require_bool(
+                verification_mapping.get("verified"),
+                label="verification.verified",
+            )
+            is not True
+        ):
+            raise ValueError(f"report verification must be true: {path}")
+        if (
+            _require_string(
+                verification_mapping.get("verification_version"),
+                label="verification.verification_version",
+            )
+            != _VERIFICATION_VERSION
+        ):
+            raise ValueError(f"legacy verification version: {path}")
+        track = _require_string(
+            verification_mapping.get("evidence_track"),
+            label="verification.evidence_track",
+        )
+        inputs = _require_mapping(report.get("inputs"), label="inputs")
+        if (
+            _require_string(
+                inputs.get("evidence_track"),
+                label="inputs.evidence_track",
+            )
+            != track
+        ):
+            raise ValueError(f"mixed track evidence is not allowed: {path}")
+        preregistration_sha256 = _require_string(
+            inputs.get("preregistration_sha256"),
+            label="inputs.preregistration_sha256",
+        )
+        if len(preregistration_sha256) != 64:
+            raise ValueError(f"inputs.preregistration_sha256 must be sha256: {path}")
+        _require_non_negative_int(
+            inputs.get("decision_tau_seconds"),
+            label="inputs.decision_tau_seconds",
+        )
+        if (
+            report.get("public_only") is not True
+            or report.get("orders_submitted") != 0
+            or report.get("authenticated_endpoints_used") != 0
+        ):
+            raise ValueError(f"v2 report violates public paper guards: {path}")
     integrity = report.get("integrity")
     if not isinstance(integrity, dict):
         raise ValueError(f"report has no integrity evidence: {path}")
@@ -48,9 +168,7 @@ def _load_verified_report(path: Path) -> dict[str, Any]:
         checks: Iterable[dict[str, Any]]
         if isinstance(value, list):
             checks = (
-                item.get("integrity", {})
-                for item in value
-                if isinstance(item, dict)
+                item.get("integrity", {}) for item in value if isinstance(item, dict)
             )
         elif isinstance(value, dict):
             checks = (value,)
@@ -110,45 +228,87 @@ def build_summary(report_paths: tuple[Path, ...]) -> dict[str, Any]:
     latest_clock_offset_seconds: str | None = None
     input_rows: list[dict[str, str]] = []
     complete_cost_model = True
-    decision_keys: set[tuple[str, int]] = set()
+    decision_keys: set[tuple[int | str, int]] = set()
     preregistration_sha256: str | None = None
+    evidence_track: str | None = None
+    oos_forecasts: list[OOSForecastRow] = []
+    oos_forecast_available_reports = 0
+    oos_forecast_unavailable_reason_counts: Counter[str] = Counter()
+    qualified_explainable_net_pnls: list[Decimal] = []
+    qualified_explainable_fills = 0
+    qualified_economic_attempts = 0
+    qualified_complete_taker_cost_model = True
+    qualified_delay_depth_and_legging_replay_complete = True
+    qualified_trade_rows: list[OOSTradeRow] = []
+    qualified_trade_metrics_complete = True
+    qualified_available_reports = 0
+    qualified_oos_missing_reports = 0
+    saw_v2_report = False
+    saw_legacy_report = False
 
     for path in report_paths:
         resolved_path = path.resolve()
         report = _load_verified_report(resolved_path)
-        report_inputs = report.get("inputs")
-        capture_root = (
-            report_inputs.get("capture_root")
-            if isinstance(report_inputs, dict)
-            else None
-        )
-        if not isinstance(capture_root, str) or not capture_root:
-            raise ValueError(f"report has no capture-root identity: {resolved_path}")
-        report_preregistration_sha256 = report_inputs.get(
-            "preregistration_sha256"
-        )
+        is_v2_report = report.get("verified_report_v2") is True
+        saw_v2_report = saw_v2_report or is_v2_report
+        saw_legacy_report = saw_legacy_report or not is_v2_report
+        if saw_v2_report and saw_legacy_report:
+            raise ValueError("legacy and v2 reports cannot be mixed in one summary")
+        report_inputs = _require_mapping(report.get("inputs"), label="inputs")
+        capture_root = report_inputs.get("capture_root")
+        if capture_root is not None and (
+            not isinstance(capture_root, str) or not capture_root
+        ):
+            raise ValueError(
+                f"report has invalid capture-root identity: {resolved_path}"
+            )
+        report_preregistration_sha256 = report_inputs.get("preregistration_sha256")
         if (
             not isinstance(report_preregistration_sha256, str)
             or len(report_preregistration_sha256) != 64
         ):
-            raise ValueError(
-                f"report has no preregistration identity: {resolved_path}"
-            )
+            raise ValueError(f"report has no preregistration identity: {resolved_path}")
         if preregistration_sha256 is None:
             preregistration_sha256 = report_preregistration_sha256
         elif preregistration_sha256 != report_preregistration_sha256:
             raise ValueError("mixed preregistration reports are not comparable")
+        report_evidence_track = report_inputs.get("evidence_track")
+        if report.get("verified_report_v2") is True:
+            if not isinstance(report_evidence_track, str) or not report_evidence_track:
+                raise ValueError(
+                    f"report has no evidence-track identity: {resolved_path}"
+                )
+            if evidence_track is None:
+                evidence_track = report_evidence_track
+            elif evidence_track != report_evidence_track:
+                raise ValueError("mixed track evidence is not allowed in summary")
         decision_tau_seconds = report_inputs.get("decision_tau_seconds")
         if isinstance(decision_tau_seconds, bool) or not isinstance(
             decision_tau_seconds, int
         ):
             raise ValueError(f"report has no decision-tick identity: {resolved_path}")
-        decision_key = (capture_root, decision_tau_seconds)
+        report_decision_at_ms = report_inputs.get("decision_at_ms")
+        if report_decision_at_ms is None:
+            if not isinstance(capture_root, str) or not capture_root:
+                raise ValueError(
+                    f"report has no decision identity fallback: {resolved_path}"
+                )
+            decision_identity: int | str = capture_root
+        else:
+            if isinstance(report_decision_at_ms, bool) or not isinstance(
+                report_decision_at_ms, int
+            ):
+                raise ValueError(f"report has invalid decision_at_ms: {resolved_path}")
+            decision_identity = report_decision_at_ms
+        decision_key = (decision_identity, decision_tau_seconds)
         if decision_key in decision_keys:
             raise ValueError(f"duplicate decision report: {decision_key}")
         decision_keys.add(decision_key)
-        first_report_for_capture = capture_root not in capture_roots
-        capture_roots.add(capture_root)
+        first_report_for_capture = (
+            isinstance(capture_root, str) and capture_root not in capture_roots
+        )
+        if isinstance(capture_root, str):
+            capture_roots.add(capture_root)
         input_rows.append(
             {
                 "path": str(resolved_path),
@@ -159,9 +319,7 @@ def build_summary(report_paths: tuple[Path, ...]) -> dict[str, Any]:
         clock_sync = observed.get("clock_sync")
         if isinstance(clock_sync, dict) and clock_sync.get("required") is True:
             clock_required_decisions += 1
-            clock_valid_decisions += int(
-                clock_sync.get("valid_for_decision") is True
-            )
+            clock_valid_decisions += int(clock_sync.get("valid_for_decision") is True)
             age = clock_sync.get("measurement_age_ms")
             if isinstance(age, int) and not isinstance(age, bool) and age >= 0:
                 clock_measurement_ages_ms.append(age)
@@ -293,7 +451,9 @@ def build_summary(report_paths: tuple[Path, ...]) -> dict[str, Any]:
                 str(diagnostics.get("residual_unhedged_usdc", "0"))
             )
             if not residual_unhedged_usdc.is_finite():
-                raise ValueError("development shadow residual_unhedged_usdc must be finite")
+                raise ValueError(
+                    "development shadow residual_unhedged_usdc must be finite"
+                )
             shadow_residual_unhedged_usdc_total += residual_unhedged_usdc
             if diagnostics.get("material_failed_unhedged") is True:
                 shadow_residual_unhedged_usdc_material_total += residual_unhedged_usdc
@@ -305,7 +465,8 @@ def build_summary(report_paths: tuple[Path, ...]) -> dict[str, Any]:
             )
             if not transient_peak_usdc.is_finite():
                 raise ValueError(
-                    "development shadow transient_naked_exposure_peak_usdc must be finite"
+                    "development shadow transient_naked_exposure_peak_usdc "
+                    "must be finite"
                 )
             shadow_transient_peak_usdc = max(
                 shadow_transient_peak_usdc,
@@ -352,10 +513,185 @@ def build_summary(report_paths: tuple[Path, ...]) -> dict[str, Any]:
             for reason in paper_decision.get("reason_codes", ()):
                 decision_reason_counts[str(reason)] += 1
 
+        oos_forecast = report.get("oos_forecast")
+        if isinstance(oos_forecast, Mapping):
+            if oos_forecast.get("available") is True:
+                if oos_forecast.get("split") != "test":
+                    raise ValueError(
+                        f"available oos_forecast must be split=test: {resolved_path}"
+                    )
+                oos_event_cluster_id = _require_string(
+                    oos_forecast.get("event_cluster_id"),
+                    label="oos_forecast.event_cluster_id",
+                )
+                oos_tau = oos_forecast.get("decision_tau_seconds")
+                if oos_tau is not None and oos_tau != decision_tau_seconds:
+                    raise ValueError(
+                        f"oos_forecast.decision_tau_seconds mismatch: {resolved_path}"
+                    )
+                model_probability_up = _require_mapping(
+                    oos_forecast.get("model_probability_up"),
+                    label="oos_forecast.model_probability_up",
+                )
+                market_probability_up = _require_mapping(
+                    oos_forecast.get("market_probability_up"),
+                    label="oos_forecast.market_probability_up",
+                )
+                actual_up = _require_mapping(
+                    oos_forecast.get("actual_up"),
+                    label="oos_forecast.actual_up",
+                )
+                local_label_available_at_ms = _require_non_negative_int(
+                    oos_forecast.get("local_label_available_at_ms"),
+                    label="oos_forecast.local_label_available_at_ms",
+                )
+                if (
+                    isinstance(report_decision_at_ms, int)
+                    and local_label_available_at_ms <= report_decision_at_ms
+                ):
+                    raise ValueError(
+                        f"oos_forecast label is not post-decision: {resolved_path}"
+                    )
+                for horizon in _HORIZONS:
+                    oos_forecasts.append(
+                        OOSForecastRow(
+                            horizon=horizon,
+                            event_cluster_id=oos_event_cluster_id,
+                            model_probability_up=_require_decimal(
+                                model_probability_up.get(horizon),
+                                label=f"oos_forecast.model_probability_up.{horizon}",
+                            ),
+                            market_probability_up=_require_decimal(
+                                market_probability_up.get(horizon),
+                                label=f"oos_forecast.market_probability_up.{horizon}",
+                            ),
+                            actual_up=_require_bool(
+                                actual_up.get(horizon),
+                                label=f"oos_forecast.actual_up.{horizon}",
+                            ),
+                            decision_tau_seconds=decision_tau_seconds,
+                        )
+                    )
+                oos_forecast_available_reports += 1
+            else:
+                for reason in oos_forecast.get("reason_codes", ()):
+                    oos_forecast_unavailable_reason_counts[str(reason)] += 1
+
+        qualified_evidence = report.get("qualified_evidence")
+        qualified_cycle = report.get("qualified_cycle")
+        if (
+            isinstance(qualified_cycle, Mapping)
+            and qualified_cycle.get("available") is True
+        ):
+            qualified_available_reports += 1
+            if not (
+                isinstance(oos_forecast, Mapping)
+                and oos_forecast.get("available") is True
+            ):
+                qualified_oos_missing_reports += 1
+            if qualified_cycle.get("track") != report_evidence_track:
+                raise ValueError(
+                    "qualified cycle track does not match report track: "
+                    f"{resolved_path}"
+                )
+        if isinstance(qualified_evidence, Mapping):
+            economic_attempt = qualified_evidence.get("economic_attempt") is True
+            if economic_attempt:
+                qualified_economic_attempts += 1
+                fills = qualified_evidence.get("explainable_fills")
+                qualified_explainable_fills += _require_non_negative_int(
+                    fills,
+                    label="qualified_evidence.explainable_fills",
+                )
+                qualified_complete_taker_cost_model = (
+                    qualified_complete_taker_cost_model
+                    and qualified_evidence.get("complete_taker_cost_model") is True
+                )
+                qualified_delay_depth_and_legging_replay_complete = (
+                    qualified_delay_depth_and_legging_replay_complete
+                    and qualified_evidence.get(
+                        "delay_depth_and_legging_replay_complete"
+                    )
+                    is True
+                )
+                explainable_net_pnl = qualified_evidence.get("explainable_net_pnl")
+                if explainable_net_pnl is not None:
+                    parsed_qualified_net_pnl = _require_decimal(
+                        explainable_net_pnl,
+                        label="qualified_evidence.explainable_net_pnl",
+                    )
+                    qualified_explainable_net_pnls.append(parsed_qualified_net_pnl)
+                    qualified_cycle_mapping = _require_mapping(
+                        qualified_cycle,
+                        label="qualified_cycle",
+                    )
+                    decision = _require_mapping(
+                        qualified_cycle_mapping.get("decision"),
+                        label="qualified_cycle.decision",
+                    )
+                    execution = _require_mapping(
+                        qualified_cycle.get("execution"),
+                        label="qualified_cycle.execution",
+                    )
+                    diagnostics = _require_mapping(
+                        execution.get("diagnostics"),
+                        label="qualified_cycle.execution.diagnostics",
+                    )
+                    try:
+                        qualified_trade_rows.append(
+                            OOSTradeRow(
+                                event_cluster_id=_require_string(
+                                    qualified_evidence.get("expiry_cluster_id"),
+                                    label="qualified_evidence.expiry_cluster_id",
+                                ),
+                                net_pnl=parsed_qualified_net_pnl,
+                                transient_naked_exposure_peak_usdc=_require_decimal(
+                                    diagnostics.get(
+                                        "transient_naked_exposure_peak_usdc"
+                                    ),
+                                    label=(
+                                        "qualified_cycle.execution.diagnostics."
+                                        "transient_naked_exposure_peak_usdc"
+                                    ),
+                                ),
+                                planned_single_leg_max_loss_usdc=_require_decimal(
+                                    decision.get("quantity"),
+                                    label="qualified_cycle.decision.quantity",
+                                ),
+                                signal_strength=_require_decimal(
+                                    decision.get("uncertainty_adjusted_pnl_per_pair"),
+                                    label=(
+                                        "qualified_cycle.decision."
+                                        "uncertainty_adjusted_pnl_per_pair"
+                                    ),
+                                ),
+                            )
+                        )
+                    except (TypeError, ValueError):
+                        qualified_trade_metrics_complete = False
+                else:
+                    qualified_trade_metrics_complete = False
+        elif report.get("verified_report_v2") is True:
+            qualified_trade_metrics_complete = False
+
     expected_markets = len(market_ids)
     mechanically_labelable = len(mechanically_labelable_market_ids)
     if mechanically_labelable > expected_markets:
         raise ValueError("mechanically labelable market count exceeds unique markets")
+    qualified_complete_taker_cost_model = (
+        qualified_economic_attempts > 0 and qualified_complete_taker_cost_model
+    )
+    qualified_delay_depth_and_legging_replay_complete = (
+        qualified_economic_attempts > 0
+        and qualified_delay_depth_and_legging_replay_complete
+    )
+    full_oos_rows = tuple(oos_forecasts)
+    full_trade_rows = (
+        tuple(qualified_trade_rows)
+        if qualified_trade_metrics_complete
+        and len(qualified_trade_rows) == len(qualified_explainable_net_pnls)
+        else ()
+    )
     evidence = ValidationEvidence(
         resolved_current_regime_markets=len(resolved_market_ids),
         expected_current_regime_markets=expected_markets,
@@ -363,24 +699,38 @@ def build_summary(report_paths: tuple[Path, ...]) -> dict[str, Any]:
         unknown_resolution_mapping_count=(
             expected_markets - mechanically_labelable + resolution_conflicts
         ),
-        explainable_simulated_trades=explainable_trades,
-        explainable_fills=explainable_fills,
-        explainable_net_pnls=(),
-        chronological_oos_complete=False,
-        # Metadata proves the current fee parameters, not that costs were
-        # applied to every delayed/depth-walked execution row.
-        complete_taker_cost_model=False,
-        delay_depth_and_legging_replay_complete=False,
-        bootstrap_net_pnl_lower_95=None,
-        oos_brier_5=None,
-        oos_brier_15=None,
-        market_brier_5=None,
-        market_brier_15=None,
-        oos_expected_calibration_error_5=None,
-        oos_expected_calibration_error_15=None,
-        maximum_single_event_pnl_share=None,
-        direction_exposure_below_single_leg=None,
-        signal_strength_net_ev_monotonic=None,
+        explainable_simulated_trades=len(qualified_explainable_net_pnls),
+        explainable_fills=qualified_explainable_fills,
+        explainable_net_pnls=tuple(qualified_explainable_net_pnls),
+        chronological_oos_complete=(
+            qualified_available_reports > 0 and qualified_oos_missing_reports == 0
+        ),
+        complete_taker_cost_model=qualified_complete_taker_cost_model,
+        delay_depth_and_legging_replay_complete=(
+            qualified_delay_depth_and_legging_replay_complete
+        ),
+        bootstrap_net_pnl_lower_95=bootstrap_cluster_mean_lower_95(full_trade_rows),
+        oos_brier_5=brier_score(full_oos_rows, horizon="5m", baseline=False),
+        oos_brier_15=brier_score(full_oos_rows, horizon="15m", baseline=False),
+        market_brier_5=brier_score(full_oos_rows, horizon="5m", baseline=True),
+        market_brier_15=brier_score(full_oos_rows, horizon="15m", baseline=True),
+        oos_expected_calibration_error_5=expected_calibration_error(
+            full_oos_rows,
+            horizon="5m",
+        ),
+        oos_expected_calibration_error_15=expected_calibration_error(
+            full_oos_rows,
+            horizon="15m",
+        ),
+        maximum_single_event_pnl_share=maximum_absolute_event_contribution_share(
+            full_trade_rows
+        ),
+        direction_exposure_below_single_leg=direction_exposure_below_single_leg(
+            full_trade_rows
+        ),
+        signal_strength_net_ev_monotonic=signal_strength_net_pnl_monotonic(
+            full_trade_rows
+        ),
     )
     validation = evaluate_validation(evidence)
     shadow_winners = sum(value > 0 for value in shadow_net_pnls)
@@ -392,15 +742,26 @@ def build_summary(report_paths: tuple[Path, ...]) -> dict[str, Any]:
     shadow_negative = sum(
         (-value for value in shadow_net_pnls if value < 0), Decimal("0")
     )
-    shadow_net_total = (
-        sum(shadow_net_pnls, Decimal("0")) if shadow_net_pnls else None
-    )
+    shadow_net_total = sum(shadow_net_pnls, Decimal("0")) if shadow_net_pnls else None
+    if len(shadow_net_pnls) > shadow_trades:
+        raise ValueError("development shadow settled trades exceed economic attempts")
+    shadow_pending_trades = shadow_trades - len(shadow_net_pnls)
     summary: dict[str, Any] = {
-        "schema_version": "btc-5m-15m-relative-value-validation-summary.v1",
+        "schema_version": (
+            "btc-5m-15m-relative-value-validation-summary.v2"
+            if saw_v2_report
+            else "btc-5m-15m-relative-value-validation-summary.v1"
+        ),
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "paper_only": True,
+        "public_only": True,
         "new_orders_disabled": True,
+        "orders_submitted": 0,
+        "authenticated_endpoints_used": 0,
         "classification": validation.status.value,
+        "observed_qualified_attempt_net_pnl": _decimal_text(
+            validation.observed_explainable_net_pnl
+        ),
         "qualified_net_pnl": (
             str(validation.qualified_net_pnl)
             if validation.qualified_net_pnl is not None
@@ -418,7 +779,7 @@ def build_summary(report_paths: tuple[Path, ...]) -> dict[str, Any]:
             "trades": shadow_trades,
             "fills": shadow_fills,
             "settled_trades": len(shadow_net_pnls),
-            "pending_trades": max(0, shadow_trades - len(shadow_net_pnls)),
+            "pending_trades": shadow_pending_trades,
             "complete_taker_cost_model_trades": shadow_complete_cost_trades,
             "net_pnl": (
                 str(shadow_net_total) if shadow_net_total is not None else None
@@ -437,9 +798,7 @@ def build_summary(report_paths: tuple[Path, ...]) -> dict[str, Any]:
                 else None
             ),
             "profit_factor": (
-                str(shadow_positive / shadow_negative)
-                if shadow_negative > 0
-                else None
+                str(shadow_positive / shadow_negative) if shadow_negative > 0 else None
             ),
             "execution_diagnostics": {
                 "dust_failed_unhedged_trades": shadow_dust_failed_unhedged_trades,
@@ -452,9 +811,7 @@ def build_summary(report_paths: tuple[Path, ...]) -> dict[str, Any]:
                 "residual_unhedged_usdc_material_total": str(
                     shadow_residual_unhedged_usdc_material_total
                 ),
-                "transient_naked_exposure_peak_usdc": str(
-                    shadow_transient_peak_usdc
-                ),
+                "transient_naked_exposure_peak_usdc": str(shadow_transient_peak_usdc),
                 "transient_naked_exposure_total_duration_ms": (
                     shadow_transient_duration_ms_total
                 ),
@@ -464,6 +821,7 @@ def build_summary(report_paths: tuple[Path, ...]) -> dict[str, Any]:
         "reason_codes": list(validation.reason_codes),
         "inputs": input_rows,
         "preregistration_sha256": preregistration_sha256,
+        "evidence_track": evidence_track,
         "evidence": {
             "capture_cycles": len(capture_roots),
             "decision_reports": len(report_paths),
@@ -484,18 +842,14 @@ def build_summary(report_paths: tuple[Path, ...]) -> dict[str, Any]:
             "clock_sync": {
                 "required_decisions": clock_required_decisions,
                 "valid_decisions": clock_valid_decisions,
-                "invalid_decisions": (
-                    clock_required_decisions - clock_valid_decisions
-                ),
+                "invalid_decisions": (clock_required_decisions - clock_valid_decisions),
                 "maximum_measurement_age_ms": (
                     max(clock_measurement_ages_ms)
                     if clock_measurement_ages_ms
                     else None
                 ),
                 "maximum_uncertainty_ms": (
-                    max(clock_uncertainties_ms)
-                    if clock_uncertainties_ms
-                    else None
+                    max(clock_uncertainties_ms) if clock_uncertainties_ms else None
                 ),
                 "latest_offset_seconds": latest_clock_offset_seconds,
             },
@@ -515,9 +869,48 @@ def build_summary(report_paths: tuple[Path, ...]) -> dict[str, Any]:
             "paper_decision_reason_counts": dict(
                 sorted(decision_reason_counts.items())
             ),
-            "explainable_simulated_trades": explainable_trades,
-            "explainable_fills": explainable_fills,
-            "observed_explainable_net_pnl": None,
+            "explainable_simulated_trades": len(qualified_explainable_net_pnls),
+            "explainable_fills": qualified_explainable_fills,
+            "qualified_economic_attempts": qualified_economic_attempts,
+            "observed_explainable_net_pnl": _decimal_text(
+                validation.observed_explainable_net_pnl
+            ),
+            "chronological_oos_complete": evidence.chronological_oos_complete,
+            "oos_forecast_reports_available": oos_forecast_available_reports,
+            "oos_forecast_reports_unavailable": (
+                len(report_paths) - oos_forecast_available_reports
+            ),
+            "qualified_available_reports": qualified_available_reports,
+            "qualified_oos_missing_reports": qualified_oos_missing_reports,
+            "oos_forecast_unavailable_reason_counts": dict(
+                sorted(oos_forecast_unavailable_reason_counts.items())
+            ),
+            "complete_taker_cost_model": evidence.complete_taker_cost_model,
+            "delay_depth_and_legging_replay_complete": (
+                evidence.delay_depth_and_legging_replay_complete
+            ),
+            "bootstrap_net_pnl_lower_95": _decimal_text(
+                evidence.bootstrap_net_pnl_lower_95
+            ),
+            "oos_brier_5": _decimal_text(evidence.oos_brier_5),
+            "oos_brier_15": _decimal_text(evidence.oos_brier_15),
+            "market_brier_5": _decimal_text(evidence.market_brier_5),
+            "market_brier_15": _decimal_text(evidence.market_brier_15),
+            "oos_expected_calibration_error_5": _decimal_text(
+                evidence.oos_expected_calibration_error_5
+            ),
+            "oos_expected_calibration_error_15": _decimal_text(
+                evidence.oos_expected_calibration_error_15
+            ),
+            "maximum_single_event_pnl_share": _decimal_text(
+                evidence.maximum_single_event_pnl_share
+            ),
+            "direction_exposure_below_single_leg": (
+                evidence.direction_exposure_below_single_leg
+            ),
+            "signal_strength_net_ev_monotonic": (
+                evidence.signal_strength_net_ev_monotonic
+            ),
             "complete_current_taker_fee_metadata": complete_cost_model,
         },
         "promotion_gaps": {
@@ -525,18 +918,28 @@ def build_summary(report_paths: tuple[Path, ...]) -> dict[str, Any]:
                 0, validation.minimum_resolved_markets - len(resolved_market_ids)
             ),
             "simulated_trades_remaining": max(
-                0, validation.minimum_simulated_trades - explainable_trades
+                0,
+                validation.minimum_simulated_trades
+                - len(qualified_explainable_net_pnls),
             ),
             "explainable_fills_remaining": max(
-                0, validation.minimum_explainable_fills - explainable_fills
+                0,
+                validation.minimum_explainable_fills - qualified_explainable_fills,
             ),
         },
         "conclusion": (
-            "No profitability claim is permitted; preliminary development-shadow "
-            f"net PnL is {shadow_net_total}, but qualified/OOS PnL remains null."
-            if shadow_net_total is not None
-            else "No profitability claim is permitted: economic evidence is missing, "
-            "so PnL remains null rather than zero."
+            "No profitability claim is permitted; observed qualified-attempt "
+            f"net PnL is {validation.observed_explainable_net_pnl}, but "
+            "qualified/OOS PnL remains null until every validation gate passes."
+            if validation.observed_explainable_net_pnl is not None
+            else (
+                "No profitability claim is permitted; preliminary "
+                f"development-shadow net PnL is {shadow_net_total}, but "
+                "qualified/OOS PnL remains null."
+                if shadow_net_total is not None
+                else "No profitability claim is permitted: qualified economic "
+                "evidence is unavailable, so PnL remains null rather than zero."
+            )
         ),
     }
     summary["summary_sha256"] = hashlib.sha256(

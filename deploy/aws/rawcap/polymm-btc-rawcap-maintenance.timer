@@ -1,0 +1,11 @@
+[Unit]
+Description=Maintain finalized BTC raw captures hourly
+
+[Timer]
+OnBootSec=20min
+OnUnitActiveSec=1h
+Persistent=true
+Unit=polymm-btc-rawcap-maintenance.service
+
+[Install]
+WantedBy=timers.target

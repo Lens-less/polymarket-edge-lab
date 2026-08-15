@@ -136,9 +136,7 @@ def _write_report(
                 if shadow_trade_count is None
                 else shadow_trade_count
             ),
-            "development_shadow_fills": (
-                2 if shadow_net_pnl is not None else 0
-            ),
+            "development_shadow_fills": (2 if shadow_net_pnl is not None else 0),
             "development_shadow_net_pnl": shadow_net_pnl,
             "development_shadow_execution_diagnostics": shadow_execution_diagnostics,
             "development_shadow_complete_taker_cost_model": (
@@ -193,9 +191,67 @@ def _write_report(
             ),
         },
     }
-    report["report_sha256"] = hashlib.sha256(
-        canonical_json_bytes(report)
-    ).hexdigest()
+    report["report_sha256"] = hashlib.sha256(canonical_json_bytes(report)).hexdigest()
+    path.write_text(json.dumps(report), encoding="utf-8")
+
+
+def _upgrade_to_v2_qualified_attempt(
+    path: Path,
+    *,
+    net_pnl: str = "1.25",
+    fills: int = 3,
+    track: str = "paper-v05",
+) -> None:
+    report = json.loads(path.read_text(encoding="utf-8"))
+    decision_at_ms = 1_000_000
+    report.update(
+        {
+            "schema_version": "btc-5m-15m-relative-value-pilot-report.v2",
+            "verified_report_v2": True,
+            "verification": {
+                "verified": True,
+                "verification_version": "v2",
+                "evidence_track": track,
+            },
+            "public_only": True,
+            "orders_submitted": 0,
+            "authenticated_endpoints_used": 0,
+        }
+    )
+    report["inputs"].update({"evidence_track": track, "decision_at_ms": decision_at_ms})
+    report["oos_forecast"] = {
+        "available": True,
+        "split": "test",
+        "event_cluster_id": "expiry-1",
+        "decision_tau_seconds": report["inputs"]["decision_tau_seconds"],
+        "model_probability_up": {"5m": "0.75", "15m": "0.25"},
+        "market_probability_up": {"5m": "0.60", "15m": "0.40"},
+        "actual_up": {"5m": True, "15m": False},
+        "local_label_available_at_ms": decision_at_ms + 1_000,
+    }
+    report["qualified_cycle"] = {
+        "available": True,
+        "track": track,
+        "decision": {
+            "quantity": "10",
+            "uncertainty_adjusted_pnl_per_pair": "0.02",
+        },
+        "execution": {
+            "diagnostics": {
+                "transient_naked_exposure_peak_usdc": "5",
+            }
+        },
+    }
+    report["qualified_evidence"] = {
+        "economic_attempt": True,
+        "explainable_fills": fills,
+        "explainable_net_pnl": net_pnl,
+        "complete_taker_cost_model": True,
+        "delay_depth_and_legging_replay_complete": True,
+        "expiry_cluster_id": "expiry-1",
+    }
+    report.pop("report_sha256", None)
+    report["report_sha256"] = hashlib.sha256(canonical_json_bytes(report)).hexdigest()
     path.write_text(json.dumps(report), encoding="utf-8")
 
 
@@ -296,9 +352,7 @@ def test_summary_aggregates_settled_shadow_pnl_without_promoting_it(
     assert summary["development_shadow"]["winning_trades"] == 1
     assert summary["development_shadow"]["losing_trades"] == 1
     assert summary["development_shadow"]["qualified_evidence"] is False
-    assert "preliminary development-shadow net PnL is 0.75" in summary[
-        "conclusion"
-    ]
+    assert "preliminary development-shadow net PnL is 0.75" in summary["conclusion"]
 
 
 def test_summary_distinguishes_shadow_edge_rejection_from_data_blocker(
@@ -377,3 +431,51 @@ def test_summary_keeps_economic_attempts_and_execution_diagnostics(
         "transient_naked_exposure_total_duration_ms": 650,
         "transient_naked_exposure_trades": 2,
     }
+
+
+def test_summary_rejects_settlement_count_above_economic_attempts(
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "unwound.json"
+    _write_report(
+        report_path,
+        shadow_net_pnl="-0.25",
+        shadow_trade_count=0,
+    )
+
+    with pytest.raises(ValueError, match="settled trades exceed economic attempts"):
+        build_summary((report_path,))
+
+
+def test_v2_summary_uses_qualified_attempts_and_keeps_promotion_pnl_null(
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "v2.json"
+    _write_report(report_path)
+    _upgrade_to_v2_qualified_attempt(report_path)
+
+    summary = build_summary((report_path,))
+
+    assert summary["schema_version"].endswith(".v2")
+    assert summary["public_only"] is True
+    assert summary["orders_submitted"] == 0
+    assert summary["authenticated_endpoints_used"] == 0
+    assert summary["observed_qualified_attempt_net_pnl"] == "1.25"
+    assert summary["qualified_net_pnl"] is None
+    assert summary["evidence"]["qualified_economic_attempts"] == 1
+    assert summary["evidence"]["explainable_simulated_trades"] == 1
+    assert summary["evidence"]["explainable_fills"] == 3
+    assert summary["evidence"]["chronological_oos_complete"] is True
+    assert summary["promotion_gaps"]["simulated_trades_remaining"] == 499
+    assert summary["promotion_gaps"]["explainable_fills_remaining"] == 497
+
+
+def test_summary_rejects_mixed_legacy_and_v2_tracks(tmp_path: Path) -> None:
+    legacy = tmp_path / "legacy.json"
+    v2 = tmp_path / "v2.json"
+    _write_report(legacy)
+    _write_report(v2, decision_tau_seconds=120)
+    _upgrade_to_v2_qualified_attempt(v2)
+
+    with pytest.raises(ValueError, match="legacy and v2"):
+        build_summary((legacy, v2))

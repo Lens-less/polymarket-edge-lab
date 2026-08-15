@@ -495,11 +495,23 @@ def _integrity_pair_token(manifest_path: Path, raw_path: Path) -> bytes:
                 "st_ctime_ns",
             ):
                 digest.update(
-                    int(getattr(metadata, field)).to_bytes(
+                    int(getattr(metadata, field, 0)).to_bytes(
                         16, "big", signed=True
                     )
                 )
     return digest.digest()
+
+
+def _can_reuse_integrity_validation() -> bool:
+    """Return whether metadata-only integrity caching is safe on this platform.
+
+    Same-size rewrites can preserve or restore the metadata this cache records on
+    the Windows, WSL/DrvFS, and mixed-filesystem paths we currently support. Fail
+    closed until we have an unforgeable content-addressed or kernel-versioned
+    cache key.
+    """
+
+    return False
 
 
 class CaptureStore:
@@ -633,18 +645,21 @@ class CaptureStore:
 
         checksum_mismatches: list[dict[str, str]] = []
         invalid_manifests: list[dict[str, str]] = []
+        cache_validation = _can_reuse_integrity_validation()
         for manifest_path in manifests:
             raw_path = manifest_path.with_name(
                 f"{manifest_path.name.removesuffix('.manifest.json')}.jsonl"
             )
             if raw_path not in raw_set:
                 continue
-            try:
-                validation_token = _integrity_pair_token(
-                    manifest_path, raw_path
-                )
-            except OSError:
-                validation_token = None
+            validation_token: bytes | None = None
+            if cache_validation:
+                try:
+                    validation_token = _integrity_pair_token(
+                        manifest_path, raw_path
+                    )
+                except OSError:
+                    validation_token = None
             if (
                 validation_token is not None
                 and validation_token in self._verified_integrity_pairs

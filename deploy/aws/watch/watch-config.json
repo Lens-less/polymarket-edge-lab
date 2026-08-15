@@ -1,0 +1,56 @@
+{
+  "schema_version": "polymm-paper-track-watch-config.v1",
+  "state_path": "/var/lib/poly-mm-watch/state/watch-state.json",
+  "alerts_path": "/var/lib/poly-mm-watch/state/alerts-latest.json",
+  "digest_interval_seconds": 3600,
+  "sns_topic_arn": "",
+  "candidate_scoreboard": {
+    "reports_dir": "/var/lib/poly-mm-v06/research/btc_5m_15m_relative_value_paper_v06_linux_2026-08-14/reports",
+    "output_path": "/var/lib/poly-mm-watch/state/candidate-scoreboard.json"
+  },
+  "tracks": [
+    {
+      "name": "v05",
+      "kind": "paper",
+      "status_path": "/var/lib/poly-mm-v05/data/btc_5m_15m_relative_value_paper_v05_linux_2026-08-13/service/status.json",
+      "health_path": "/var/lib/poly-mm-v05/monitor/health-latest.json",
+      "data_root": "/var/lib/poly-mm-v05/data/btc_5m_15m_relative_value_paper_v05_linux_2026-08-13",
+      "capture_summary_glob": "/var/lib/poly-mm-v05/data/btc_5m_15m_relative_value_paper_v05_linux_2026-08-13/runs/*/*/capture-summary.json",
+      "expected_cycle_seconds": 900,
+      "expected_regime": "chainlink_twap_30s_5m_and_60s_15m.v1",
+      "regime_state_path": "/var/lib/poly-mm-rawcap/monitor/regime-latest.json"
+    },
+    {
+      "name": "v06",
+      "kind": "paper",
+      "status_path": "/var/lib/poly-mm-v06/data/btc_5m_15m_relative_value_paper_v06_linux_2026-08-14/service/status.json",
+      "health_path": "/var/lib/poly-mm-v06/monitor/health-latest.json",
+      "data_root": "/var/lib/poly-mm-v06/data/btc_5m_15m_relative_value_paper_v06_linux_2026-08-14",
+      "capture_summary_glob": "/var/lib/poly-mm-v06/data/btc_5m_15m_relative_value_paper_v06_linux_2026-08-14/runs/*/*/capture-summary.json",
+      "expected_cycle_seconds": 900,
+      "expected_regime": "chainlink_twap_60s_5m_and_60s_15m.v1",
+      "regime_state_path": "/var/lib/poly-mm-rawcap/monitor/regime-latest.json"
+    },
+    {
+      "name": "rawcap",
+      "kind": "rawcap",
+      "status_path": "/var/lib/poly-mm-rawcap/status/status.json",
+      "health_path": "/var/lib/poly-mm-rawcap/monitor/health-latest.json",
+      "data_root": "/var/lib/poly-mm-rawcap/data",
+      "capture_summary_glob": "/var/lib/poly-mm-rawcap/data/runs/*/*/capture-summary.json",
+      "expected_cycle_seconds": 900,
+      "regime_state_path": "/var/lib/poly-mm-rawcap/monitor/regime-latest.json"
+    }
+  ],
+  "host": {
+    "status_path": "/var/lib/poly-mm-watch/state/host-status.json",
+    "mem_available_threshold_bytes": 314572800,
+    "cpu_credit_threshold": 100.0,
+    "cpu_credit_decrease_seconds": 1800,
+    "process_rss_budgets_bytes": {
+      "v05": 367001600,
+      "v06": 367001600,
+      "rawcap": 262144000
+    }
+  }
+}

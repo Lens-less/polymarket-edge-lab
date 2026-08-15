@@ -1,0 +1,11 @@
+[Unit]
+Description=Run BTC rawcap health snapshot every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+Unit=polymm-btc-rawcap-health.service
+
+[Install]
+WantedBy=timers.target

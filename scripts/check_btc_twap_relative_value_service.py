@@ -51,6 +51,60 @@ def _free_disk_bytes(path: Path) -> int:
     return shutil.disk_usage(probe).free
 
 
+_GUARD_FIELD_ORDER = (
+    "paper_only",
+    "public_only",
+    "new_orders_disabled",
+    "orders_submitted",
+    "authenticated_endpoints_used",
+)
+
+
+def _guard_value_safe(key: str, value: Any) -> bool:
+    if key in {"orders_submitted", "authenticated_endpoints_used"}:
+        return type(value) is int and value == 0
+    return value is True
+
+
+def _guard_snapshot(
+    document: Mapping[str, Any] | None,
+    *,
+    require_full_guard: bool,
+) -> dict[str, Any] | None:
+    if document is None:
+        return None
+    required_fields = ["paper_only", "new_orders_disabled"]
+    if require_full_guard:
+        required_fields.extend(
+            ["public_only", "orders_submitted", "authenticated_endpoints_used"]
+        )
+    missing_fields: list[str] = []
+    unsafe_fields: list[str] = []
+    snapshot: dict[str, Any] = {
+        "full_guard_required": require_full_guard,
+        "required_fields": required_fields,
+    }
+    for key in _GUARD_FIELD_ORDER:
+        present = key in document
+        value = document.get(key) if present else None
+        snapshot[key] = value
+        if not present:
+            if key in required_fields:
+                missing_fields.append(key)
+            continue
+        if not _guard_value_safe(key, value):
+            unsafe_fields.append(key)
+    snapshot["missing_fields"] = missing_fields
+    snapshot["unsafe_fields"] = unsafe_fields
+    snapshot["all_required_safe"] = not missing_fields and not unsafe_fields
+    return snapshot
+
+
+def _summary_requires_full_guard(summary: Mapping[str, Any]) -> bool:
+    schema_version = summary.get("schema_version")
+    return isinstance(schema_version, str) and schema_version.endswith(".v2")
+
+
 def _summary_snapshot(path_value: Any) -> Mapping[str, Any] | None:
     if not isinstance(path_value, str) or not path_value:
         return None
@@ -61,16 +115,22 @@ def _summary_snapshot(path_value: Any) -> Mapping[str, Any] | None:
     actual = hashlib.sha256(canonical_json_bytes(unsigned)).hexdigest()
     if claimed != actual:
         raise ValueError("validation summary hash mismatch")
-    if (
-        summary.get("paper_only") is not True
-        or summary.get("new_orders_disabled") is not True
-    ):
-        raise ValueError("validation summary is not paper-only")
+    guards = _guard_snapshot(
+        summary,
+        require_full_guard=_summary_requires_full_guard(summary),
+    )
     evidence = summary.get("evidence")
     gaps = summary.get("promotion_gaps")
     return {
         "path": str(path),
+        "schema_version": summary.get("schema_version"),
         "summary_sha256": claimed,
+        "paper_only": summary.get("paper_only"),
+        "public_only": summary.get("public_only"),
+        "new_orders_disabled": summary.get("new_orders_disabled"),
+        "orders_submitted": summary.get("orders_submitted"),
+        "authenticated_endpoints_used": summary.get("authenticated_endpoints_used"),
+        "guards": guards,
         "classification": summary.get("classification"),
         "qualified_net_pnl": summary.get("qualified_net_pnl"),
         "development_shadow": (
@@ -117,10 +177,17 @@ def _clock_policy_limits(preregistration_path: Path) -> tuple[int, int]:
 
 def _monitoring_snapshot(
     health: Mapping[str, Any],
+    status: Mapping[str, Any] | None,
     summary: Mapping[str, Any] | None,
     *,
     clock_policy_limits: tuple[int, int] | None = None,
 ) -> dict[str, Any]:
+    service_guards = _guard_snapshot(status, require_full_guard=True)
+    summary_guards = (
+        summary.get("guards")
+        if isinstance(summary, Mapping) and isinstance(summary.get("guards"), Mapping)
+        else None
+    )
     evidence = summary.get("evidence") if isinstance(summary, Mapping) else None
     evidence = evidence if isinstance(evidence, Mapping) else None
     shadow = summary.get("development_shadow") if isinstance(summary, Mapping) else None
@@ -182,8 +249,48 @@ def _monitoring_snapshot(
             "latest_classification": health.get("latest_classification"),
             "last_error": health.get("last_error"),
             "status_hash_valid": health.get("status_hash_valid"),
-            "paper_only_guard_valid": health.get("paper_only_guard_valid"),
+            "paper_only": (
+                service_guards.get("paper_only")
+                if isinstance(service_guards, Mapping)
+                else None
+            ),
+            "public_only": (
+                service_guards.get("public_only")
+                if isinstance(service_guards, Mapping)
+                else None
+            ),
+            "new_orders_disabled": (
+                service_guards.get("new_orders_disabled")
+                if isinstance(service_guards, Mapping)
+                else None
+            ),
+            "orders_submitted": (
+                service_guards.get("orders_submitted")
+                if isinstance(service_guards, Mapping)
+                else None
+            ),
+            "authenticated_endpoints_used": (
+                service_guards.get("authenticated_endpoints_used")
+                if isinstance(service_guards, Mapping)
+                else None
+            ),
+            "paper_only_guard_valid": (
+                service_guards.get("all_required_safe")
+                if isinstance(service_guards, Mapping)
+                else health.get("paper_only_guard_valid")
+            ),
+            "guard_missing_fields": (
+                service_guards.get("missing_fields")
+                if isinstance(service_guards, Mapping)
+                else None
+            ),
+            "guard_unsafe_fields": (
+                service_guards.get("unsafe_fields")
+                if isinstance(service_guards, Mapping)
+                else None
+            ),
         },
+        "summary_guards": summary_guards,
         "connections": (
             {
                 "clob": {
@@ -329,9 +436,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         runtime_healthy = health["healthy"]
         monitoring = _monitoring_snapshot(
             health,
+            status,
             summary,
             clock_policy_limits=clock_policy_limits,
         )
+        if monitoring["service"]["paper_only_guard_valid"] is False:
+            health["healthy"] = False
+            if "paper_only_guard_invalid" not in health["failures"]:
+                health["failures"].append("paper_only_guard_invalid")
+        if isinstance(monitoring.get("summary_guards"), Mapping) and (
+            monitoring["summary_guards"].get("all_required_safe") is False
+        ):
+            health["healthy"] = False
+            if "validation_summary_guard_invalid" not in health["failures"]:
+                health["failures"].append("validation_summary_guard_invalid")
         if monitoring["evidence_healthy"] is False:
             health["healthy"] = False
             if "clock_evidence_policy_violated" not in health["failures"]:
@@ -347,7 +465,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "failures": ["health_check_input_invalid"],
             "checked_at": now.isoformat().replace("+00:00", "Z"),
             "error": {"type": type(exc).__name__, "message": str(exc)},
-            "monitoring": _monitoring_snapshot({}, None),
+            "monitoring": _monitoring_snapshot({}, None, None),
         }
     print(json.dumps(health, indent=2, sort_keys=True))
     return 0 if health["healthy"] else 1

@@ -6,9 +6,11 @@ import argparse
 import asyncio
 import json
 import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 from urllib.parse import urlsplit
 
 import requests
@@ -27,7 +29,6 @@ from .recorder import (
 )
 from .sources import PublicSourcesClient
 
-
 CONFIG_SCHEMA_VERSION = "edge-lab-forward-capture-config.v1"
 _SAFE_TRACK_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SENSITIVE_KEY_PARTS = (
@@ -40,6 +41,14 @@ _SENSITIVE_KEY_PARTS = (
     "signature",
     "wallet",
 )
+
+
+class ForwardCaptureFinalizationError(RuntimeError):
+    """A capture failed after producing an auditable final summary."""
+
+    def __init__(self, summary: Mapping[str, Any]) -> None:
+        self.summary = dict(summary)
+        super().__init__("forward capture failed; structured finalization is available")
 
 
 @dataclass(frozen=True)
@@ -77,7 +86,7 @@ class ForwardCaptureConfig:
 
 def _unique_strings(value: Any, *, field: str) -> tuple[str, ...]:
     if not isinstance(value, list):
-        raise ValueError(f"{field} must be a JSON array")
+        raise TypeError(f"{field} must be a JSON array")
     result = tuple(value)
     if any(not isinstance(item, str) or not item.strip() for item in result):
         raise ValueError(f"{field} must contain non-empty strings")
@@ -109,7 +118,7 @@ def load_capture_config(
 
     raw = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(raw, Mapping):
-        raise ValueError("capture config must be a JSON object")
+        raise TypeError("capture config must be a JSON object")
     _reject_sensitive_keys(raw)
     if raw.get("schema_version") != CONFIG_SCHEMA_VERSION:
         raise ValueError("unsupported capture config schema_version")
@@ -131,6 +140,10 @@ def load_capture_config(
         "clock_sync",
         "capture_started_at_ms",
         "evidence_track_id",
+        "settlement_regime_id",
+        "qualification_status",
+        "regime_classification",
+        "registry_sha256",
     }
     unexpected = set(raw) - allowed
     if unexpected:
@@ -148,7 +161,7 @@ def load_capture_config(
         raise ValueError("rtds_subscriptions entries must be objects")
     intervals = raw.get("snapshot_intervals")
     if not isinstance(intervals, Mapping):
-        raise ValueError("snapshot_intervals must be an object")
+        raise TypeError("snapshot_intervals must be an object")
     targets = raw.get("targets", [])
     if not isinstance(targets, list) or any(
         not isinstance(target, Mapping) for target in targets
@@ -274,7 +287,7 @@ async def run_forward_capture(
     capture_error: BaseException | None = None
     try:
         await recorder.run(run_for_seconds=duration_seconds)
-    except BaseException as exc:
+    except BaseException as exc:  # noqa: BLE001 - cancellation must still finalize
         capture_error = exc
     finally:
         manifests = await sink.close()
@@ -282,6 +295,9 @@ async def run_forward_capture(
     integrity = store.audit_integrity()
     summary = {
         "schema_version": "edge-lab-forward-capture-summary.v1",
+        "generated_at": datetime.now(timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z"),
         "data_root": str(config.data_root),
         "duration_seconds": str(duration_seconds),
         "target_count": len(config.targets),
@@ -302,7 +318,7 @@ async def run_forward_capture(
         ),
     }
     if capture_error is not None:
-        raise RuntimeError(json.dumps(summary, sort_keys=True)) from capture_error
+        raise ForwardCaptureFinalizationError(summary) from capture_error
     return summary
 
 

@@ -1,0 +1,42 @@
+[Unit]
+Description=BTC 5m/15m relative-value paper service v0.5
+After=network-online.target chronyd.service
+Wants=network-online.target chronyd.service
+
+[Service]
+Type=simple
+User=polybotv05
+Group=polybotv05
+WorkingDirectory=/opt/poly-mm-v05
+Environment=PYTHONUNBUFFERED=1
+Environment=AWS_EC2_METADATA_DISABLED=true
+ExecStartPre=/opt/poly-mm-v05/.venv/bin/python /opt/poly-mm-v05/scripts/run_btc_twap_relative_value_service.py --config /opt/poly-mm-v05/research/btc_5m_15m_relative_value_paper_v05_linux_2026-08-13/SERVICE_CONFIG.json --validate-only
+ExecStart=/opt/poly-mm-v05/.venv/bin/python /opt/poly-mm-v05/scripts/run_btc_twap_relative_value_service.py --config /opt/poly-mm-v05/research/btc_5m_15m_relative_value_paper_v05_linux_2026-08-13/SERVICE_CONFIG.json
+Restart=always
+RestartSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ReadOnlyPaths=/opt/poly-mm-v05
+ReadWritePaths=/var/lib/poly-mm-v05
+IPAddressDeny=169.254.169.254
+IPAddressDeny=fd00:ec2::254
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

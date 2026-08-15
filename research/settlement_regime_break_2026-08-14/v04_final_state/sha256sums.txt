@@ -1,0 +1,4 @@
+8bec5170afff6f6d2276b230ee361a4a988c95cb677568dcfd5a3e6531fb0cdf  /var/lib/poly-mm/data/btc_5m_15m_relative_value_paper_v04_linux_2026-08-13/service/status.json
+9bb2caec37b9a20736709c9fed2d69f72b9777842ad119a0b2e44aa904f91f5d  /var/lib/poly-mm/monitor/health-latest.json
+69bdd4932ab795dacb7a6e18197260ef07736cc70e2626b949bb7552d5a6de32  /var/lib/poly-mm/research/btc_5m_15m_relative_value_paper_v04_linux_2026-08-13/VALIDATION_SUMMARY.json
+bfeb43771137ffd555ea97ba8d84e3018c68cfba9cb82df603a4375066fec1fb  /var/lib/poly-mm/research/btc_5m_15m_relative_value_paper_v04_linux_2026-08-13/reports/PILOT_REPORT_1786665600_20260813T235143.666386Z-6412273a2729_TAU60.json

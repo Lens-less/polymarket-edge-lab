@@ -1,0 +1,31 @@
+{
+  "accepted_at": "2026-08-14T19:24:33.792463Z",
+  "base_manifest": {
+    "path": "research/settlement_regime_break_2026-08-14/GAP_MANIFEST.json",
+    "sha256": "2a49798d53b730273eac9614be4205e06947130b29cfbad9f318d0c81c89696f"
+  },
+  "evidence_boundary": "operational_context_only_not_qualified_strategy_evidence",
+  "gap_end": "2026-08-14T18:49:44.097586Z",
+  "gap_end_semantics": "v06_first_prospective_capture_started_before_any_observed_30s_regime_return",
+  "immutable_base_manifest_preserved": true,
+  "rawcap_first_completed_capture": {
+    "capture_started_at": "2026-08-14T18:49:43.428716Z",
+    "generated_at": "2026-08-14T19:06:04.043383Z",
+    "integrity_failures": 0,
+    "manifest_count": 61,
+    "manifest_record_count": 230517,
+    "observed_regime": "chainlink_twap_60s_5m_and_60s_15m.v1",
+    "qualification_status": "eligible"
+  },
+  "schema_version": "settlement-regime-gap-closure.v1",
+  "v06_first_completed_cycle": {
+    "capture_generated_at": "2026-08-14T19:21:00.785358Z",
+    "capture_started_at": "2026-08-14T18:49:44.097586Z",
+    "expiry_seconds": 1786734900,
+    "orders_submitted": 0,
+    "qualified_oos_status": "past_only_calibration_insufficient",
+    "raw_shadow_models_available": 4,
+    "report_count": 4,
+    "verified_report_v2_count": 4
+  }
+}

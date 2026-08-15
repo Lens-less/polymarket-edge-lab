@@ -33,6 +33,8 @@ from src.edge_lab.btc_twap_relative_value_schedule import (  # noqa: E402
 )
 from src.edge_lab.btc_twap_relative_value_service import (  # noqa: E402
     CLOCK_SYNC_SOURCE_CHRONY_AMAZON,
+    LEGACY_EVIDENCE_TRACK_ID,
+    CaptureFinalizationError,
     ClockSyncMeasurement,
     ContinuousServiceConfig,
     ServiceStatus,
@@ -43,6 +45,7 @@ from src.edge_lab.btc_twap_relative_value_service import (  # noqa: E402
     public_session,
     require_disk_capacity,
     run_compact_forward_capture,
+    validate_preregistration_runtime_identity,
     verify_paper_only_guard,
     write_json_document,
     write_service_status,
@@ -97,6 +100,27 @@ def _generated_report_paths(config: ContinuousServiceConfig) -> tuple[Path, ...]
     return tuple(sorted((config.research_root / "reports").glob("*.json")))
 
 
+def _load_preregistration(config: ContinuousServiceConfig) -> dict[str, Any]:
+    try:
+        preregistration = json.loads(
+            config.preregistration_path.read_text(encoding="utf-8")
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(
+            f"unable to load preregistration JSON: {config.preregistration_path}"
+        ) from exc
+    if not isinstance(preregistration, dict):
+        raise ValueError("preregistration must be a JSON object")
+    return preregistration
+
+
+def _validate_runtime_identity(config: ContinuousServiceConfig) -> None:
+    validate_preregistration_runtime_identity(
+        _load_preregistration(config),
+        config=config,
+    )
+
+
 def _decision_report_path(
     *,
     plan: Any,
@@ -115,31 +139,49 @@ def _history_roots(
     *,
     exclude: Path,
 ) -> tuple[Path, ...]:
-    roots: list[tuple[float, Path]] = []
+    roots: list[tuple[int, float, Path]] = []
     for report_path in _report_paths(config):
         document = _read_json(report_path)
         inputs = document.get("inputs") if isinstance(document, dict) else None
+        report_track = (
+            inputs.get("evidence_track") if isinstance(inputs, dict) else None
+        )
+        if (
+            config.evidence_track_id != LEGACY_EVIDENCE_TRACK_ID
+            and report_track != config.evidence_track_id
+        ):
+            continue
         root_value = inputs.get("capture_root") if isinstance(inputs, dict) else None
         if not isinstance(root_value, str):
             continue
         root = Path(root_value).resolve()
         if root != exclude and root.is_dir():
+            capture_identity = _read_json(root / "capture-config.json")
+            capture_started_at_ms = (
+                capture_identity.get("capture_started_at_ms")
+                if isinstance(capture_identity, dict)
+                else None
+            )
+            if (
+                isinstance(capture_started_at_ms, bool)
+                or not isinstance(capture_started_at_ms, int)
+                or capture_started_at_ms < 0
+            ):
+                capture_started_at_ms = -1
             generated_at = document.get("generated_at")
             timestamp = report_path.stat().st_mtime
             if isinstance(generated_at, str) and generated_at:
                 try:
-                    parsed = datetime.fromisoformat(
-                        generated_at.replace("Z", "+00:00")
-                    )
+                    parsed = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
                     if parsed.tzinfo is not None and parsed.utcoffset() is not None:
                         timestamp = parsed.timestamp()
                 except ValueError:
                     pass
-            roots.append((timestamp, root))
+            roots.append((capture_started_at_ms, timestamp, root))
     deduped: dict[Path, None] = {}
-    for _, root in sorted(
+    for _, _, root in sorted(
         roots,
-        key=lambda item: (item[0], str(item[1])),
+        key=lambda item: (item[0], item[1], str(item[2])),
         reverse=True,
     ):
         deduped.setdefault(root, None)
@@ -304,6 +346,7 @@ async def run_service(
     stop_event: asyncio.Event,
 ) -> None:
     verify_paper_only_guard()
+    _validate_runtime_identity(config)
     config.data_root.mkdir(parents=True, exist_ok=True)
     config.research_root.mkdir(parents=True, exist_ok=True)
     session = public_session(proxy_url)
@@ -342,18 +385,27 @@ async def run_service(
                 plan.capture_root.mkdir(parents=True, exist_ok=False)
                 write_json_document(plan.capture_config_path, plan.capture_config)
                 capture_config = load_capture_config(plan.capture_config_path)
-                capture_summary, refreshed_clock_sync = await _capture_with_heartbeat(
-                    config=config,
-                    capture_config=capture_config,
-                    plan=plan,
-                    proxy_url=proxy_url,
-                    stop_event=stop_event,
-                    clock_refresh_at_ms=(
-                        bootstrap_clock_refresh_at_ms(plan.expiry_seconds)
-                        if bootstrap_required
-                        else None
-                    ),
-                )
+                try:
+                    capture_summary, refreshed_clock_sync = (
+                        await _capture_with_heartbeat(
+                            config=config,
+                            capture_config=capture_config,
+                            plan=plan,
+                            proxy_url=proxy_url,
+                            stop_event=stop_event,
+                            clock_refresh_at_ms=(
+                                bootstrap_clock_refresh_at_ms(plan.expiry_seconds)
+                                if bootstrap_required
+                                else None
+                            ),
+                        )
+                    )
+                except CaptureFinalizationError as exc:
+                    write_json_document(
+                        plan.capture_root / "capture-summary.json",
+                        exc.summary,
+                    )
+                    raise
                 if refreshed_clock_sync is not None:
                     refreshed_capture_config = dict(plan.capture_config)
                     refreshed_capture_config["clock_sync"] = (
@@ -373,6 +425,7 @@ async def run_service(
                     exclude=plan.capture_root,
                 )
                 for decision_tau_seconds in config.decision_tau_seconds:
+                    prior_report_paths = _report_paths(config)
                     report = await asyncio.to_thread(
                         build_report,
                         capture_root=plan.capture_root,
@@ -381,6 +434,7 @@ async def run_service(
                         preregistration_path=config.preregistration_path,
                         history_roots=histories,
                         decision_tau_seconds=decision_tau_seconds,
+                        prior_report_paths=prior_report_paths,
                     )
                     write_json_document(
                         _decision_report_path(
@@ -436,8 +490,6 @@ def _exclusive_lock(config: ContinuousServiceConfig) -> Iterator[None]:
 
 async def _async_main(
     config: ContinuousServiceConfig,
-    *,
-    proxy_url: str | None,
 ) -> None:
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -449,7 +501,7 @@ async def _async_main(
         except (NotImplementedError, RuntimeError):
             pass
     try:
-        await run_service(config, proxy_url=proxy_url, stop_event=stop_event)
+        await run_service(config, proxy_url=None, stop_event=stop_event)
     finally:
         for candidate in installed:
             loop.remove_signal_handler(candidate)
@@ -458,7 +510,6 @@ async def _async_main(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True, type=Path)
-    parser.add_argument("--proxy")
     parser.add_argument("--validate-only", action="store_true")
     return parser
 
@@ -467,7 +518,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     config = load_service_config(args.config)
     verify_paper_only_guard()
-    public_session(args.proxy).close()
+    _validate_runtime_identity(config)
+    public_session(None).close()
     require_disk_capacity(config)
     if args.validate_only:
         print(
@@ -489,7 +541,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0
     with _exclusive_lock(config):
-        asyncio.run(_async_main(config, proxy_url=args.proxy))
+        asyncio.run(_async_main(config))
     return 0
 
 

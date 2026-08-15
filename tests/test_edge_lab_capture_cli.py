@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import src.edge_lab.capture_cli as capture_cli
 
+import src.edge_lab.capture_cli as capture_cli
 from src.edge_lab.capture_cli import (
     CONFIG_SCHEMA_VERSION,
     _local_proxy_mapping,
@@ -199,11 +199,12 @@ async def test_forward_capture_allows_slow_finalized_persistence(
 
     monkeypatch.setattr(capture_cli, "PublicRecorder", StubRecorder)
 
-    await capture_cli.run_forward_capture(
+    summary = await capture_cli.run_forward_capture(
         load_capture_config(config_path),
         duration_seconds=1.0,
     )
 
+    assert summary["generated_at"].endswith("Z")
     assert captured["run_for_seconds"] == 1.0
     assert captured["config"].sink_timeout_seconds == 60.0
     assert captured["config"].checkpoint_timeout_seconds == 60.0

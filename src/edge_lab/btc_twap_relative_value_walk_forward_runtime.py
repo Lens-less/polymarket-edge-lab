@@ -40,7 +40,11 @@ class WalkForwardFold:
     test_day: str
 
     def __post_init__(self) -> None:
-        if isinstance(self.index, bool) or not isinstance(self.index, int) or self.index < 0:
+        if (
+            isinstance(self.index, bool)
+            or not isinstance(self.index, int)
+            or self.index < 0
+        ):
             raise ValueError("fold index must be a non-negative integer")
         train_days = tuple(_normalize_utc_day(day) for day in self.train_days)
         if len(train_days) != 5:
@@ -50,7 +54,11 @@ class WalkForwardFold:
         validation_day = _normalize_utc_day(self.validation_day)
         test_day = _normalize_utc_day(self.test_day)
         occupied = set(train_days)
-        if validation_day in occupied or test_day in occupied or validation_day == test_day:
+        if (
+            validation_day in occupied
+            or test_day in occupied
+            or validation_day == test_day
+        ):
             raise ValueError("train, validation, and test days must be disjoint")
         ordered = train_days + (validation_day, test_day)
         if tuple(sorted(ordered)) != ordered:
@@ -106,7 +114,11 @@ class WalkForwardCalibrationProvenance:
     def __post_init__(self) -> None:
         if self.split != "train":
             raise ValueError("walk-forward calibration provenance split must be train")
-        if isinstance(self.fit_at_ms, bool) or not isinstance(self.fit_at_ms, int) or self.fit_at_ms < 0:
+        if (
+            isinstance(self.fit_at_ms, bool)
+            or not isinstance(self.fit_at_ms, int)
+            or self.fit_at_ms < 0
+        ):
             raise ValueError("fit_at_ms must be non-negative")
         if (
             isinstance(self.maximum_label_available_at_ms, bool)
@@ -115,20 +127,32 @@ class WalkForwardCalibrationProvenance:
         ):
             raise ValueError("maximum_label_available_at_ms must be non-negative")
         if self.maximum_label_available_at_ms >= self.fit_at_ms:
-            raise ValueError("maximum_label_available_at_ms must be earlier than fit_at_ms")
+            raise ValueError(
+                "maximum_label_available_at_ms must be earlier than fit_at_ms"
+            )
         if set(self.training_event_ids_by_horizon) != set(_HORIZONS):
             raise ValueError("provenance must include both horizons")
         if set(self.artifact_hashes_by_horizon) != set(_HORIZONS):
             raise ValueError("artifact hashes must include both horizons")
-        object.__setattr__(self, "train_days", tuple(_normalize_utc_day(day) for day in self.train_days))
-        object.__setattr__(self, "validation_day", _normalize_utc_day(self.validation_day))
+        object.__setattr__(
+            self,
+            "train_days",
+            tuple(_normalize_utc_day(day) for day in self.train_days),
+        )
+        object.__setattr__(
+            self, "validation_day", _normalize_utc_day(self.validation_day)
+        )
         object.__setattr__(self, "test_day", _normalize_utc_day(self.test_day))
         normalized_ids = {
-            horizon: tuple(str(event_id) for event_id in self.training_event_ids_by_horizon[horizon])
+            horizon: tuple(
+                str(event_id)
+                for event_id in self.training_event_ids_by_horizon[horizon]
+            )
             for horizon in _HORIZONS
         }
         normalized_hashes = {
-            horizon: str(self.artifact_hashes_by_horizon[horizon]) for horizon in _HORIZONS
+            horizon: str(self.artifact_hashes_by_horizon[horizon])
+            for horizon in _HORIZONS
         }
         object.__setattr__(self, "training_event_ids_by_horizon", normalized_ids)
         object.__setattr__(self, "artifact_hashes_by_horizon", normalized_hashes)
@@ -144,10 +168,12 @@ class WalkForwardCalibrationProvenance:
             "validation_day": self.validation_day,
             "test_day": self.test_day,
             "training_event_ids_by_horizon": {
-                horizon: list(self.training_event_ids_by_horizon[horizon]) for horizon in _HORIZONS
+                horizon: list(self.training_event_ids_by_horizon[horizon])
+                for horizon in _HORIZONS
             },
             "artifact_hashes_by_horizon": {
-                horizon: self.artifact_hashes_by_horizon[horizon] for horizon in _HORIZONS
+                horizon: self.artifact_hashes_by_horizon[horizon]
+                for horizon in _HORIZONS
             },
         }
 
@@ -159,17 +185,23 @@ class WalkForwardCalibrationProvenance:
             fold_index=int(document["fold_index"]),
             split=str(document["split"]),
             fit_at_ms=int(document["fit_at_ms"]),
-            maximum_label_available_at_ms=int(document["maximum_label_available_at_ms"]),
+            maximum_label_available_at_ms=int(
+                document["maximum_label_available_at_ms"]
+            ),
             train_days=tuple(str(day) for day in document["train_days"]),
             validation_day=str(document["validation_day"]),
             test_day=str(document["test_day"]),
             training_event_ids_by_horizon={
                 str(horizon): tuple(str(event_id) for event_id in event_ids)
-                for horizon, event_ids in dict(document["training_event_ids_by_horizon"]).items()
+                for horizon, event_ids in dict(
+                    document["training_event_ids_by_horizon"]
+                ).items()
             },
             artifact_hashes_by_horizon={
                 str(horizon): str(value)
-                for horizon, value in dict(document["artifact_hashes_by_horizon"]).items()
+                for horizon, value in dict(
+                    document["artifact_hashes_by_horizon"]
+                ).items()
             },
         )
 
@@ -197,7 +229,9 @@ class FittedWalkForwardCalibrators:
 
 def build_daily_folds(utc_days: tuple[str, ...]) -> tuple[WalkForwardFold, ...]:
     normalized = tuple(_normalize_utc_day(day) for day in utc_days)
-    if tuple(sorted(normalized)) != normalized or len(set(normalized)) != len(normalized):
+    if tuple(sorted(normalized)) != normalized or len(set(normalized)) != len(
+        normalized
+    ):
         raise ValueError("utc_days must be unique and sorted")
     fold_span = 7
     if len(normalized) < fold_span:
@@ -235,11 +269,7 @@ def fit_past_only_calibrators(
     fit_at_ms: int,
     minimum_points_per_horizon: int,
 ) -> FittedWalkForwardCalibrators:
-    if (
-        isinstance(fit_at_ms, bool)
-        or not isinstance(fit_at_ms, int)
-        or fit_at_ms < 0
-    ):
+    if isinstance(fit_at_ms, bool) or not isinstance(fit_at_ms, int) or fit_at_ms < 0:
         raise ValueError("fit_at_ms must be a non-negative integer")
     if (
         isinstance(minimum_points_per_horizon, bool)
@@ -253,9 +283,13 @@ def fit_past_only_calibrators(
     for row in rows:
         split = classify_day(row.utc_day, fold)
         if split != "train":
-            raise ValueError(f"future or leaked non-train calibration row: {row.point.event_id}")
+            raise ValueError(
+                f"future or leaked non-train calibration row: {row.point.event_id}"
+            )
         if row.point.split != "train":
-            raise ValueError(f"non-train calibration split for event {row.point.event_id}")
+            raise ValueError(
+                f"non-train calibration split for event {row.point.event_id}"
+            )
         if row.point.label_available_at_ms >= fit_at_ms:
             raise ValueError(f"future label leakage for event {row.point.event_id}")
         filtered[row.horizon].append(row.point)
@@ -373,7 +407,9 @@ def summarize_locked_oos_reports(
             )
 
     return {
-        "qualified_net_pnl": str(qualified_net_pnl) if qualified_net_pnl is not None else None,
+        "qualified_net_pnl": str(qualified_net_pnl)
+        if qualified_net_pnl is not None
+        else None,
         "qualified_trade_count": qualified_trade_count,
         "qualified_event_ids": qualified_event_ids,
         "shadow_reports_excluded": shadow_reports_excluded,

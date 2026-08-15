@@ -31,9 +31,15 @@ from src.edge_lab.btc_twap_relative_value import (  # noqa: E402
     evaluate_validation,
     simulate_ewma_joint_distribution,
 )
+from src.edge_lab.btc_twap_relative_value_qualification_runtime import (  # noqa: E402
+    QualificationInsufficientData,
+    build_daily_qualification_fold,
+    fit_qualification_calibrators_from_reports,
+)
 from src.edge_lab.btc_twap_relative_value_replay import (  # noqa: E402
     BookReplayToken,
     CausalBookReplay,
+    evaluate_qualified_paper_cycle,
     evaluate_shadow_paper_cycle,
 )
 from src.edge_lab.data_store import (  # noqa: E402
@@ -41,6 +47,11 @@ from src.edge_lab.data_store import (  # noqa: E402
     canonical_json_bytes,
 )
 from src.edge_lab.execution import ExecutionFeeSchedule  # noqa: E402
+from src.edge_lab.settlement_regime import (  # noqa: E402
+    LEGACY_SETTLEMENT_REGIME_ID,
+    canonicalize_resolution_source,
+    regime_scope_value,
+)
 
 PriceObservation = tuple[int, int, Decimal]
 
@@ -115,9 +126,7 @@ def _message(record: dict[str, Any]) -> dict[str, Any] | None:
     return message if isinstance(message, dict) else None
 
 
-def _series(
-    root: Path, *, topic: str, symbol: str
-) -> tuple[PriceObservation, ...]:
+def _series(root: Path, *, topic: str, symbol: str) -> tuple[PriceObservation, ...]:
     receipt_clock_offset_ms = _receipt_clock_offset_ms(root)
     by_timestamp: dict[int, tuple[int, Decimal]] = {}
     for record in _records(root, "rtds_ws"):
@@ -170,6 +179,40 @@ def _combined_series(
     )
 
 
+def _target_source_topic(target: Mapping[str, Any]) -> str:
+    topic = target.get("source_topic")
+    if isinstance(topic, str) and topic:
+        if topic not in {
+            "crypto_prices_twap_thirty",
+            "crypto_prices_twap_sixty",
+        }:
+            raise ValueError("capture target has an unsupported settlement topic")
+        return topic
+    window = target.get("twap_window_seconds")
+    if window == 30:
+        return "crypto_prices_twap_thirty"
+    if window == 60:
+        return "crypto_prices_twap_sixty"
+    raise ValueError("capture target has no supported settlement source")
+
+
+def _settlement_series_by_horizon(
+    roots: tuple[Path, ...],
+    targets: Mapping[str, Mapping[str, Any]],
+) -> dict[str, tuple[PriceObservation, ...]]:
+    """Load the source frozen on each target instead of assuming a horizon map."""
+
+    topics = {
+        horizon: _target_source_topic(targets[horizon])
+        for horizon in ("5m", "15m")
+    }
+    by_topic = {
+        topic: _combined_series(roots, topic=topic, symbol="btc/usd")
+        for topic in set(topics.values())
+    }
+    return {horizon: by_topic[topics[horizon]] for horizon in ("5m", "15m")}
+
+
 def _exact(
     series: tuple[PriceObservation, ...],
     timestamp_ms: int,
@@ -187,13 +230,28 @@ def _exact(
     return next(iter(values)) if values else None
 
 
+def _exact_observation(
+    series: tuple[PriceObservation, ...],
+    timestamp_ms: int,
+    *,
+    available_by_ms: int | None = None,
+) -> PriceObservation | None:
+    matches = tuple(
+        item
+        for item in series
+        if item[0] == timestamp_ms
+        and (available_by_ms is None or item[1] <= available_by_ms)
+    )
+    if len({item[2] for item in matches}) > 1:
+        raise ValueError(f"conflicting boundary values at {timestamp_ms}")
+    return min(matches, key=lambda item: item[1]) if matches else None
+
+
 def _latest_before(
     series: tuple[PriceObservation, ...], timestamp_ms: int
 ) -> PriceObservation | None:
     eligible = tuple(
-        item
-        for item in series
-        if item[0] <= timestamp_ms and item[1] <= timestamp_ms
+        item for item in series if item[0] <= timestamp_ms and item[1] <= timestamp_ms
     )
     return eligible[-1] if eligible else None
 
@@ -314,10 +372,7 @@ def _book_observations(
     observations: list[dict[str, Any]] = []
     for record in _records(root, "clob_market_ws"):
         envelope = record.get("payload")
-        if (
-            not isinstance(envelope, dict)
-            or envelope.get("event_type") != "book"
-        ):
+        if not isinstance(envelope, dict) or envelope.get("event_type") != "book":
             continue
         payload = envelope.get("payload")
         token_id = str(payload.get("asset_id")) if isinstance(payload, dict) else ""
@@ -392,9 +447,11 @@ def _book_replay_coverage(
         execution_candidates = [
             item
             for item in ordered
-            if execution_threshold_ms <= int(item["source_at_ms"])
+            if execution_threshold_ms
+            <= int(item["source_at_ms"])
             <= execution_threshold_ms + max_book_age_ms
-            and execution_threshold_ms <= int(item["received_at_ms"])
+            and execution_threshold_ms
+            <= int(item["received_at_ms"])
             <= execution_threshold_ms + max_book_age_ms
         ]
         signal = signal_candidates[-1] if signal_candidates else None
@@ -434,8 +491,7 @@ def _book_replay_coverage(
             item["signal_source_event_id"] is not None for item in by_token.values()
         ),
         "complete_four_token_delayed_execution_surface": all(
-            item["execution_source_event_id"] is not None
-            for item in by_token.values()
+            item["execution_source_event_id"] is not None for item in by_token.values()
         ),
         "tokens": by_token,
     }
@@ -443,6 +499,7 @@ def _book_replay_coverage(
 
 def _resolved_events(root: Path, market_ids: set[str]) -> dict[str, dict[str, Any]]:
     resolved: dict[str, dict[str, Any]] = {}
+    receipt_clock_offset_ms = _receipt_clock_offset_ms(root)
     for record in _records(root, "clob_market_ws"):
         envelope = record.get("payload")
         if (
@@ -455,6 +512,10 @@ def _resolved_events(root: Path, market_ids: set[str]) -> dict[str, dict[str, An
         if market_id in market_ids:
             resolved[market_id] = {
                 "event_at": envelope.get("event_at"),
+                "received_at_ms": _iso_to_epoch_ms(
+                    record.get("received_at"),
+                    receipt_clock_offset_ms=receipt_clock_offset_ms,
+                ),
                 "condition_id": payload.get("market"),
                 "winning_asset_id": payload.get("winning_asset_id"),
                 "winning_outcome": payload.get("winning_outcome"),
@@ -468,9 +529,10 @@ def _resolution_event_validation(
 ) -> tuple[bool, str | None]:
     if not isinstance(event, Mapping):
         return False, "resolution_event_missing"
-    if str(event.get("condition_id", "")).lower() != str(
-        target.get("condition_id", "")
-    ).lower():
+    if (
+        str(event.get("condition_id", "")).lower()
+        != str(target.get("condition_id", "")).lower()
+    ):
         return False, "resolution_condition_mismatch"
     winning_asset_id = str(event.get("winning_asset_id", ""))
     expected_outcome = (
@@ -506,6 +568,342 @@ def _assert_frozen_decision_tau(
         or decision_tau_seconds not in ticks
     ):
         raise ValueError("decision tau must be one of the frozen decision ticks")
+
+
+def _epoch_ms_to_utc_iso(timestamp_ms: int) -> str:
+    if isinstance(timestamp_ms, bool) or not isinstance(timestamp_ms, int):
+        raise TypeError("timestamp_ms must be an integer")
+    return (
+        datetime.fromtimestamp(timestamp_ms / 1_000, tz=timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+
+
+def _prospective_cutoff_ms(preregistration: Mapping[str, Any]) -> int | None:
+    scope = preregistration.get("scope")
+    if not isinstance(scope, Mapping):
+        raise ValueError("preregistration scope must be an object")
+    evidence_track = scope.get("evidence_track_id")
+    if evidence_track is None:
+        return None
+    if not isinstance(evidence_track, str) or not evidence_track:
+        raise ValueError("scope.evidence_track_id must be a non-empty string")
+    cutoff = scope.get("prospective_only_after")
+    if not isinstance(cutoff, str) or not cutoff:
+        raise ValueError("scope.prospective_only_after must be a UTC timestamp")
+    return _iso_to_epoch_ms(cutoff)
+
+
+def _capture_identity(root: Path) -> tuple[int, str]:
+    path = root / "capture-config.json"
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"capture identity is unreadable: {root}") from exc
+    if not isinstance(document, Mapping):
+        raise ValueError(f"capture identity is malformed: {root}")
+    started_at_ms = document.get("capture_started_at_ms")
+    track = document.get("evidence_track_id")
+    if (
+        isinstance(started_at_ms, bool)
+        or not isinstance(started_at_ms, int)
+        or started_at_ms < 0
+    ):
+        raise ValueError(f"capture_started_at_ms is invalid: {root}")
+    if not isinstance(track, str) or not track:
+        raise ValueError(f"evidence_track_id is invalid: {root}")
+    return started_at_ms, track
+
+
+def _validate_prospective_report_identity(
+    *,
+    capture_config: Mapping[str, Any],
+    preregistration: Mapping[str, Any],
+    capture_root: Path,
+    predictor_root: Path,
+    history_roots: tuple[Path, ...],
+    decision_at_ms: int,
+) -> dict[str, Any] | None:
+    """Fail closed before any v2 evidence can cross its frozen boundary."""
+
+    cutoff_ms = _prospective_cutoff_ms(preregistration)
+    if cutoff_ms is None:
+        return None
+    scope = preregistration["scope"]
+    assert isinstance(scope, Mapping)
+    expected_track = str(scope["evidence_track_id"])
+    started_at_ms = capture_config.get("capture_started_at_ms")
+    track = capture_config.get("evidence_track_id")
+    if (
+        isinstance(started_at_ms, bool)
+        or not isinstance(started_at_ms, int)
+        or started_at_ms < cutoff_ms
+    ):
+        raise ValueError("current capture predates prospective_only_after")
+    if track != expected_track:
+        raise ValueError("current capture evidence_track_id mismatch")
+    expected_regime = scope.get("settlement_regime")
+    if expected_regime is not None:
+        configured_regime = capture_config.get("settlement_regime_id")
+        if (
+            not isinstance(expected_regime, str)
+            or not isinstance(configured_regime, str)
+            or regime_scope_value(expected_regime)
+            != regime_scope_value(configured_regime)
+        ):
+            raise ValueError("current capture settlement regime mismatch")
+    configured_root = capture_config.get("data_root")
+    if (
+        not isinstance(configured_root, str)
+        or Path(configured_root).resolve() != capture_root
+    ):
+        raise ValueError("capture config data_root does not match capture root")
+    if decision_at_ms < cutoff_ms:
+        raise ValueError("decision predates prospective_only_after")
+
+    checked_roots: set[Path] = {capture_root}
+    for label, root in (("predictor", predictor_root),):
+        if root in checked_roots:
+            continue
+        root_started_at_ms, root_track = _capture_identity(root)
+        if root_started_at_ms < cutoff_ms or root_track != expected_track:
+            raise ValueError(
+                f"{label} capture is outside the prospective evidence track"
+            )
+        if root_started_at_ms > started_at_ms:
+            raise ValueError(f"{label} capture starts after the current capture")
+        checked_roots.add(root)
+    for root in history_roots:
+        if root in checked_roots:
+            raise ValueError("history roots must be distinct from active captures")
+        root_started_at_ms, root_track = _capture_identity(root)
+        if root_started_at_ms < cutoff_ms or root_track != expected_track:
+            raise ValueError(
+                "history capture is outside the prospective evidence track"
+            )
+        if root_started_at_ms >= started_at_ms:
+            raise ValueError(
+                "history capture must start strictly before current capture"
+            )
+        checked_roots.add(root)
+    return {
+        "verified": True,
+        "verification_version": "v2",
+        "evidence_track": expected_track,
+        "prospective_only_after_ms": cutoff_ms,
+        "capture_started_at_ms": started_at_ms,
+        "decision_at_ms": decision_at_ms,
+        "history_roots_verified": len(history_roots),
+    }
+
+
+def _load_prior_qualification_reports(
+    report_paths: tuple[Path, ...],
+    *,
+    decision_tau_seconds: int,
+) -> tuple[dict[str, Any], ...]:
+    reports: list[dict[str, Any]] = []
+    for path in sorted({item.resolve() for item in report_paths}):
+        document = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(document, dict):
+            raise ValueError(f"prior qualification report is malformed: {path}")
+        inputs = document.get("inputs")
+        if not isinstance(inputs, Mapping):
+            raise ValueError(f"prior qualification report has no inputs: {path}")
+        tau = inputs.get("decision_tau_seconds")
+        if isinstance(tau, bool) or not isinstance(tau, int):
+            raise ValueError(f"prior qualification report has invalid tau: {path}")
+        if tau == decision_tau_seconds:
+            reports.append(document)
+    return tuple(reports)
+
+
+def _normalized_binary_ask_probability(
+    signal_observations: Mapping[str, Any],
+    *,
+    up_token_id: str,
+    down_token_id: str,
+) -> Decimal | None:
+    up = signal_observations.get(up_token_id)
+    down = signal_observations.get(down_token_id)
+    up_asks = getattr(getattr(up, "snapshot", None), "asks", ())
+    down_asks = getattr(getattr(down, "snapshot", None), "asks", ())
+    if not up_asks or not down_asks:
+        return None
+    up_ask = Decimal(str(up_asks[0].price))
+    down_ask = Decimal(str(down_asks[0].price))
+    denominator = up_ask + down_ask
+    if up_ask < 0 or down_ask < 0 or denominator <= 0:
+        return None
+    return up_ask / denominator
+
+
+def _normalized_decimal_text(value: Decimal | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.normalize()
+    return format(normalized, "f")
+
+
+def _candidate_hypotheses(
+    *,
+    cycle: Mapping[str, Any],
+    signal_observations: Mapping[str, Any],
+    pair: Any,
+    boundaries: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Record causal candidate inputs and attach labels only after settlement."""
+
+    decision = cycle.get("decision")
+    if not isinstance(decision, Mapping):
+        return {
+            "schema_version": "btc-relative-value-candidate-hypotheses.v1",
+            "available": False,
+            "candidate_inputs_are_decision_time_only": True,
+            "outcome_labels_added_after_settlement": True,
+            "reason": "shadow_decision_unavailable",
+        }
+
+    def decimal_field(name: str) -> Decimal | None:
+        value = decision.get(name)
+        try:
+            parsed = Decimal(str(value))
+        except (ArithmeticError, ValueError):
+            return None
+        return parsed if parsed.is_finite() else None
+
+    q_5 = decimal_field("q_5_raw")
+    q_15 = decimal_field("q_15_raw")
+    loss_probability = decimal_field("loss_probability")
+    market_5 = (
+        _normalized_binary_ask_probability(
+            signal_observations,
+            up_token_id=pair.market_5.up_token_id,
+            down_token_id=pair.market_5.down_token_id,
+        )
+        if pair is not None
+        else None
+    )
+    market_15 = (
+        _normalized_binary_ask_probability(
+            signal_observations,
+            up_token_id=pair.market_15.up_token_id,
+            down_token_id=pair.market_15.down_token_id,
+        )
+        if pair is not None
+        else None
+    )
+
+    quantity = decimal_field("quantity")
+    selected_depths: list[Decimal | None] = []
+    for field in ("first_token_id", "second_token_id"):
+        observation = signal_observations.get(str(decision.get(field) or ""))
+        asks = getattr(getattr(observation, "snapshot", None), "asks", ())
+        selected_depths.append(
+            sum((Decimal(str(level.size)) for level in asks), Decimal(0))
+            if asks
+            else None
+        )
+    ratios = [
+        depth / quantity
+        if depth is not None and quantity is not None and quantity > 0
+        else None
+        for depth in selected_depths
+    ]
+    thresholds = (Decimal("1.25"), Decimal("1.5"), Decimal("2"))
+    depth_passes = {
+        _normalized_decimal_text(threshold): (
+            all(ratio is not None and ratio >= threshold for ratio in ratios)
+        )
+        for threshold in thresholds
+    }
+    extreme_bound = Decimal("0.05")
+    return {
+        "schema_version": "btc-relative-value-candidate-hypotheses.v1",
+        "available": True,
+        "candidate_inputs_are_decision_time_only": True,
+        "outcome_labels_added_after_settlement": True,
+        "canonical_action_unchanged": True,
+        "requires_separate_preregistration_for_action": True,
+        "probability": {
+            "model_probability_up": {
+                "5m": _normalized_decimal_text(q_5),
+                "15m": _normalized_decimal_text(q_15),
+            },
+            "market_probability_up": {
+                "5m": _normalized_decimal_text(market_5),
+                "15m": _normalized_decimal_text(market_15),
+            },
+            "actual_up": {
+                horizon: (
+                    boundary.get("mechanical_outcome") == "Up"
+                    if boundary.get("mechanical_outcome") in {"Up", "Down"}
+                    else None
+                )
+                for horizon, boundary in boundaries.items()
+            },
+            "a1_extreme_probability_veto_passes": (
+                q_5 is not None
+                and q_15 is not None
+                and extreme_bound <= q_5 <= Decimal(1) - extreme_bound
+                and extreme_bound <= q_15 <= Decimal(1) - extreme_bound
+            ),
+            "a4_loss_probability_veto_passes": (
+                loss_probability is not None
+                and loss_probability <= Decimal("0.45")
+            ),
+        },
+        "depth_buffer": {
+            "quantity": _normalized_decimal_text(quantity),
+            "first_leg_ask_depth": _normalized_decimal_text(selected_depths[0]),
+            "second_leg_ask_depth": _normalized_decimal_text(selected_depths[1]),
+            "first_leg_ratio": _normalized_decimal_text(ratios[0]),
+            "second_leg_ratio": _normalized_decimal_text(ratios[1]),
+            "passes": depth_passes,
+        },
+        "existing_canonical_controls": {
+            "signal_walks_both_legs_to_full_target": True,
+            "timeout_then_immediate_unwind": True,
+        },
+    }
+
+
+def _qualification_event_identity(
+    *, evidence_track: str, expiry_ms: int, decision_tau_seconds: int
+) -> tuple[str, str]:
+    cluster_id = f"{evidence_track}:{expiry_ms}"
+    event_id = hashlib.sha256(
+        canonical_json_bytes(
+            {
+                "evidence_track": evidence_track,
+                "expiry_ms": expiry_ms,
+                "decision_tau_seconds": decision_tau_seconds,
+            }
+        )
+    ).hexdigest()
+    return event_id, cluster_id
+
+
+def _bind_verified_oos_label(
+    forecast: Mapping[str, Any],
+    *,
+    label_available: bool,
+    label_available_at_ms: int | None,
+) -> dict[str, Any]:
+    """Attach a test label only after the local mechanical evidence is final."""
+
+    document = dict(forecast)
+    if document.get("available") is not True:
+        return document
+    if not label_available or label_available_at_ms is None:
+        return {
+            "available": False,
+            "split": "test",
+            "reason_codes": ["verified_mechanical_label_not_available"],
+        }
+    document["local_label_available_at_ms"] = label_available_at_ms
+    return document
 
 
 def _sha256(path: Path) -> str:
@@ -567,8 +965,7 @@ def _pair_from_capture_targets(
             "rule_hash",
         )
         if any(
-            not isinstance(target[key], str) or not target[key]
-            for key in string_fields
+            not isinstance(target[key], str) or not target[key] for key in string_fields
         ):
             return None
         if (
@@ -583,6 +980,7 @@ def _pair_from_capture_targets(
                 exponent=Decimal(str(fee["exponent"])),
                 taker_only=fee["taker_only"],
             )
+            window_seconds = int(target["twap_window_seconds"])
             contract = TwapMarketContract(
                 horizon=horizon,
                 slug=str(target["slug"]),
@@ -592,10 +990,13 @@ def _pair_from_capture_targets(
                 down_token_id=str(target["down_token_id"]),
                 opens_at_ms=int(target["opens_at_ms"]),
                 closes_at_ms=int(target["closes_at_ms"]),
-                twap_window_seconds=int(target["twap_window_seconds"]),
+                twap_window_seconds=window_seconds,
                 source_topic=(
-                    "crypto_prices_twap_thirty"
-                    if horizon == "5m"
+                    str(target["source_topic"])
+                    if isinstance(target.get("source_topic"), str)
+                    and target["source_topic"]
+                    else "crypto_prices_twap_thirty"
+                    if window_seconds == 30
                     else "crypto_prices_twap_sixty"
                 ),
                 resolution_source=str(target["resolution_source"]),
@@ -605,6 +1006,9 @@ def _pair_from_capture_targets(
                 taker_delay_ms=int(target["taker_delay_ms"]),
                 accepting_orders=target["accepting_orders"],
                 rule_hash=str(target["rule_hash"]),
+                settlement_regime=str(
+                    target.get("settlement_regime", LEGACY_SETTLEMENT_REGIME_ID)
+                ),
             )
         except (KeyError, TypeError, ValueError, ArithmeticError):
             return None
@@ -617,13 +1021,18 @@ def _pair_from_capture_targets(
 
 def _strategy_config(preregistration: Mapping[str, Any]) -> StrategyConfig:
     frozen = preregistration["frozen_strategy"]
+    scope = preregistration.get("scope")
+    if isinstance(scope, Mapping) and isinstance(scope.get("settlement_regime"), str):
+        settlement_regime = str(scope["settlement_regime"])
+        if not settlement_regime.endswith(".v1"):
+            settlement_regime = f"{settlement_regime}.v1"
+    else:
+        settlement_regime = LEGACY_SETTLEMENT_REGIME_ID
     return StrategyConfig(
         tau_min_seconds=int(frozen["tau_min_seconds"]),
         tau_max_seconds=int(frozen["tau_max_seconds"]),
         maximum_spread_each_leg=Decimal(str(frozen["max_spread_each_leg"])),
-        maximum_chainlink_staleness_ms=int(
-            frozen["max_chainlink_staleness_ms"]
-        ),
+        maximum_chainlink_staleness_ms=int(frozen["max_chainlink_staleness_ms"]),
         maximum_book_staleness_ms=int(frozen["max_book_staleness_ms"]),
         maximum_clock_drift_ms=int(frozen["max_clock_drift_ms"]),
         pair_risk_usdc=Decimal(str(frozen["pair_risk_usdc"])),
@@ -631,6 +1040,7 @@ def _strategy_config(preregistration: Mapping[str, Any]) -> StrategyConfig:
             str(frozen["minimum_net_expected_pnl_per_pair"])
         ),
         uncertainty_multiplier=Decimal(str(frozen["uncertainty_multiplier"])),
+        settlement_regime=settlement_regime,
     )
 
 
@@ -712,6 +1122,7 @@ def build_report(
     preregistration_path: Path,
     history_roots: tuple[Path, ...] = (),
     decision_tau_seconds: int = 60,
+    prior_report_paths: tuple[Path, ...] = (),
 ) -> dict[str, Any]:
     capture_root = capture_root.resolve()
     predictor_root = predictor_root.resolve()
@@ -730,13 +1141,34 @@ def build_report(
     config = json.loads(capture_config_path.read_text(encoding="utf-8"))
     preregistration = json.loads(preregistration_path.read_text(encoding="utf-8"))
     _assert_frozen_decision_tau(preregistration, decision_tau_seconds)
+    frozen_strategy = preregistration["frozen_strategy"]
+    pair_risk_usdc = Decimal(str(frozen_strategy["pair_risk_usdc"]))
+    same_expiry_upper_bound = pair_risk_usdc * Decimal(
+        len(frozen_strategy["decision_tau_seconds"])
+    )
+    max_same_expiry_risk = Decimal(str(frozen_strategy["max_same_expiry_risk_usdc"]))
+    max_total_open_risk = Decimal(str(frozen_strategy["max_total_open_risk_usdc"]))
+    if (
+        same_expiry_upper_bound > max_same_expiry_risk
+        or same_expiry_upper_bound > max_total_open_risk
+    ):
+        raise ValueError("frozen decision surface exceeds portfolio risk caps")
     targets = config["targets"]
     by_horizon = {target["horizon"]: target for target in targets}
     pair = _pair_from_capture_targets(by_horizon)
-    target_by_market_id = {
-        str(target["market_id"]): target for target in targets
-    }
+    target_by_market_id = {str(target["market_id"]): target for target in targets}
     market_ids = {str(target["market_id"]) for target in targets}
+
+    expiry_ms = int(by_horizon["5m"]["closes_at_ms"])
+    decision_at_ms = expiry_ms - decision_tau_seconds * 1_000
+    verification = _validate_prospective_report_identity(
+        capture_config=config,
+        preregistration=preregistration,
+        capture_root=capture_root,
+        predictor_root=predictor_root,
+        history_roots=history_roots,
+        decision_at_ms=decision_at_ms,
+    )
 
     twap_roots = (*history_roots, capture_root)
     twap_30 = _combined_series(
@@ -745,16 +1177,17 @@ def build_report(
     twap_60 = _combined_series(
         twap_roots, topic="crypto_prices_twap_sixty", symbol="btc/usd"
     )
-    # Predictor returns are scoped to the current continuous capture.  Prior
-    # capture roots can contain a service reporting gap greater than the
-    # frozen five-second freshness limit; joining across that gap would make
-    # an otherwise healthy current suffix fail and would not restore a
-    # continuous history.  Historical roots remain valid for exact TWAP
-    # boundary recovery above.
-    predictor = _series(
-        predictor_root, topic="crypto_prices", symbol="btcusdt"
-    )
-    series_by_horizon = {"5m": twap_30, "15m": twap_60}
+    # Predictor returns stay inside the current continuous capture.  Joining
+    # an older root across a service rollover would turn the rollover outage
+    # into an internal gap and reject an otherwise valid current suffix.  The
+    # resampler below accepts only an unobserved leading prefix; after its
+    # first sample, every gap over five seconds still fails closed.
+    predictor = _series(predictor_root, topic="crypto_prices", symbol="btcusdt")
+    series_by_horizon = _settlement_series_by_horizon(twap_roots, by_horizon)
+    source_topic_by_horizon = {
+        horizon: _target_source_topic(target)
+        for horizon, target in by_horizon.items()
+    }
     boundaries: dict[str, dict[str, Any]] = {}
     mechanically_labelable = 0
     for horizon, target in sorted(by_horizon.items()):
@@ -778,11 +1211,7 @@ def build_report(
             "closes_at_ms": target["closes_at_ms"],
             "closing_twap": str(closing) if closing is not None else None,
             "mechanical_outcome": outcome,
-            "source_topic": (
-                "crypto_prices_twap_thirty"
-                if horizon == "5m"
-                else "crypto_prices_twap_sixty"
-            ),
+            "source_topic": source_topic_by_horizon[horizon],
         }
 
     latest_rules = _latest_rules(capture_root, market_ids)
@@ -808,10 +1237,16 @@ def build_report(
             if isinstance(description, str)
             else None
         )
-        rule_identity_present = (
-            isinstance(target.get("rule_hash"), str)
-            and isinstance(target.get("rules_text_sha256"), str)
+        rule_identity_present = isinstance(target.get("rule_hash"), str) and isinstance(
+            target.get("rules_text_sha256"), str
         )
+        try:
+            resolution_source_matches = isinstance(market, Mapping) and (
+                canonicalize_resolution_source(str(market.get("resolutionSource")))
+                == canonicalize_resolution_source(str(target.get("resolution_source")))
+            )
+        except (TypeError, ValueError):
+            resolution_source_matches = False
         rules_match_capture = (
             market is not None
             and rule_identity_present
@@ -819,14 +1254,14 @@ def build_report(
             and market.get("slug") == target.get("slug")
             and str(market.get("conditionId", "")).lower()
             == str(target.get("condition_id", "")).lower()
-            and market.get("resolutionSource") == target.get("resolution_source")
+            and resolution_source_matches
             and _json_string_list(market.get("outcomes")) == ("Up", "Down")
             and _json_string_list(market.get("clobTokenIds"))
             == (target.get("up_token_id"), target.get("down_token_id"))
         )
         resolution_event = resolved_events.get(market_id)
-        resolution_event_valid, resolution_event_reason = (
-            _resolution_event_validation(resolution_event, target)
+        resolution_event_valid, resolution_event_reason = _resolution_event_validation(
+            resolution_event, target
         )
         officially_resolved += int(resolution_event_valid)
         if (
@@ -834,11 +1269,7 @@ def build_report(
             or Decimal(str(fee_schedule.get("rate"))) != Decimal("0.07")
             or Decimal(str(fee_schedule.get("exponent"))) != Decimal("1")
             or fee_schedule.get("takerOnly") is not True
-            or market.get("resolutionSource")
-            not in {
-                "https://data.chain.link/streams/btc-usd-twap-30s-streams",
-                "https://data.chain.link/streams/btc-usd-twap-60s-streams",
-            }
+            or not resolution_source_matches
         ):
             current_taker_cost_evidence_complete = False
         rule_summary[market_id] = {
@@ -879,8 +1310,6 @@ def build_report(
         )
     ]
 
-    expiry_ms = int(by_horizon["5m"]["closes_at_ms"])
-    decision_at_ms = expiry_ms - decision_tau_seconds * 1_000
     clock_policy = preregistration["frozen_strategy"].get("clock_sync")
     capture_clock_sync = config.get("clock_sync")
     receipt_clock_offset_ms = _receipt_clock_offset_ms(capture_root)
@@ -896,27 +1325,21 @@ def build_report(
         }
         if not isinstance(capture_clock_sync, Mapping):
             clock_sync_reasons.append("clock_sync_evidence_missing")
-            clock_uncertainty_ms = int(
-                preregistration["frozen_strategy"]["max_clock_drift_ms"]
-            ) + 1
+            clock_uncertainty_ms = (
+                int(preregistration["frozen_strategy"]["max_clock_drift_ms"]) + 1
+            )
         else:
             try:
-                offset_seconds = Decimal(
-                    str(capture_clock_sync["offset_seconds"])
-                )
+                offset_seconds = Decimal(str(capture_clock_sync["offset_seconds"]))
                 uncertainty_seconds = Decimal(
                     str(capture_clock_sync["uncertainty_seconds"])
                 )
-                measured_at_raw_ms = int(
-                    capture_clock_sync["measured_at_raw_ms"]
-                )
-                recorded_uncertainty_ms = int(
-                    capture_clock_sync["uncertainty_ms"]
-                )
+                measured_at_raw_ms = int(capture_clock_sync["measured_at_raw_ms"])
+                recorded_uncertainty_ms = int(capture_clock_sync["uncertainty_ms"])
                 expected_receipt_offset_ms = int(
-                    (
-                        (offset_seconds + uncertainty_seconds) * 1_000
-                    ).to_integral_value(rounding=ROUND_CEILING)
+                    ((offset_seconds + uncertainty_seconds) * 1_000).to_integral_value(
+                        rounding=ROUND_CEILING
+                    )
                 )
                 expected_uncertainty_ms = int(
                     (uncertainty_seconds * 1_000).to_integral_value(
@@ -926,27 +1349,21 @@ def build_report(
                 measurement_at_corrected_ms = (
                     measured_at_raw_ms + receipt_clock_offset_ms
                 )
-                measurement_age_ms = (
-                    decision_at_ms - measurement_at_corrected_ms
-                )
+                measurement_age_ms = decision_at_ms - measurement_at_corrected_ms
                 maximum_uncertainty_ms = int(
                     clock_policy["maximum_measurement_uncertainty_ms"]
                 )
                 maximum_age_ms = (
-                    int(clock_policy["maximum_measurement_age_seconds"])
-                    * 1_000
+                    int(clock_policy["maximum_measurement_age_seconds"]) * 1_000
                 )
                 valid = (
-                    capture_clock_sync.get("schema_version")
-                    == "btc-twap-clock-sync.v1"
-                    and capture_clock_sync.get("source")
-                    == clock_policy.get("source")
+                    capture_clock_sync.get("schema_version") == "btc-twap-clock-sync.v1"
+                    and capture_clock_sync.get("source") == clock_policy.get("source")
                     and capture_clock_sync.get("system_clock_mutated") is False
                     and offset_seconds.is_finite()
                     and uncertainty_seconds.is_finite()
                     and uncertainty_seconds >= 0
-                    and receipt_clock_offset_ms
-                    == expected_receipt_offset_ms
+                    and receipt_clock_offset_ms == expected_receipt_offset_ms
                     and recorded_uncertainty_ms == expected_uncertainty_ms
                     and recorded_uncertainty_ms <= maximum_uncertainty_ms
                     and 0 <= measurement_age_ms <= maximum_age_ms
@@ -958,9 +1375,9 @@ def build_report(
                     clock_sync_reasons.append("clock_sync_evidence_invalid")
             except (KeyError, TypeError, ValueError, ArithmeticError):
                 clock_sync_reasons.append("clock_sync_evidence_invalid")
-                clock_uncertainty_ms = int(
-                    preregistration["frozen_strategy"]["max_clock_drift_ms"]
-                ) + 1
+                clock_uncertainty_ms = (
+                    int(preregistration["frozen_strategy"]["max_clock_drift_ms"]) + 1
+                )
     else:
         clock_sync_summary = {
             "required": False,
@@ -1009,32 +1426,33 @@ def build_report(
     )
     raw_shadow: dict[str, Any]
     distribution = None
+    series_5 = series_by_horizon["5m"]
+    series_15 = series_by_horizon["15m"]
     strike_5 = _exact(
-        twap_30,
+        series_5,
         int(by_horizon["5m"]["opens_at_ms"]),
         available_by_ms=decision_at_ms,
     )
     strike_15 = _exact(
-        twap_60,
+        series_15,
         int(by_horizon["15m"]["opens_at_ms"]),
         available_by_ms=decision_at_ms,
     )
-    state_30 = _latest_before(twap_30, decision_at_ms)
-    state_60 = _latest_before(twap_60, decision_at_ms)
-    predictor_before = _resample_one_second(
-        predictor, decision_at_ms=decision_at_ms
-    )
+    state_5 = _latest_before(series_5, decision_at_ms)
+    state_15 = _latest_before(series_15, decision_at_ms)
+    predictor_before = _resample_one_second(predictor, decision_at_ms=decision_at_ms)
     raw_reasons: list[str] = []
     raw_reasons.extend(clock_sync_reasons)
     if strike_5 is None or strike_15 is None:
         raw_reasons.append("exact_chainlink_opening_boundary_missing")
-    if state_30 is None or state_60 is None:
+    if state_5 is None or state_15 is None:
         raw_reasons.append("causal_chainlink_state_missing")
     maximum_twap_age_ms = int(
         preregistration["frozen_strategy"]["max_chainlink_staleness_ms"]
     )
     state_health: dict[str, Any] = {}
-    for label, state in (("twap_30", state_30), ("twap_60", state_60)):
+    for horizon, state in (("5m", state_5), ("15m", state_15)):
+        label = f"{horizon}:{source_topic_by_horizon[horizon]}"
         if state is None:
             state_health[label] = None
             continue
@@ -1066,11 +1484,9 @@ def build_report(
         }
     else:
         distribution = simulate_ewma_joint_distribution(
-            predictor_prices=tuple(
-                predictor_before
-            ),
-            current_twap_30=state_30[2],
-            current_twap_60=state_60[2],
+            predictor_prices=tuple(predictor_before),
+            current_twap_30=state_5[2],
+            current_twap_60=state_15[2],
             decision_at_ms=decision_at_ms,
             expiry_ms=expiry_ms,
             strike_5=strike_5,
@@ -1102,6 +1518,22 @@ def build_report(
         "orders_submitted": 0,
         "authenticated_endpoints_used": 0,
     }
+    qualified_cycle: dict[str, Any] = {
+        "schema_version": "btc-5m-15m-relative-value-paper-cycle.v1",
+        "track": (
+            verification["evidence_track"] if verification is not None else "qualified"
+        ),
+        "available": False,
+        "reason_codes": ["prospective_qualification_not_enabled"],
+        "paper_only": True,
+        "orders_submitted": 0,
+        "authenticated_endpoints_used": 0,
+    }
+    oos_forecast: dict[str, Any] = {
+        "available": False,
+        "split": None,
+        "reason_codes": ["prospective_qualification_not_enabled"],
+    }
     shadow_setup_reasons: list[str] = []
     if pair is None:
         shadow_setup_reasons.append("frozen_execution_contract_missing")
@@ -1111,11 +1543,10 @@ def build_report(
         shadow_setup_reasons.extend(raw_reasons or ("raw_distribution_unavailable",))
     if strike_5 is None or strike_15 is None:
         shadow_setup_reasons.append("exact_chainlink_opening_boundary_missing")
-    if state_30 is None or state_60 is None:
+    if state_5 is None or state_15 is None:
         shadow_setup_reasons.append("causal_chainlink_state_missing")
     if any(
-        rule.get("rules_match_capture") is not True
-        for rule in rule_summary.values()
+        rule.get("rules_match_capture") is not True for rule in rule_summary.values()
     ):
         shadow_setup_reasons.append("exact_rule_binding_incomplete")
     opening_5_event_id = (
@@ -1123,7 +1554,7 @@ def build_report(
         if strike_5 is None
         else _opening_event_id(
             twap_roots,
-            topic="crypto_prices_twap_thirty",
+            topic=source_topic_by_horizon["5m"],
             timestamp_ms=int(by_horizon["5m"]["opens_at_ms"]),
             expected_value=strike_5,
         )
@@ -1133,7 +1564,7 @@ def build_report(
         if strike_15 is None
         else _opening_event_id(
             twap_roots,
-            topic="crypto_prices_twap_sixty",
+            topic=source_topic_by_horizon["15m"],
             timestamp_ms=int(by_horizon["15m"]["opens_at_ms"]),
             expected_value=strike_15,
         )
@@ -1142,12 +1573,16 @@ def build_report(
         shadow_setup_reasons.append("opening_5_source_event_missing")
     if strike_15 is not None and opening_15_event_id is None:
         shadow_setup_reasons.append("opening_15_source_event_missing")
+    signal_observations: Mapping[str, Any] = {}
+    strategy_config: StrategyConfig | None = None
+    clock_drift_ms = clock_uncertainty_ms
+    settlement_state: PairSettlementState | None = None
     if not shadow_setup_reasons:
         assert pair is not None
         assert replay is not None
         assert distribution is not None
         assert strike_5 is not None and strike_15 is not None
-        assert state_30 is not None and state_60 is not None
+        assert state_5 is not None and state_15 is not None
         assert opening_5_event_id is not None and opening_15_event_id is not None
         strategy_config = _strategy_config(preregistration)
         signal_observations = replay.signal_books(
@@ -1166,26 +1601,29 @@ def build_report(
                 default=0,
             )
         )
+        settlement_state = PairSettlementState(
+            market_5_rule_hash=pair.market_5.rule_hash,
+            market_15_rule_hash=pair.market_15.rule_hash,
+            market_5_open_timestamp_ms=pair.market_5.opens_at_ms,
+            market_15_open_timestamp_ms=pair.market_15.opens_at_ms,
+            strike_5=strike_5,
+            strike_15=strike_15,
+            opening_5_source_event_id=opening_5_event_id,
+            opening_15_source_event_id=opening_15_event_id,
+        )
         cycle = evaluate_shadow_paper_cycle(
             pair=pair,
-            settlement_state=PairSettlementState(
-                market_5_rule_hash=pair.market_5.rule_hash,
-                market_15_rule_hash=pair.market_15.rule_hash,
-                market_5_open_timestamp_ms=pair.market_5.opens_at_ms,
-                market_15_open_timestamp_ms=pair.market_15.opens_at_ms,
-                strike_5=strike_5,
-                strike_15=strike_15,
-                opening_5_source_event_id=opening_5_event_id,
-                opening_15_source_event_id=opening_15_event_id,
-            ),
+            settlement_state=settlement_state,
             distribution=distribution,
             replay=replay,
             health=DataHealth(
                 decision_at_ms=decision_at_ms,
-                twap_30_observed_at_ms=state_30[0],
-                twap_60_observed_at_ms=state_60[0],
-                twap_30_received_at_ms=state_30[1],
-                twap_60_received_at_ms=state_60[1],
+                # DataHealth keeps legacy field names for schema compatibility;
+                # the values are the frozen 5m and 15m settlement sources.
+                twap_30_observed_at_ms=state_5[0],
+                twap_60_observed_at_ms=state_15[0],
+                twap_30_received_at_ms=state_5[1],
+                twap_60_received_at_ms=state_15[1],
                 absolute_clock_drift_ms=clock_drift_ms,
                 calibration_5=None,
                 calibration_15=None,
@@ -1202,11 +1640,7 @@ def build_report(
                 else None
             ),
             initial_cash=Decimal(
-                str(
-                    preregistration["frozen_strategy"].get(
-                        "paper_bankroll", "10000"
-                    )
-                )
+                str(preregistration["frozen_strategy"].get("paper_bankroll", "10000"))
             ),
             max_leg_delay_ms=int(
                 preregistration["frozen_strategy"]["max_leg_delay_ms"]
@@ -1218,19 +1652,154 @@ def build_report(
             dict.fromkeys(shadow_setup_reasons)
         )
 
+    preregistration_sha256 = _sha256(preregistration_path)
+    evidence_track = (
+        str(verification["evidence_track"]) if verification is not None else "qualified"
+    )
+    if verification is not None and not shadow_setup_reasons:
+        assert pair is not None
+        assert replay is not None
+        assert distribution is not None
+        assert strategy_config is not None
+        assert settlement_state is not None
+        assert state_5 is not None and state_15 is not None
+        fold = build_daily_qualification_fold(
+            datetime.fromtimestamp(decision_at_ms / 1_000, tz=timezone.utc)
+            .date()
+            .isoformat()
+        )
+        try:
+            fitted = fit_qualification_calibrators_from_reports(
+                _load_prior_qualification_reports(
+                    prior_report_paths,
+                    decision_tau_seconds=decision_tau_seconds,
+                ),
+                fold=fold,
+                preregistration_sha256=preregistration_sha256,
+                evidence_track=evidence_track,
+                decision_tau_seconds=decision_tau_seconds,
+                minimum_unique_expiry_clusters=int(
+                    preregistration["frozen_strategy"].get(
+                        "development_calibration_minimum_points_per_horizon",
+                        20,
+                    )
+                ),
+                settlement_regime=strategy_config.settlement_regime,
+            )
+        except QualificationInsufficientData as exc:
+            qualified_cycle["reason_codes"] = [
+                "past_only_calibration_insufficient",
+                str(exc),
+            ]
+            oos_forecast["reason_codes"] = ["past_only_calibration_insufficient"]
+        else:
+            if decision_at_ms < fold.fit_at_ms:
+                raise ValueError(
+                    "qualified test decision predates the frozen daily fit"
+                )
+            qualified_evaluation = evaluate_qualified_paper_cycle(
+                pair=pair,
+                settlement_state=settlement_state,
+                distribution=distribution,
+                replay=replay,
+                health=DataHealth(
+                    decision_at_ms=decision_at_ms,
+                    twap_30_observed_at_ms=state_5[0],
+                    twap_60_observed_at_ms=state_15[0],
+                    twap_30_received_at_ms=state_5[1],
+                    twap_60_received_at_ms=state_15[1],
+                    absolute_clock_drift_ms=clock_drift_ms,
+                    calibration_5=fitted.artifacts["5m"],
+                    calibration_15=fitted.artifacts["15m"],
+                ),
+                config=strategy_config,
+                market_5_up=(
+                    boundaries["5m"]["mechanical_outcome"] == "Up"
+                    if boundaries["5m"]["mechanical_outcome"] is not None
+                    else None
+                ),
+                market_15_up=(
+                    boundaries["15m"]["mechanical_outcome"] == "Up"
+                    if boundaries["15m"]["mechanical_outcome"] is not None
+                    else None
+                ),
+                initial_cash=Decimal(
+                    str(
+                        preregistration["frozen_strategy"].get(
+                            "paper_bankroll", "10000"
+                        )
+                    )
+                ),
+                max_leg_delay_ms=int(
+                    preregistration["frozen_strategy"]["max_leg_delay_ms"]
+                ),
+            )
+            qualified_cycle = {
+                **qualified_evaluation.to_document(),
+                "track": evidence_track,
+                "available": True,
+                "calibration_provenance": fitted.provenance.to_document(),
+                "calibration_provenance_sha256": fitted.provenance.artifact_hash,
+            }
+            event_id, expiry_cluster_id = _qualification_event_identity(
+                evidence_track=evidence_track,
+                expiry_ms=expiry_ms,
+                decision_tau_seconds=decision_tau_seconds,
+            )
+            market_5_probability = _normalized_binary_ask_probability(
+                signal_observations,
+                up_token_id=pair.market_5.up_token_id,
+                down_token_id=pair.market_5.down_token_id,
+            )
+            market_15_probability = _normalized_binary_ask_probability(
+                signal_observations,
+                up_token_id=pair.market_15.up_token_id,
+                down_token_id=pair.market_15.down_token_id,
+            )
+            if market_5_probability is not None and market_15_probability is not None:
+                oos_forecast = {
+                    "available": True,
+                    "split": "test",
+                    "event_cluster_id": expiry_cluster_id,
+                    "event_id": event_id,
+                    "decision_tau_seconds": decision_tau_seconds,
+                    "model_probability_up": {
+                        "5m": str(
+                            fitted.artifacts["5m"].transform(distribution.q_5_up)
+                        ),
+                        "15m": str(
+                            fitted.artifacts["15m"].transform(distribution.q_15_up)
+                        ),
+                    },
+                    "market_probability_up": {
+                        "5m": str(market_5_probability),
+                        "15m": str(market_15_probability),
+                    },
+                    "actual_up": {
+                        "5m": boundaries["5m"]["mechanical_outcome"] == "Up",
+                        "15m": boundaries["15m"]["mechanical_outcome"] == "Up",
+                    },
+                    "calibration_provenance": fitted.provenance.to_document(),
+                    "calibration_provenance_sha256": fitted.provenance.artifact_hash,
+                }
+
     decision_reasons = list(dict.fromkeys(raw_reasons))
     if any(
-        rule.get("rules_match_capture") is not True
-        for rule in rule_summary.values()
+        rule.get("rules_match_capture") is not True for rule in rule_summary.values()
     ):
         decision_reasons.append("exact_rule_binding_incomplete")
     if not book_replay_coverage["complete_four_token_signal_surface"]:
         decision_reasons.append("complete_four_outcome_books_missing")
-    if not book_replay_coverage[
-        "complete_four_token_delayed_execution_surface"
-    ]:
+    if not book_replay_coverage["complete_four_token_delayed_execution_surface"]:
         decision_reasons.append("delayed_execution_book_surface_missing")
-    decision_reasons.append("past_only_isotonic_calibration_not_available")
+    qualified_decision_document = qualified_cycle.get("decision")
+    if isinstance(qualified_decision_document, Mapping):
+        decision_reasons.extend(
+            str(reason)
+            for reason in qualified_decision_document.get("reason_codes", ())
+        )
+    else:
+        decision_reasons.append("past_only_isotonic_calibration_not_available")
     paper_decision = {
         "schema_version": "btc-5m-15m-relative-value-paper-decision.v1",
         "decision_id": hashlib.sha256(
@@ -1239,14 +1808,16 @@ def build_report(
                     "capture_config_sha256": _sha256(capture_config_path),
                     "decision_at_ms": decision_at_ms,
                     "decision_tau_seconds": decision_tau_seconds,
-                    "strategy_spec_sha256": preregistration["strategy_spec"][
-                        "sha256"
-                    ],
+                    "strategy_spec_sha256": preregistration["strategy_spec"]["sha256"],
                 }
             )
         ).hexdigest(),
         "evaluated": True,
-        "action": "no_trade",
+        "action": (
+            qualified_decision_document.get("action", "no_trade")
+            if isinstance(qualified_decision_document, Mapping)
+            else "no_trade"
+        ),
         "reason_codes": list(dict.fromkeys(decision_reasons)),
         "orders_submitted": 0,
         "authenticated_endpoints_used": 0,
@@ -1256,12 +1827,9 @@ def build_report(
         mechanically_labelable
         if len(predictor_before) >= 60
         and book_replay_coverage["complete_four_token_signal_surface"]
-        and book_replay_coverage[
-            "complete_four_token_delayed_execution_surface"
-        ]
+        and book_replay_coverage["complete_four_token_delayed_execution_surface"]
         and all(
-            rule.get("rules_match_capture") is True
-            for rule in rule_summary.values()
+            rule.get("rules_match_capture") is True for rule in rule_summary.values()
         )
         and clock_sync_summary.get("valid_for_decision") is True
         else 0
@@ -1301,6 +1869,12 @@ def build_report(
         signal_strength_net_ev_monotonic=None,
     )
     validation = evaluate_validation(evidence)
+    candidate_hypotheses = _candidate_hypotheses(
+        cycle=development_shadow_cycle,
+        signal_observations=signal_observations,
+        pair=pair,
+        boundaries=boundaries,
+    )
     shadow_decision_document = development_shadow_cycle.get("decision")
     shadow_execution_document = development_shadow_cycle.get("execution")
     shadow_settlement_document = development_shadow_cycle.get("settlement")
@@ -1328,11 +1902,140 @@ def build_report(
         and shadow_settlement_document.get("explainable") is True
         else None
     )
+    event_id, expiry_cluster_id = _qualification_event_identity(
+        evidence_track=evidence_track,
+        expiry_ms=expiry_ms,
+        decision_tau_seconds=decision_tau_seconds,
+    )
+    closing_observations = {
+        "5m": _exact_observation(series_5, int(by_horizon["5m"]["closes_at_ms"])),
+        "15m": _exact_observation(series_15, int(by_horizon["15m"]["closes_at_ms"])),
+    }
+    resolution_received_at_ms = tuple(
+        int(rule["resolution_event"]["received_at_ms"])
+        for rule in rule_summary.values()
+        if rule.get("resolution_event_valid") is True
+        and isinstance(rule.get("resolution_event"), Mapping)
+        and isinstance(rule["resolution_event"].get("received_at_ms"), int)
+    )
+    label_available_at_ms = (
+        max(
+            *(
+                observation[1]
+                for observation in closing_observations.values()
+                if observation
+            ),
+            *resolution_received_at_ms,
+        )
+        if all(observation is not None for observation in closing_observations.values())
+        and len(resolution_received_at_ms) == 2
+        else None
+    )
+    calibration_observation_available = (
+        verification is not None
+        and distribution is not None
+        and label_available_at_ms is not None
+        and all(
+            boundaries[horizon]["mechanical_outcome"] in {"Up", "Down"}
+            for horizon in ("5m", "15m")
+        )
+        and all(
+            rule.get("rules_match_capture") is True
+            and rule.get("resolution_event_valid") is True
+            for rule in rule_summary.values()
+        )
+        and not resolution_conflicts
+    )
+    calibration_observation: dict[str, Any] = {
+        "available": calibration_observation_available,
+        "reason_codes": (
+            []
+            if calibration_observation_available
+            else ["verified_mechanical_label_not_available"]
+        ),
+    }
+    if calibration_observation_available:
+        assert distribution is not None
+        assert label_available_at_ms is not None
+        calibration_observation.update(
+            {
+                "event_id": event_id,
+                "expiry_cluster_id": expiry_cluster_id,
+                "raw_probabilities": {
+                    "5m": str(distribution.q_5_up),
+                    "15m": str(distribution.q_15_up),
+                },
+                "mechanical_label": {
+                    "5m": boundaries["5m"]["mechanical_outcome"] == "Up",
+                    "15m": boundaries["15m"]["mechanical_outcome"] == "Up",
+                },
+                "local_label_available_at_ms": label_available_at_ms,
+            }
+        )
+    oos_forecast = _bind_verified_oos_label(
+        oos_forecast,
+        label_available=calibration_observation_available,
+        label_available_at_ms=label_available_at_ms,
+    )
+    qualified_settlement = qualified_cycle.get("settlement")
+    if isinstance(qualified_settlement, dict):
+        qualified_settlement.update(
+            {
+                "event_id": event_id,
+                "expiry_cluster_id": expiry_cluster_id,
+                "mechanical_label": (
+                    {
+                        "5m": boundaries["5m"]["mechanical_outcome"] == "Up",
+                        "15m": boundaries["15m"]["mechanical_outcome"] == "Up",
+                    }
+                    if calibration_observation_available
+                    else None
+                ),
+                "local_label_available_at_ms": label_available_at_ms,
+            }
+        )
+    qualified_execution = qualified_cycle.get("execution")
+    qualified_diagnostics = (
+        qualified_execution.get("diagnostics")
+        if isinstance(qualified_execution, Mapping)
+        and isinstance(qualified_execution.get("diagnostics"), Mapping)
+        else None
+    )
+    qualified_economic_attempt = bool(
+        isinstance(qualified_diagnostics, Mapping)
+        and qualified_diagnostics.get("economic_attempt") is True
+    )
+    qualified_fill_count = 0
+    if isinstance(qualified_execution, Mapping):
+        for leg_name in ("first_leg", "second_leg", "unwind_leg"):
+            leg = qualified_execution.get(leg_name)
+            fills = leg.get("fills") if isinstance(leg, Mapping) else None
+            if isinstance(fills, list):
+                qualified_fill_count += len(fills)
+    qualified_explainable_pnl = (
+        qualified_settlement.get("net_pnl")
+        if qualified_economic_attempt
+        and isinstance(qualified_settlement, Mapping)
+        and qualified_settlement.get("explainable") is True
+        else None
+    )
     report = {
-        "schema_version": "btc-5m-15m-relative-value-pilot-report.v1",
+        "schema_version": (
+            "btc-5m-15m-relative-value-pilot-report.v2"
+            if verification is not None
+            else "btc-5m-15m-relative-value-pilot-report.v1"
+        ),
+        "verified_report_v2": verification is not None,
+        "verification": verification,
+        "capture_started_at": _epoch_ms_to_utc_iso(
+            int(config.get("capture_started_at_ms", 0))
+        ),
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "paper_only": True,
+        "public_only": True,
         "new_orders_disabled": True,
+        "orders_submitted": 0,
+        "authenticated_endpoints_used": 0,
         "classification": validation.status.value,
         "qualified_net_pnl": (
             str(validation.qualified_net_pnl)
@@ -1350,11 +2053,21 @@ def build_report(
             "preregistration_sha256": _sha256(preregistration_path),
             "strategy_spec_sha256": preregistration["strategy_spec"]["sha256"],
             "decision_tau_seconds": decision_tau_seconds,
+            "decision_at_ms": decision_at_ms,
+            "capture_started_at_ms": config.get("capture_started_at_ms"),
+            "evidence_track": config.get("evidence_track_id"),
         },
         "integrity": integrity,
         "observed": {
             "twap_30_unique_observations": len(twap_30),
             "twap_60_unique_observations": len(twap_60),
+            "settlement_sources": {
+                horizon: {
+                    "source_topic": source_topic_by_horizon[horizon],
+                    "unique_observations": len(series_by_horizon[horizon]),
+                }
+                for horizon in ("5m", "15m")
+            },
             "binance_btc_unique_observations": len(predictor),
             "predictor_one_second_samples": len(predictor_before),
             "clob_event_counts": _event_counts(capture_root, "clob_market_ws"),
@@ -1370,8 +2083,43 @@ def build_report(
             "latest_rules": rule_summary,
         },
         "raw_shadow_model": raw_shadow,
+        "candidate_hypotheses": candidate_hypotheses,
         "paper_decision": paper_decision,
         "development_shadow_cycle": development_shadow_cycle,
+        "qualified_cycle": qualified_cycle,
+        "calibration_observation": calibration_observation,
+        "oos_forecast": oos_forecast,
+        "qualified_evidence": {
+            "economic_attempt": qualified_economic_attempt,
+            "explainable_fills": qualified_fill_count,
+            "explainable_net_pnl": qualified_explainable_pnl,
+            "complete_taker_cost_model": (
+                qualified_economic_attempt
+                and qualified_explainable_pnl is not None
+                and current_taker_cost_evidence_complete
+            ),
+            "delay_depth_and_legging_replay_complete": (
+                qualified_economic_attempt
+                and qualified_explainable_pnl is not None
+                and book_replay_coverage["complete_four_token_signal_surface"]
+                and book_replay_coverage[
+                    "complete_four_token_delayed_execution_surface"
+                ]
+            ),
+            "event_id": event_id,
+            "expiry_cluster_id": expiry_cluster_id,
+            "local_label_available_at_ms": label_available_at_ms,
+        },
+        "risk_controls": {
+            "pair_risk_usdc": str(pair_risk_usdc),
+            "same_expiry_decision_count_upper_bound": len(
+                frozen_strategy["decision_tau_seconds"]
+            ),
+            "same_expiry_risk_upper_bound_usdc": str(same_expiry_upper_bound),
+            "max_same_expiry_risk_usdc": str(max_same_expiry_risk),
+            "max_total_open_risk_usdc": str(max_total_open_risk),
+            "within_frozen_caps": True,
+        },
         "economic_evidence": {
             "explainable_simulated_trades": 0,
             "explainable_fills": 0,
@@ -1421,6 +2169,7 @@ def main() -> int:
     parser.add_argument("--capture-config", required=True, type=Path)
     parser.add_argument("--preregistration", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--prior-report", action="append", default=[], type=Path)
     parser.add_argument("--decision-tau-seconds", type=int, default=60)
     args = parser.parse_args()
     report = build_report(
@@ -1430,6 +2179,7 @@ def main() -> int:
         preregistration_path=args.preregistration,
         history_roots=tuple(args.history_root),
         decision_tau_seconds=args.decision_tau_seconds,
+        prior_report_paths=tuple(args.prior_report),
     )
     _atomic_json(args.output.resolve(), report)
     print(json.dumps(report, indent=2, sort_keys=True))

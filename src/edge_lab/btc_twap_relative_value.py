@@ -33,20 +33,26 @@ from .execution import (
     TraceRef,
     execute_taker,
 )
+from .settlement_regime import (
+    LEGACY_SETTLEMENT_REGIME_ID,
+    V06_SETTLEMENT_REGIME_ID,
+    SettlementRegimeSpec,
+    canonicalize_resolution_source,
+    legacy_settlement_regime,
+)
 
 _SLUG = re.compile(r"^btc-updown-(5m|15m)-([0-9]{10})$")
 _CONDITION_ID = re.compile(r"^0x[0-9a-fA-F]{64}$")
 _DURATION_SECONDS = {"5m": 300, "15m": 900}
-_TWAP_WINDOW_SECONDS = {"5m": 30, "15m": 60}
-_TWAP_TOPIC = {
-    "5m": "crypto_prices_twap_thirty",
-    "15m": "crypto_prices_twap_sixty",
-}
 _ZERO = Decimal("0")
 _ONE = Decimal("1")
 _SIZE_QUANTUM = Decimal("0.000001")
 _MODEL_VERSION = "btc_5m_15m_twap_relative_value.v1"
-_SETTLEMENT_REGIME = "chainlink_twap_30s_5m_and_60s_15m.v1"
+_SETTLEMENT_REGIME = LEGACY_SETTLEMENT_REGIME_ID
+_SUPPORTED_SETTLEMENT_REGIMES = {
+    LEGACY_SETTLEMENT_REGIME_ID,
+    V06_SETTLEMENT_REGIME_ID,
+}
 
 
 class RelativeValueRejection(ValueError):
@@ -141,12 +147,15 @@ class TwapMarketContract:
     taker_delay_ms: int
     accepting_orders: bool
     rule_hash: str
+    settlement_regime: str = _SETTLEMENT_REGIME
 
     @classmethod
     def from_public_metadata(
         cls,
         gamma_market: Mapping[str, Any],
         clob_market: Mapping[str, Any],
+        *,
+        settlement_regime: SettlementRegimeSpec | None = None,
     ) -> "TwapMarketContract":
         """Bind Gamma rules to the matching compact CLOB market payload."""
 
@@ -165,11 +174,10 @@ class TwapMarketContract:
         ):
             _reject("window_mismatch", "Gamma endDate does not match slug horizon")
 
-        window = _TWAP_WINDOW_SECONDS[horizon]
-        expected_source = (
-            "https://data.chain.link/streams/"
-            f"btc-usd-twap-{window}s-streams"
-        )
+        regime = settlement_regime or legacy_settlement_regime()
+        source_spec = regime.source_for(horizon)
+        window = source_spec.window_seconds
+        expected_source = source_spec.resolution_source
         source = _string(
             gamma.get("resolutionSource"),
             label="gamma_market.resolutionSource",
@@ -178,7 +186,17 @@ class TwapMarketContract:
             gamma.get("description"), label="gamma_market.description"
         )
         normalized_description = " ".join(description.casefold().split())
-        if source != expected_source or expected_source not in description:
+        try:
+            source_matches = (
+                canonicalize_resolution_source(source)
+                == canonicalize_resolution_source(expected_source)
+            )
+        except ValueError:
+            source_matches = False
+        if (
+            not source_matches
+            or source_spec.stream_slug not in normalized_description
+        ):
             _reject(
                 "resolution_source_mismatch",
                 f"{horizon} must bind the exact {window}s Chainlink TWAP source",
@@ -253,8 +271,9 @@ class TwapMarketContract:
             "opens_at_ms": opens_at_ms,
             "closes_at_ms": closes_at_ms,
             "twap_window_seconds": window,
-            "source_topic": _TWAP_TOPIC[horizon],
+            "source_topic": source_spec.source_topic,
             "resolution_source": source,
+            "settlement_regime": regime.regime_id,
             "description_sha256": hashlib.sha256(
                 description.encode("utf-8")
             ).hexdigest(),
@@ -275,7 +294,7 @@ class TwapMarketContract:
             opens_at_ms=opens_at_ms,
             closes_at_ms=closes_at_ms,
             twap_window_seconds=window,
-            source_topic=_TWAP_TOPIC[horizon],
+            source_topic=source_spec.source_topic,
             resolution_source=source,
             tick_size=tick_size,
             minimum_order_size=minimum_order_size,
@@ -285,6 +304,7 @@ class TwapMarketContract:
             rule_hash=hashlib.sha256(
                 canonical_json_bytes(rule_identity)
             ).hexdigest(),
+            settlement_regime=regime.regime_id,
         )
 
 
@@ -307,6 +327,11 @@ class SameExpiryPair:
             _reject("pair_horizon_mismatch", "pair needs one 5m and one 15m market")
         market_5 = contracts["5m"]
         market_15 = contracts["15m"]
+        if market_5.settlement_regime != market_15.settlement_regime:
+            _reject(
+                "settlement_regime_mismatch",
+                "paired markets must share one frozen settlement regime",
+            )
         if (
             market_5.closes_at_ms != market_15.closes_at_ms
             or market_5.opens_at_ms != market_15.closes_at_ms - 300_000
@@ -612,6 +637,7 @@ class StrategyConfig:
     minimum_net_expected_pnl_per_pair: Decimal = Decimal("0.015")
     uncertainty_multiplier: Decimal = Decimal("1.25")
     cvar_tail_probability: Decimal = Decimal("0.05")
+    settlement_regime: str = _SETTLEMENT_REGIME
 
     def __post_init__(self) -> None:
         if self.tau_min_seconds < 0 or self.tau_max_seconds < self.tau_min_seconds:
@@ -633,6 +659,8 @@ class StrategyConfig:
             raise ValueError("cvar_tail_probability must be in (0, 1]")
         if not _ZERO <= self.minimum_market_price < self.maximum_market_price <= _ONE:
             raise ValueError("market price bounds are invalid")
+        if self.settlement_regime not in _SUPPORTED_SETTLEMENT_REGIMES:
+            raise ValueError("unsupported strategy settlement regime")
 
 
 class PairAction(str, Enum):
@@ -1462,8 +1490,8 @@ def decide_pair_trade(
     elif (
         health.calibration_5.horizon != "5m"
         or health.calibration_15.horizon != "15m"
-        or health.calibration_5.settlement_regime != _SETTLEMENT_REGIME
-        or health.calibration_15.settlement_regime != _SETTLEMENT_REGIME
+        or health.calibration_5.settlement_regime != config.settlement_regime
+        or health.calibration_15.settlement_regime != config.settlement_regime
         or health.calibration_5.model_version != _MODEL_VERSION
         or health.calibration_15.model_version != _MODEL_VERSION
     ):
@@ -1630,7 +1658,10 @@ class IsotonicProbabilityCalibrator:
             _reject("calibration_split_invalid", "only train rows may fit calibration")
         if horizon not in {"5m", "15m"}:
             _reject("calibration_scope_invalid", "horizon must be 5m or 15m")
-        if settlement_regime != _SETTLEMENT_REGIME or model_version != _MODEL_VERSION:
+        if (
+            settlement_regime not in _SUPPORTED_SETTLEMENT_REGIMES
+            or model_version != _MODEL_VERSION
+        ):
             _reject(
                 "calibration_scope_invalid",
                 "calibrator regime and model version must match the frozen strategy",

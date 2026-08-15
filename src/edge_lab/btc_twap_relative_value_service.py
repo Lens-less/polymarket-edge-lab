@@ -38,6 +38,13 @@ from .network_safety import (
     safe_error_details,
 )
 from .recorder import DefaultWebSocketFactory, PublicRecorder, RecorderConfig
+from .settlement_regime import (
+    LEGACY_SETTLEMENT_REGIME_ID,
+    SettlementRegimeSpec,
+    legacy_settlement_regime,
+    load_settlement_regime_registry,
+    regime_scope_value,
+)
 from .sources import GAMMA_BASE, PublicSourceError, PublicSourcesClient
 
 SERVICE_CONFIG_SCHEMA = "btc-twap-relative-value-continuous-service.v1"
@@ -67,6 +74,16 @@ SUPPORTED_CLOCK_SYNC_SOURCES = frozenset(
 
 class DiskCapacityError(RuntimeError):
     """A new capture cannot start without consuming reserved free space."""
+
+
+class CaptureFinalizationError(RuntimeError):
+    """A bounded capture failed after producing an auditable final summary."""
+
+    def __init__(self, summary: Mapping[str, Any]) -> None:
+        if not isinstance(summary, Mapping):
+            raise TypeError("capture finalization summary must be a mapping")
+        self.summary = dict(summary)
+        super().__init__("capture failed; structured finalization is available")
 
 
 @dataclass(frozen=True)
@@ -765,6 +782,8 @@ class ContinuousServiceConfig:
     evidence_track_id: str = LEGACY_EVIDENCE_TRACK_ID
     clock_sync_source: str = CLOCK_SYNC_SOURCE_SNTP
     seed_report_paths: tuple[Path, ...] = ()
+    settlement_regime_id: str = LEGACY_SETTLEMENT_REGIME_ID
+    regime_registry_path: Path | None = None
 
     def __post_init__(self) -> None:
         for name in ("data_root", "research_root", "preregistration_path"):
@@ -778,6 +797,14 @@ class ContinuousServiceConfig:
         if any(not isinstance(path, Path) for path in self.seed_report_paths):
             raise TypeError("seed_report_paths must contain Paths")
         object.__setattr__(self, "seed_report_paths", seed_reports)
+        if self.regime_registry_path is not None:
+            if not isinstance(self.regime_registry_path, Path):
+                raise TypeError("regime_registry_path must be a Path or None")
+            object.__setattr__(
+                self,
+                "regime_registry_path",
+                self.regime_registry_path.expanduser().resolve(),
+            )
         for name in (
             "settlement_grace_seconds",
             "retry_seconds",
@@ -809,6 +836,16 @@ class ContinuousServiceConfig:
             raise ValueError("evidence_track_id must be a non-empty safe token")
         if self.clock_sync_source not in SUPPORTED_CLOCK_SYNC_SOURCES:
             raise ValueError("clock_sync_source must be a supported source")
+        if (
+            not isinstance(self.settlement_regime_id, str)
+            or _ATTEMPT_ID.fullmatch(self.settlement_regime_id) is None
+        ):
+            raise ValueError("settlement_regime_id must be a non-empty safe token")
+        if (
+            self.settlement_regime_id != LEGACY_SETTLEMENT_REGIME_ID
+            and self.regime_registry_path is None
+        ):
+            raise ValueError("non-legacy settlement regimes require a registry path")
 
 
 @dataclass(frozen=True)
@@ -898,6 +935,7 @@ def _atomic_json(path: Path, document: Mapping[str, Any]) -> None:
             handle.write(encoded)
             handle.flush()
             os.fsync(handle.fileno())
+        os.chmod(temporary, 0o640)
         os.replace(temporary, path)
         temporary = None
     finally:
@@ -1028,6 +1066,8 @@ def load_service_config(path: Path) -> ContinuousServiceConfig:
         "evidence_track_id",
         "clock_sync_source",
         "seed_report_paths",
+        "settlement_regime_id",
+        "regime_registry_path",
     }
     unexpected = set(raw) - allowed
     if unexpected:
@@ -1064,6 +1104,11 @@ def load_service_config(path: Path) -> ContinuousServiceConfig:
     decision_taus = (
         (decision_raw,) if isinstance(decision_raw, int) else tuple(decision_raw)
     )
+    registry_path_raw = raw.get("regime_registry_path")
+    if registry_path_raw is not None and (
+        not isinstance(registry_path_raw, str) or not registry_path_raw.strip()
+    ):
+        raise ValueError("regime_registry_path must be a non-empty path string")
     return ContinuousServiceConfig(
         data_root=Path(str(raw.get("data_root", ""))),
         research_root=Path(str(raw.get("research_root", ""))),
@@ -1074,11 +1119,15 @@ def load_service_config(path: Path) -> ContinuousServiceConfig:
         minimum_free_disk_bytes=int(raw.get("minimum_free_disk_bytes", 12 * 1024**3)),
         max_history_roots=int(raw.get("max_history_roots", 1)),
         decision_tau_seconds=decision_taus,
-        evidence_track_id=str(
-            raw.get("evidence_track_id", LEGACY_EVIDENCE_TRACK_ID)
-        ),
+        evidence_track_id=str(raw.get("evidence_track_id", LEGACY_EVIDENCE_TRACK_ID)),
         clock_sync_source=str(raw.get("clock_sync_source", CLOCK_SYNC_SOURCE_SNTP)),
         seed_report_paths=tuple(Path(item) for item in seed),
+        settlement_regime_id=str(
+            raw.get("settlement_regime_id", LEGACY_SETTLEMENT_REGIME_ID)
+        ),
+        regime_registry_path=(
+            None if registry_path_raw is None else Path(registry_path_raw)
+        ),
     )
 
 
@@ -1114,10 +1163,51 @@ def validate_preregistration_runtime_identity(
     )
     scope_track_id = scope.get("evidence_track_id")
     if scope_track_id is not None:
-        if not isinstance(scope_track_id, str) or _ATTEMPT_ID.fullmatch(scope_track_id) is None:
+        if (
+            not isinstance(scope_track_id, str)
+            or _ATTEMPT_ID.fullmatch(scope_track_id) is None
+        ):
             raise ValueError("scope.evidence_track_id must be a non-empty safe token")
         if config.evidence_track_id != scope_track_id:
-            raise ValueError("service evidence_track_id does not match preregistration scope")
+            raise ValueError(
+                "service evidence_track_id does not match preregistration scope"
+            )
+    scope_regime = scope.get("settlement_regime")
+    if scope_regime is not None:
+        if not isinstance(scope_regime, str) or not scope_regime.strip():
+            raise ValueError("scope.settlement_regime must be a non-empty string")
+        if regime_scope_value(config.settlement_regime_id) != regime_scope_value(
+            scope_regime
+        ):
+            raise ValueError(
+                "service settlement_regime_id does not match preregistration scope"
+            )
+    if config.settlement_regime_id != LEGACY_SETTLEMENT_REGIME_ID:
+        registry_document = preregistration.get("regime_registry")
+        if not isinstance(registry_document, Mapping):
+            raise ValueError("v0.6 preregistration must freeze the regime registry")
+        registry_relpath = registry_document.get("path")
+        registry_sha256 = registry_document.get("sha256")
+        if not isinstance(registry_relpath, str) or not registry_relpath.strip():
+            raise ValueError("regime registry path must be non-empty")
+        if (
+            not isinstance(registry_sha256, str)
+            or re.fullmatch(r"[0-9a-f]{64}", registry_sha256) is None
+        ):
+            raise ValueError("regime registry sha256 must be a lowercase digest")
+        project_root = config.preregistration_path.expanduser().resolve().parents[2]
+        registry_path = (project_root / registry_relpath).resolve()
+        if not registry_path.is_relative_to(project_root):
+            raise ValueError("regime registry path must stay inside the project")
+        if config.regime_registry_path != registry_path:
+            raise ValueError("service registry path does not match preregistration")
+        actual_registry_hash = hashlib.sha256(registry_path.read_bytes()).hexdigest()
+        if actual_registry_hash != registry_sha256:
+            raise ValueError("regime registry sha256 does not match the local file")
+        registry = load_settlement_regime_registry(registry_path)
+        if registry.sha256 != registry_sha256:
+            raise ValueError("regime registry sha256 validation disagrees")
+        registry.require(config.settlement_regime_id)
     frozen_strategy = preregistration.get("frozen_strategy")
     if not isinstance(frozen_strategy, Mapping):
         raise ValueError("preregistration frozen_strategy must be an object")
@@ -1136,13 +1226,39 @@ def validate_preregistration_runtime_identity(
     expected_hash = strategy_spec.get("sha256")
     if not isinstance(strategy_relpath, str) or not strategy_relpath.strip():
         raise ValueError("strategy_spec.path must be a non-empty string")
-    if not isinstance(expected_hash, str) or re.fullmatch(r"[0-9a-f]{64}", expected_hash) is None:
+    if (
+        not isinstance(expected_hash, str)
+        or re.fullmatch(r"[0-9a-f]{64}", expected_hash) is None
+    ):
         raise ValueError("strategy_spec.sha256 must be a lowercase sha256 hex string")
     project_root = config.preregistration_path.expanduser().resolve().parents[2]
     strategy_path = (project_root / strategy_relpath).resolve()
+    if not strategy_path.is_relative_to(project_root):
+        raise ValueError("strategy_spec.path must stay inside the deployed project")
     actual_hash = hashlib.sha256(strategy_path.read_bytes()).hexdigest()
     if actual_hash != expected_hash:
         raise ValueError("strategy_spec sha256 does not match the local strategy file")
+    repository_head = preregistration.get("repository_head")
+    if preregistration.get("schema_version") in {
+        "btc-5m-15m-relative-value-preregistration.v5",
+        "btc-5m-15m-relative-value-preregistration.v6",
+    } and repository_head is None:
+        raise ValueError("v0.5+ preregistration must freeze repository_head")
+    if repository_head is not None:
+        if (
+            not isinstance(repository_head, str)
+            or re.fullmatch(r"[0-9a-f]{40}", repository_head) is None
+        ):
+            raise ValueError("repository_head must be a lowercase commit sha")
+        implementation_marker = project_root / ".implementation-revision"
+        if implementation_marker.exists():
+            deployed_revision = implementation_marker.read_text(
+                encoding="utf-8"
+            ).strip()
+            if deployed_revision != repository_head:
+                raise ValueError(
+                    "deployed implementation revision does not match preregistration"
+                )
 
 
 def require_disk_capacity(
@@ -1197,6 +1313,20 @@ def _capture_expiry_seconds(
     return requested_expiry_seconds
 
 
+def settlement_regime_for_config(
+    config: ContinuousServiceConfig,
+) -> SettlementRegimeSpec:
+    """Resolve the immutable regime bound to one service configuration."""
+
+    if config.regime_registry_path is None:
+        regime = legacy_settlement_regime()
+        if config.settlement_regime_id != regime.regime_id:
+            raise ValueError("settlement regime requires the frozen registry")
+        return regime
+    registry = load_settlement_regime_registry(config.regime_registry_path)
+    return registry.require(config.settlement_regime_id)
+
+
 def build_capture_plan(
     *,
     config: ContinuousServiceConfig,
@@ -1215,8 +1345,17 @@ def build_capture_plan(
         raise ValueError("attempt_id has an invalid shape")
     if not isinstance(clock_sync, ClockSyncMeasurement):
         raise TypeError("clock_sync must be a ClockSyncMeasurement")
-    market_5 = TwapMarketContract.from_public_metadata(gamma_5, clob_5)
-    market_15 = TwapMarketContract.from_public_metadata(gamma_15, clob_15)
+    regime = settlement_regime_for_config(config)
+    market_5 = TwapMarketContract.from_public_metadata(
+        gamma_5,
+        clob_5,
+        settlement_regime=regime,
+    )
+    market_15 = TwapMarketContract.from_public_metadata(
+        gamma_15,
+        clob_15,
+        settlement_regime=regime,
+    )
     pair = SameExpiryPair.from_contracts(market_5, market_15)
     expiry_seconds = _capture_expiry_seconds(now_ms, expiry_seconds)
     if pair.expires_at_ms != expiry_seconds * 1_000:
@@ -1242,6 +1381,7 @@ def build_capture_plan(
         "data_root": str(capture_root),
         "capture_started_at_ms": now_ms,
         "evidence_track_id": config.evidence_track_id,
+        "settlement_regime_id": regime.regime_id,
         "clock_sync": clock_sync.to_document(),
         "asset_ids": [
             market_15.up_token_id,
@@ -1289,6 +1429,8 @@ def build_capture_plan(
                 "opens_at_ms": market_15.opens_at_ms,
                 "closes_at_ms": market_15.closes_at_ms,
                 "resolution_source": market_15.resolution_source,
+                "source_topic": market_15.source_topic,
+                "settlement_regime": market_15.settlement_regime,
                 "twap_window_seconds": market_15.twap_window_seconds,
                 "tick_size": str(market_15.tick_size),
                 "minimum_order_size": str(market_15.minimum_order_size),
@@ -1314,6 +1456,8 @@ def build_capture_plan(
                 "opens_at_ms": market_5.opens_at_ms,
                 "closes_at_ms": market_5.closes_at_ms,
                 "resolution_source": market_5.resolution_source,
+                "source_topic": market_5.source_topic,
+                "settlement_regime": market_5.settlement_regime,
                 "twap_window_seconds": market_5.twap_window_seconds,
                 "tick_size": str(market_5.tick_size),
                 "minimum_order_size": str(market_5.minimum_order_size),
@@ -1574,6 +1718,9 @@ async def run_compact_forward_capture(
     integrity = store.audit_integrity()
     summary = {
         "schema_version": "btc-twap-compact-forward-capture-summary.v1",
+        "generated_at": datetime.now(timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z"),
         "data_root": str(config.data_root),
         "duration_seconds": str(duration_seconds),
         "target_count": len(config.targets),
@@ -1606,5 +1753,5 @@ async def run_compact_forward_capture(
     if isinstance(capture_error, asyncio.CancelledError):
         raise capture_error
     if capture_error is not None:
-        raise RuntimeError(json.dumps(summary, sort_keys=True)) from capture_error
+        raise CaptureFinalizationError(summary) from capture_error
     return summary

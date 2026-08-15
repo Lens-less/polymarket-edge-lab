@@ -3,20 +3,59 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 from scripts.build_btc_twap_relative_value_pilot_report import (
     _assert_frozen_decision_tau,
     _book_replay_coverage,
+    _candidate_hypotheses,
     _capture_runtime_health,
+    _combined_series,
     _exact,
     _latest_before,
     _resample_one_second,
     _resolution_event_validation,
+    _settlement_series_by_horizon,
 )
 
 D = Decimal
+
+
+def _write_rtds_record(
+    root: Path,
+    *,
+    record_id: str,
+    topic: str,
+    timestamp_ms: int,
+    value: Decimal,
+    received_at_ms: int,
+    symbol: str = "btcusdt",
+) -> None:
+    raw_dir = root / "raw" / "rtds_ws"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "record_id": record_id,
+        "received_at": (
+            datetime.fromtimestamp(received_at_ms / 1_000, tz=timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z")
+        ),
+        "payload": {
+            "payload": {
+                "topic": topic,
+                "payload": {
+                    "symbol": symbol,
+                    "timestamp": timestamp_ms,
+                    "value": str(value),
+                },
+            }
+        },
+    }
+    with (raw_dir / "records.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload) + "\n")
 
 
 def test_capture_runtime_health_preserves_redundancy_evidence(tmp_path: Path) -> None:
@@ -89,12 +128,10 @@ def test_predictor_resampling_uses_causal_grid_not_source_second_labels() -> Non
 def test_predictor_window_rejects_gaps_staleness_and_future_delivery() -> None:
     decision_at_ms = 500_000
     future_delivered = tuple(
-        (second * 1_000, decision_at_ms + 1, D(second))
-        for second in range(198, 498)
+        (second * 1_000, decision_at_ms + 1, D(second)) for second in range(198, 498)
     )
     stale = tuple(
-        (second * 1_000, second * 1_000, D(second))
-        for second in range(190, 490)
+        (second * 1_000, second * 1_000, D(second)) for second in range(190, 490)
     )
     gap = tuple(
         (second * 1_000, second * 1_000, D(second))
@@ -110,8 +147,7 @@ def test_predictor_window_rejects_gaps_staleness_and_future_delivery() -> None:
 def test_predictor_window_allows_late_start_but_not_internal_gaps() -> None:
     decision_at_ms = 500_000
     late_start = tuple(
-        (second * 1_000, second * 1_000, D(second))
-        for second in range(231, 500)
+        (second * 1_000, second * 1_000, D(second)) for second in range(231, 500)
     )
 
     resampled = _resample_one_second(late_start, decision_at_ms=decision_at_ms)
@@ -121,6 +157,56 @@ def test_predictor_window_allows_late_start_but_not_internal_gaps() -> None:
     assert resampled[-1].timestamp_ms == 500_000
 
 
+def test_predictor_history_root_cannot_bridge_a_rollover_gap(
+    tmp_path: Path,
+) -> None:
+    history_root = tmp_path / "history"
+    current_root = tmp_path / "current"
+    decision_at_ms = 500_000
+    for second in range(201, 469):
+        _write_rtds_record(
+            history_root,
+            record_id=f"history-{second}",
+            topic="crypto_prices",
+            timestamp_ms=second * 1_000,
+            value=D(second),
+            received_at_ms=second * 1_000,
+        )
+    # A real service rollover gap must not be treated as continuous history.
+    for second in range(480, 501):
+        _write_rtds_record(
+            current_root,
+            record_id=f"current-{second}",
+            topic="crypto_prices",
+            timestamp_ms=second * 1_000,
+            value=D(second),
+            received_at_ms=second * 1_000,
+        )
+
+    current_only = _combined_series(
+        (current_root,),
+        topic="crypto_prices",
+        symbol="btcusdt",
+    )
+    combined = _combined_series(
+        (history_root, current_root),
+        topic="crypto_prices",
+        symbol="btcusdt",
+    )
+
+    current_resampled = _resample_one_second(
+        current_only,
+        decision_at_ms=decision_at_ms,
+    )
+    combined_resampled = _resample_one_second(
+        combined,
+        decision_at_ms=decision_at_ms,
+    )
+
+    assert len(current_resampled) == 21
+    assert combined_resampled == ()
+
+
 def test_latest_before_requires_both_source_and_delivery_before_decision() -> None:
     series = (
         (100_000, 101_000, D("100")),
@@ -128,6 +214,97 @@ def test_latest_before_requires_both_source_and_delivery_before_decision() -> No
     )
 
     assert _latest_before(series, 103_000) == (100_000, 101_000, D("100"))
+
+
+def test_settlement_series_follow_frozen_target_topics_not_legacy_horizons(
+    tmp_path: Path,
+) -> None:
+    _write_rtds_record(
+        tmp_path,
+        record_id="sixty",
+        topic="crypto_prices_twap_sixty",
+        timestamp_ms=100_000,
+        value=D("64000"),
+        received_at_ms=100_100,
+        symbol="btc/usd",
+    )
+    targets = {
+        "5m": {"source_topic": "crypto_prices_twap_sixty"},
+        "15m": {"source_topic": "crypto_prices_twap_sixty"},
+    }
+
+    series = _settlement_series_by_horizon((tmp_path,), targets)
+
+    assert series["5m"] == ((100_000, 100_100, D("64000")),)
+    assert series["15m"] == series["5m"]
+
+
+def test_candidate_hypotheses_record_prospective_depth_and_shrinkage_inputs() -> None:
+    observations = {
+        "5-up": SimpleNamespace(
+            snapshot=SimpleNamespace(
+                asks=(SimpleNamespace(price=D("0.40"), size=D("20")),)
+            )
+        ),
+        "5-down": SimpleNamespace(
+            snapshot=SimpleNamespace(
+                asks=(SimpleNamespace(price=D("0.60"), size=D("20")),)
+            )
+        ),
+        "15-up": SimpleNamespace(
+            snapshot=SimpleNamespace(
+                asks=(SimpleNamespace(price=D("0.55"), size=D("15")),)
+            )
+        ),
+        "15-down": SimpleNamespace(
+            snapshot=SimpleNamespace(
+                asks=(SimpleNamespace(price=D("0.45"), size=D("15")),)
+            )
+        ),
+    }
+    pair = SimpleNamespace(
+        market_5=SimpleNamespace(up_token_id="5-up", down_token_id="5-down"),
+        market_15=SimpleNamespace(up_token_id="15-up", down_token_id="15-down"),
+    )
+    cycle = {
+        "decision": {
+            "action": "long_15_up_long_5_down",
+            "quantity": "10",
+            "first_token_id": "15-up",
+            "second_token_id": "5-down",
+            "q_5_raw": "0.02",
+            "q_15_raw": "0.70",
+            "loss_probability": "0.40",
+        }
+    }
+
+    diagnostic = _candidate_hypotheses(
+        cycle=cycle,
+        signal_observations=observations,
+        pair=pair,
+        boundaries={
+            "5m": {"mechanical_outcome": "Up"},
+            "15m": {"mechanical_outcome": "Down"},
+        },
+    )
+
+    assert diagnostic["candidate_inputs_are_decision_time_only"] is True
+    assert diagnostic["outcome_labels_added_after_settlement"] is True
+    assert diagnostic["probability"]["market_probability_up"] == {
+        "5m": "0.4",
+        "15m": "0.55",
+    }
+    assert diagnostic["depth_buffer"]["first_leg_ratio"] == "1.5"
+    assert diagnostic["depth_buffer"]["second_leg_ratio"] == "2"
+    assert diagnostic["depth_buffer"]["passes"] == {
+        "1.25": True,
+        "1.5": True,
+        "2": False,
+    }
+    assert diagnostic["existing_canonical_controls"] == {
+        "signal_walks_both_legs_to_full_target": True,
+        "timeout_then_immediate_unwind": True,
+    }
 
 
 def test_exact_opening_boundary_must_be_delivered_before_decision() -> None:

@@ -1,0 +1,41 @@
+{
+  "schema_version": "btc-twap-settlement-regime-registry.v1",
+  "regimes": {
+    "chainlink_twap_30s_5m_and_60s_15m.v1": {
+      "5m": {
+        "provider": "chainlink",
+        "symbol": "btc/usd",
+        "product": "twap",
+        "window_seconds": 30,
+        "stream_slug": "btc-usd-twap-30s-streams"
+      },
+      "15m": {
+        "provider": "chainlink",
+        "symbol": "btc/usd",
+        "product": "twap",
+        "window_seconds": 60,
+        "stream_slug": "btc-usd-twap-60s-streams"
+      }
+    },
+    "chainlink_twap_60s_5m_and_60s_15m.v1": {
+      "destination": "v0.6",
+      "5m": {
+        "provider": "chainlink",
+        "symbol": "btc/usd",
+        "product": "twap",
+        "window_seconds": 60,
+        "stream_slug": "btc-usd-twap-60s-streams"
+      },
+      "15m": {
+        "provider": "chainlink",
+        "symbol": "btc/usd",
+        "product": "twap",
+        "window_seconds": 60,
+        "stream_slug": "btc-usd-twap-60s-streams"
+      }
+    }
+  },
+  "unknown_regime": {
+    "destination": "quarantine"
+  }
+}

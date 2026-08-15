@@ -47,8 +47,15 @@ def _write_service_config(tmp_path: Path) -> Path:
     return config_path
 
 
-def _write_summary(path: Path) -> Path:
+def _write_summary(
+    path: Path,
+    *,
+    schema_version: str = "btc-5m-15m-relative-value-validation-summary.v1",
+    guard_overrides: dict[str, object] | None = None,
+    clock_sync_overrides: dict[str, object] | None = None,
+) -> Path:
     summary = {
+        "schema_version": schema_version,
         "paper_only": True,
         "new_orders_disabled": True,
         "classification": "insufficient_data",
@@ -110,6 +117,18 @@ def _write_summary(path: Path) -> Path:
             "explainable_fills_remaining": 500,
         },
     }
+    if schema_version.endswith(".v2"):
+        summary.update(
+            {
+                "public_only": True,
+                "orders_submitted": 0,
+                "authenticated_endpoints_used": 0,
+            }
+        )
+    if guard_overrides is not None:
+        summary.update(guard_overrides)
+    if clock_sync_overrides is not None:
+        summary["evidence"]["clock_sync"].update(clock_sync_overrides)
     summary["summary_sha256"] = hashlib.sha256(
         canonical_json_bytes(summary)
     ).hexdigest()
@@ -164,9 +183,30 @@ def test_health_check_surfaces_monitoring_summary(
     assert exit_code == 1
     assert payload["healthy"] is False
     assert "clock_evidence_policy_violated" in payload["failures"]
+    assert payload["summary"]["schema_version"] == (
+        "btc-5m-15m-relative-value-validation-summary.v1"
+    )
+    assert payload["summary"]["paper_only"] is True
+    assert payload["summary"]["public_only"] is None
+    assert payload["summary"]["new_orders_disabled"] is True
+    assert payload["summary"]["orders_submitted"] is None
+    assert payload["summary"]["authenticated_endpoints_used"] is None
+    assert payload["summary"]["guards"] == {
+        "full_guard_required": False,
+        "required_fields": ["paper_only", "new_orders_disabled"],
+        "paper_only": True,
+        "public_only": None,
+        "new_orders_disabled": True,
+        "orders_submitted": None,
+        "authenticated_endpoints_used": None,
+        "missing_fields": [],
+        "unsafe_fields": [],
+        "all_required_safe": True,
+    }
     assert payload["summary"]["development_shadow"]["net_pnl"] == "9.140645"
     assert payload["summary"]["evidence"]["clob_disconnects"] == 49
     assert payload["summary"]["promotion_gaps"]["resolved_markets_remaining"] == 1992
+    assert payload["monitoring"]["summary_guards"] == payload["summary"]["guards"]
     assert payload["monitoring"]["connections"] == {
         "clob": {"errors": 48, "reconnects": 48, "disconnects": 49},
         "rtds": {"errors": 4, "reconnects": 4, "disconnects": 4},
@@ -214,7 +254,14 @@ def test_health_check_surfaces_monitoring_summary(
         "transient_naked_exposure_trades": 3,
     }
     assert payload["monitoring"]["service"]["runtime_healthy"] is True
+    assert payload["monitoring"]["service"]["paper_only"] is True
+    assert payload["monitoring"]["service"]["public_only"] is True
+    assert payload["monitoring"]["service"]["new_orders_disabled"] is True
+    assert payload["monitoring"]["service"]["orders_submitted"] == 0
+    assert payload["monitoring"]["service"]["authenticated_endpoints_used"] == 0
     assert payload["monitoring"]["service"]["paper_only_guard_valid"] is True
+    assert payload["monitoring"]["service"]["guard_missing_fields"] == []
+    assert payload["monitoring"]["service"]["guard_unsafe_fields"] == []
     assert payload["monitoring"]["service"]["status_hash_valid"] is True
 
 
@@ -243,5 +290,86 @@ def test_health_check_fails_closed_for_tampered_summary_hash(
     assert payload["healthy"] is False
     assert "validation_summary_invalid" in payload["failures"]
     assert payload["summary"] is None
+    assert payload["monitoring"]["summary_guards"] is None
     assert payload["monitoring"]["connections"] is None
     assert payload["monitoring"]["clock"] is None
+
+
+def test_health_check_surfaces_safe_v2_summary_guards(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config_path = _write_service_config(tmp_path)
+    summary_path = _write_summary(
+        tmp_path / "summary.json",
+        schema_version="btc-5m-15m-relative-value-pilot-report.v2",
+        clock_sync_overrides={
+            "valid_decisions": 8,
+            "invalid_decisions": 0,
+            "maximum_uncertainty_ms": 100,
+        },
+    )
+    _write_status(tmp_path / "data" / "service" / "status.json", summary_path)
+    monkeypatch.setattr(checker, "_process_alive", lambda pid: pid == 123)
+    monkeypatch.setattr(
+        checker,
+        "_free_disk_bytes",
+        lambda path: 13 * 1024**3,
+    )
+
+    exit_code = checker.main(["--config", str(config_path)])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["healthy"] is True
+    assert payload["summary"]["schema_version"] == (
+        "btc-5m-15m-relative-value-pilot-report.v2"
+    )
+    assert payload["summary"]["public_only"] is True
+    assert payload["summary"]["orders_submitted"] == 0
+    assert payload["summary"]["authenticated_endpoints_used"] == 0
+    assert payload["summary"]["guards"]["full_guard_required"] is True
+    assert payload["summary"]["guards"]["all_required_safe"] is True
+    assert payload["monitoring"]["summary_guards"] == payload["summary"]["guards"]
+    assert payload["monitoring"]["service"]["runtime_healthy"] is True
+    assert payload["monitoring"]["service"]["paper_only_guard_valid"] is True
+
+
+def test_health_check_fails_closed_for_unsafe_v2_summary_guards(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config_path = _write_service_config(tmp_path)
+    summary_path = _write_summary(
+        tmp_path / "summary.json",
+        schema_version="btc-5m-15m-relative-value-pilot-report.v2",
+        guard_overrides={"authenticated_endpoints_used": 1},
+        clock_sync_overrides={
+            "valid_decisions": 8,
+            "invalid_decisions": 0,
+            "maximum_uncertainty_ms": 100,
+        },
+    )
+    _write_status(tmp_path / "data" / "service" / "status.json", summary_path)
+    monkeypatch.setattr(checker, "_process_alive", lambda pid: pid == 123)
+    monkeypatch.setattr(
+        checker,
+        "_free_disk_bytes",
+        lambda path: 13 * 1024**3,
+    )
+
+    exit_code = checker.main(["--config", str(config_path)])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert payload["healthy"] is False
+    assert payload["summary"]["authenticated_endpoints_used"] == 1
+    assert "validation_summary_guard_invalid" in payload["failures"]
+    assert payload["monitoring"]["summary_guards"]["full_guard_required"] is True
+    assert payload["monitoring"]["summary_guards"]["unsafe_fields"] == [
+        "authenticated_endpoints_used"
+    ]
+    assert payload["monitoring"]["summary_guards"]["all_required_safe"] is False
+    assert payload["monitoring"]["service"]["runtime_healthy"] is True
