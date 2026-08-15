@@ -85,6 +85,17 @@ def test_v07_draft_assets_are_present_and_internally_hashed() -> None:
     assert preregistration["source_baseline"] == (
         "c557160d0c98e195a988f4353bbe19a3b00b3576"
     )
+    assert preregistration["drafted_at"] == "2026-08-15T15:37:51Z"
+    draft_context = preregistration["draft_context"]
+    assert isinstance(draft_context, dict)
+    assert draft_context["created_after_known_v06_shadow_results"] is True
+    assert draft_context["revision"] == (
+        "v7_windows_portability_and_trust_boundary_correction"
+    )
+    assert draft_context["known_v06_settled_attempts"] == 48
+    assert (
+        draft_context["provides_ex_ante_qualification_for_known_v06_results"] is False
+    )
     scope = preregistration["scope"]
     assert isinstance(scope, dict)
     assert scope["settlement_model_id"] == SETTLEMENT_MODEL_ID
@@ -114,6 +125,65 @@ def test_v07_draft_assets_are_present_and_internally_hashed() -> None:
     assert isinstance(lock_policy, dict)
     assert lock_policy["missing_journal_status"] == "counterfactual_insufficient"
     assert lock_policy["test_universe_binds_expiry_and_pair_identities"] is True
+    assert lock_policy["public_evaluator_qualification_authority"] is False
+    assert lock_policy["builder_authoritative_revalidation_required"] is True
+    assert (
+        lock_policy["generic_caller_rows_plus_chain_authority_issuer_distributed"]
+        is False
+    )
+    assert lock_policy["trust_model"] == (
+        "api_misuse_guard_not_cryptographic_provenance"
+    )
+    assert lock_policy["adversarial_provenance_claimed"] is False
+    assert (
+        lock_policy["prediction_lock_and_receipt_strictly_before_common_expiry"] is True
+    )
+    assert (
+        lock_policy["forecast_available_at_ms_equals_prediction_receipt_received_at_ms"]
+        is True
+    )
+    assert lock_policy["counterfactual_computation_availability_delay_ms"] == 5000
+    builder_policy = preregistration["builder_verified_evidence_policy"]
+    assert isinstance(builder_policy, dict)
+    assert builder_policy["public_evaluator_can_grant_qualification"] is False
+    assert builder_policy["generated_fixture_builder_authority_allowed"] is False
+    assert (
+        builder_policy[
+            "generic_caller_rows_plus_caller_chain_issuer_helpers_distributed"
+        ]
+        is False
+    )
+    assert builder_policy["trust_model"] == (
+        "api_misuse_guard_not_cryptographic_provenance"
+    )
+    assert (
+        builder_policy["external_signature_or_third_party_timestamp_present"]
+        is False
+    )
+    assert builder_policy["adversarial_provenance_claimed"] is False
+    assert builder_policy["arbitrary_local_code_execution_out_of_scope"] is True
+    assert builder_policy["synthetic_gate_math_can_emit_true_edge"] is False
+    assert builder_policy["synthetic_gate_math_can_emit_qualified_pnl"] is False
+    edge_policy = preregistration["edge_basis_policy"]
+    assert isinstance(edge_policy, dict)
+    assert edge_policy["structural_requires_strictly_positive_floor"] is True
+    assert edge_policy["predictive_qualification_excludes_structural_rows"] is True
+    assert edge_policy["structural_true_edge_gate_implemented"] is True
+    assert (
+        edge_policy["structural_evaluated_before_monte_carlo_and_predictive_readiness"]
+        is True
+    )
+    assert edge_policy["structural_depends_on_shrinkage_or_validation_veto"] is False
+    assert edge_policy["structural_scan_requires_monte_carlo"] is False
+    assert edge_policy["structural_scan_requires_predictor_history"] is False
+    quantity_policy = preregistration["quantity_selection_policy"]
+    assert isinstance(quantity_policy, dict)
+    assert quantity_policy["quantity_is_optimization_variable"] is True
+    assert quantity_policy["risk_budget_role"] == "upper_bound_not_target"
+    structural_policy = preregistration["structural_primitive_policy"]
+    assert isinstance(structural_policy, dict)
+    assert structural_policy["monte_carlo_distribution_required"] is False
+    assert structural_policy["predictor_history_required"] is False
     metadata = preregistration["causal_metadata_policy"]
     assert isinstance(metadata, dict)
     assert metadata["capture_config_schema_version"] == (
@@ -125,6 +195,9 @@ def test_v07_draft_assets_are_present_and_internally_hashed() -> None:
         "new_orders_disabled",
     ]
     assert metadata["capture_config_generated_fixture_explicit_bool_required"] is True
+    assert metadata["prediction_receipt_strictly_before_common_expiry"] is True
+    assert metadata["counterfactual_computation_availability_delay_ms"] == 5000
+    assert metadata["counterfactual_timing_is_measured_production_runtime"] is False
     split_policy = preregistration["split_policy"]
     assert isinstance(split_policy, dict)
     assert split_policy["independent_cluster_key"] == (
@@ -134,6 +207,41 @@ def test_v07_draft_assets_are_present_and_internally_hashed() -> None:
     concentration = preregistration["true_edge_gates"]
     assert isinstance(concentration, dict)
     assert concentration["binding_concentration_denominator"] == "total_net_pnl"
+    assert concentration["independent_predictive_and_structural_gates"] is True
+    assert (
+        concentration[
+            "mixed_predictive_and_structural_rows_cannot_combine_for_sample_gate"
+        ]
+        is True
+    )
+    assert (
+        concentration["structural_gate_requires_brier_ece_or_model_neighborhood"]
+        is False
+    )
+    assert concentration["builder_authoritative_supported_entry_point"] == (
+        "build_counterfactual_report"
+    )
+    assert (
+        concentration[
+            "builder_authority_is_api_misuse_guard_not_cryptographic_provenance"
+        ]
+        is True
+    )
+    assert concentration["arbitrary_local_code_execution_out_of_scope"] is True
+    assert concentration["external_unforgeable_receipt_present"] is False
+    assert concentration["adversarial_provenance_claimed"] is False
+    user_check = preregistration["non_promotional_user_check"]
+    assert (
+        user_check[
+            "positive_net_pnl_user_check_requires_builder_authoritative_revalidation"
+        ]
+        is True
+    )
+    assert user_check["synthetic_or_generated_fixture_can_pass_user_check"] is False
+    timing = preregistration["timing_availability_policy"]
+    assert timing["verified_receipt_strictly_before_common_expiry"] is True
+    assert timing["counterfactual_computation_availability_delay_ms"] == 5000
+    assert timing["counterfactual_delay_is_measured_production_runtime"] is False
 
     strategy_text = strategy_path.read_text(encoding="utf-8")
     assert "contains no `1 / sqrt(n_paths)` term" in strategy_text
@@ -141,6 +249,20 @@ def test_v07_draft_assets_are_present_and_internally_hashed() -> None:
     assert "event_cluster_id` is only a human-readable alias" in strategy_text
     assert "v07-common-expiry-sha256:" in strategy_text
     assert "Capture configuration is fail-closed" in strategy_text
+    assert "Builder-authoritative supported API and trust boundary" in strategy_text
+    assert "API misuse guard" in strategy_text
+    assert "not a cryptographic or adversarial provenance system" in strategy_text
+    assert "explicit residual threat" in strategy_text
+    assert "structural_net_floor_per_pair" in strategy_text
+    assert "after the v0.6 development-shadow result of 48" in strategy_text
+    assert "forecast_available_at_ms" in strategy_text
+    assert "strictly earlier than common expiry" in strategy_text
+    assert "5,000ms" in strategy_text
+    assert "non-economic mechanism diagnostic" in strategy_text
+    assert "structural candidates first" in strategy_text
+    assert "Quantity is an optimization variable" in strategy_text
+    assert "uses no Monte Carlo scenario" in strategy_text
+    assert "independent fail-closed structural true-edge gate" in strategy_text
     assert "counterfactual_insufficient" in strategy_text
 
     schema = _load_json(schema_path)

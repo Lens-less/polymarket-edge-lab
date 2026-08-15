@@ -4,6 +4,8 @@
 
 This is an **opt-in, paper-only counterfactual research track**. It is a draft preregistration, not evidence of deployment, trading, profitability, or production readiness. The frozen v0.5 and v0.6 tracks, hashes, evidence directories, action paths, qualification rules, dependencies, lock files, safety guards, and promotion policy remain unchanged.
 
+This v7 draft was generated at `2026-08-15T15:37:51Z`, after the v0.6 development-shadow result of 48 settled attempts across 24 common expiries and net `+87.523635` USDC was already known. It therefore supplies no ex-ante or preregistered qualification for those 48 known attempts, does not retest them as locked OOS evidence, and must not be cited as though it predated their outcomes.
+
 The eligible universe is one same-expiry BTC pair: the final 5-minute market nested inside one 15-minute market, with both public rules bound to the current Chainlink BTC/USD 60-second TWAP settlement regime.
 
 ## Settlement semantics
@@ -76,11 +78,35 @@ An immutable capture proves replay inputs did not change; it does not by itself 
 
 The journal must contain:
 
-1. exactly one test-universe receipt under journal schema `btc-5m-15m-v07-lock-journal.v2`, whose canonical hash covers the preregistration hash, each captured `expiry_ms`, each derived common-expiry key, each pair-integrity key, and every decision tau, with both lock and receipt strictly before the earliest test decision;
+1. exactly one test-universe receipt under journal schema `btc-5m-15m-v07-lock-journal.v4`, whose canonical hash covers the preregistration hash, each captured `expiry_ms`, each derived common-expiry key, each pair-integrity key, and every decision tau, with both lock and receipt strictly before the earliest test decision;
 2. exactly one forecast/decision receipt for every common-expiry/tau, binding the test-universe hash, captured `expiry_ms`, derived common-expiry key, pair-integrity key, `decision_at_ms`, canonical forecast-payload hash, and canonical decision-payload hash;
-3. `prediction_locked_at_ms == decision_at_ms`, receipt time not earlier than the lock, and both lock and receipt strictly before `label_available_at_ms`.
+3. `prediction_locked_at_ms == decision_at_ms`, receipt time not earlier than the lock, and the immutable receipt strictly before the captured common `expiry_ms`. The receipt timestamp, not a backdated lock field, is the forecast’s actual availability time.
 
-Post-label prediction receipts, retrospectively selected test-universe receipts, hash mismatches, duplicate receipts, or missing claimed receipts fail closed. A replay without this journal is explicitly `counterfactual_insufficient`; it may produce diagnostics and counterfactual PnL but can never satisfy `true_edge_gate_satisfied` or produce non-null `qualified_net_pnl`.
+Receipts at or after common expiry, retrospectively selected test-universe receipts, hash mismatches, duplicate receipts, or missing claimed receipts fail closed. Being earlier than a later official-resolution receipt is insufficient, and a backdated `prediction_locked_at_ms` can never replace the immutable receipt clock. A replay without this journal is explicitly `counterfactual_insufficient`; it may produce diagnostics and counterfactual PnL but can never satisfy `true_edge_gate_satisfied` or produce non-null `qualified_net_pnl`.
+
+## Builder-authoritative supported API and trust boundary
+
+The supported public evaluator is deliberately non-authoritative. Caller-created dataclasses, receipt-shaped hashes or timestamps, and self-reported `complete_*` or `immutable_public_capture_evidence` booleans are descriptive inputs only. The public entry point always remains `counterfactual_insufficient` and always emits `qualified_net_pnl: null`, even when 100 caller-created rows are profitable and appear to carry verified receipts.
+
+The only supported qualification path is the high-level counterfactual builder CLI. In one unmodified process it reads the manifest, capture roots, strict capture configuration, and pre-expiry lock journal; recomputes file and tree identities; verifies payload-bound receipts and receipt-timed replay; reconciles every actionable decision; and derives the row-set and evidence-chain digests itself. The distributed evaluator module exposes no generic helper that accepts caller rows plus a caller-supplied verification chain and turns them into qualification authority.
+
+This boundary is an **API misuse guard**, not a cryptographic or adversarial provenance system. The bundle contains no external signature, hardware-backed key, transparency-log inclusion proof, or independent third-party timestamp. A process owner with arbitrary local Python execution or source-modification authority can import private internals, synthesize objects, monkeypatch checks, or alter control flow. That private-import/source-modification capability is an explicit residual threat and is not claimed to be closed by this repository. Adversarial provenance would require an external, independently verifiable receipt or signature outside the attacker-controlled process.
+
+Within the supported, unmodified builder path, the verification digest binds the preregistration hash, test-universe hash, forecast-row hash, reconciliation-row hash, neighborhood hash, capture/config verification hash, journal identity hash, cycle/reconciliation hash, predictive/structural/non-edge forecast counts, predictive/structural reconciliation counts, and the count of structural reconciliations with executable positive floors. Missing journal evidence, any generated fixture, missing reconciliation, or a public-evaluator call remains non-authoritative and fail-closed.
+
+Synthetic gate arithmetic is exercised only through a dedicated non-economic mechanism diagnostic. That diagnostic can show which mathematical thresholds would be met, but its result type is permanently `non_economic_mechanism_diagnostic`, `true_edge_gate_satisfied` is false, and qualified PnL is null. Generated and synthetic tests do not establish adversarial provenance or economic qualification.
+
+## Forecast availability and paper-replay timing
+
+For a builder-verified primary forecast, `forecast_available_at_ms` is exactly the immutable forecast/decision journal receipt’s corrected `received_at_ms`. It must be strictly earlier than common expiry and is serialized in the forecast payload, decision payload, forecast row, decision, replay cycle, reconciliation row, and report. The canonical forecast and decision hashes in that receipt bind this availability time to the exact payloads.
+
+The first executable book surface is eligible only at or after:
+
+`forecast_available_at_ms + captured_taker_delay_ms`.
+
+The captured taker delay remains 250ms. Any book or fill before that eligibility time is excluded. Second-leg eligibility, timeout, and unwind continue to be measured from the actual first-leg surface selected by replay, not from a backdated decision clock. The report records the effective signal-to-execution latency from original decision time to the first observed executable surface.
+
+An unlocked counterfactual has no immutable computation receipt. It therefore uses the frozen, preregistered conservative computation-availability delay of 5,000ms after `decision_at_ms`, followed by the same captured 250ms taker delay. This is a paper-replay timing assumption and diagnostic only. It is not a measurement of production hardware, server runtime, network latency, or deployability, and it cannot support an economic attempt or qualified PnL without the real pre-expiry lock journal and builder verification chain. No local benchmark is treated as production validation.
 
 ## Causal metadata and immutable capture identity
 
@@ -92,9 +118,27 @@ Public rule and fee metadata must come from captured public snapshots received b
 
 Official resolutions must identify the expected condition, winning token, and outcome, must not be received before expiry, and must agree with the exact shared-terminal boundary. Both horizons are required.
 
-## Decision and execution reconciliation
+## Decision edge basis and execution reconciliation
 
-The primary tau window is 45 to 240 seconds. Conservative replay retains full depth walking, dynamic taker fees, exact 250ms taker delay, 750ms maximum leg delay, partial fills, timeout, first-leg unwind, and hold-to-settlement accounting. Pair risk is 25 USDC, minimum uncertainty-adjusted expected PnL is 0.015 per pair, initial paper cash is 10,000 USDC, and the binding market-baseline quantity is 5 shares.
+Decision readiness is split into common safety/causality checks and predictive-only readiness. After common safety passes, the strategy evaluates structural candidates first. The structural primitive is derived directly from the verified shared-terminal settlement rule, the captured `strike_5`/`strike_15` ordering, causal decision-time books, and captured dynamic fees. The structural primitive uses no Monte Carlo scenario and does not require forecast probabilities, predictor history, shrinkage, Brier improvement, or validation-veto availability. Only when no executable positive structural candidate exists does the predictive path require simulation, train-only shrinkage, and the validation veto.
+
+For each action, the structural primitive enumerates every payoff state feasible under the captured strike ordering and computes the minimum two-leg payoff. Quantity is an optimization variable; the 25 USDC pair-risk value is an upper bound, not a target to consume. Deterministic quantity candidates are the joint minimum order, every cumulative ask-depth breakpoint from either leg that remains jointly executable, and the exact six-decimal fee-inclusive risk-budget boundary. Every candidate walks full ask depth on both legs and applies the captured dynamic taker fee with the execution schedule's per-fill-level rounding.
+
+`structural_net_floor_per_pair` is:
+
+`minimum_feasible_shared_terminal_payoff - full_depth_dynamic_fee_all_in_cost_per_pair`.
+
+For structural sizing, eligible candidates require both legs to fill the same quantity, total cost within the risk bound, and strictly positive floor. The primary objective is to maximize:
+
+`selected_guaranteed_total_pnl = quantity * structural_net_floor_per_pair`.
+
+Ties choose the higher per-pair structural floor, then the lower quantity, then the lexicographically lower action ID. Increasing the risk ceiling therefore cannot remove a smaller already feasible positive-floor quantity. For predictive sizing, eligible candidates require per-pair uncertainty-adjusted edge strictly above `0.015` and positive total adjusted PnL. The objective is to maximize `quantity * uncertainty_adjusted_pnl_per_pair`; ties choose the higher per-pair adjusted edge, then the lower quantity, then action ID. Predictive sizing cannot turn a small positive edge into a no-trade merely by consuming deeper negative-edge liquidity.
+
+The basis is `structural` only when the selected quantity has a strictly positive fee-inclusive floor. Missing or failed predictive validation cannot erase that paper action. Insufficient depth, stale or future books, missing legs, unsafe rule/fee state, or a non-positive floor still fail closed. Structural forecast probabilities, market probabilities, Brier, and ECE are explicitly `null`/non-applicable rather than fabricated to satisfy predictive types. All non-structural positive candidates remain `predictive` and use the preregistered forecast, model-scale downside, shrinkage, and veto.
+
+The decision, replay cycle, forecast row, reconciliation row, setting summary, and final report record `edge_basis`, selected quantity, feasible-state worst payoff, fee-inclusive structural floor, quantity executability, `quantity_selection_basis`, candidate-breakpoint count, selected guaranteed total PnL, and selected uncertainty-adjusted total PnL. Structural and predictive PnL are reported separately. A structural floor cannot be relabeled as predictive model edge.
+
+The primary tau window is 45 to 240 seconds. Conservative replay retains full depth walking, dynamic taker fees, exact 250ms taker delay, 750ms maximum leg delay, partial fills, timeout, first-leg unwind, and hold-to-settlement accounting. Pair risk is 25 USDC, minimum qualification edge is 0.015 per pair, initial paper cash is 10,000 USDC, and the binding market-baseline quantity is 5 shares.
 
 Every locked actionable decision must appear exactly once in the reconciliation ledger as one of:
 
@@ -108,28 +152,30 @@ Every v0.7 decision remains `development_shadow` in the legacy carrier and `v07_
 
 ## Evidence unit and gates
 
-Tau rows are not independent, and different market or condition IDs at the same close do not create new terminal labels. The capture-derived common-expiry key is the sole counting, Brier/ECE weighting, bootstrap, and concentration unit. The pair-integrity hash is diagnostic integrity metadata only. A settled common-expiry cluster for the 100-cluster user check has at least one explainable economic attempt; no-trade and causal no-fill rows cannot pad that count.
+Tau rows are not independent, and different market or condition IDs at the same close do not create new terminal labels. The capture-derived common-expiry key is the sole counting, Brier/ECE weighting, bootstrap, and concentration unit. The pair-integrity hash is diagnostic integrity metadata only. A settled common-expiry cluster for a track's 100-cluster gate has at least one explainable economic attempt of that same `edge_basis`; no-trade and causal no-fill rows cannot pad the attempt count.
 
-The non-promotional positive-net-PnL check requires:
+The raw mathematical diagnostic `diagnostic_positive_sample_pnl` reports only whether sample-count and arithmetic-positive-PnL conditions are met; it is explicitly non-qualifying. The qualified-semantics field `positive_net_pnl_user_check_passed` requires a complete real builder-verified predictive or structural gate. Synthetic, generated, public-evaluator, or self-reported rows therefore leave that field false even when their arithmetic sample PnL is positive.
 
-1. at least 100 distinct captured common expiries in the locked test split;
-2. at least 100 explainable locked-OOS economic attempts;
-3. positive total net PnL, including reconciled failures and zero-PnL no-fills.
+v7 retains an independent fail-closed structural true-edge gate alongside the predictive gate. Predictive and structural evidence use two independent sample gates. Each track separately requires at least 100 distinct captured common expiries, at least 100 explainable locked-OOS economic attempts of that same `edge_basis`, and positive realized track net PnL. A mixed sample of 50 predictive and 50 structural attempts satisfies neither track. Causal no-fills remain in track PnL and cluster bootstrap as zero, but do not count as economic attempts.
 
-A true-edge result additionally requires:
+Both true-edge tracks require the same real evidence spine:
 
-- a 5,000-resample common-expiry-cluster bootstrap, seed 712, with lower 5% mean-PnL bound above zero;
-- binding concentration `largest_positive_cluster_net_pnl / total_net_pnl <= 0.20`; if total net PnL is non-positive, this metric is unavailable and the gate fails;
-- diagnostic `largest_positive_cluster_net_pnl / total_positive_cluster_net_pnl`;
-- diagnostic `largest_absolute_cluster_net_pnl / total_absolute_cluster_net_pnl`;
-- complete cost, rule, depth, delay, execution, unwind, settlement, source-event, and reconciliation evidence;
-- immutable public capture evidence under the strict capture-config contract;
-- verified pre-label test-universe, forecast, and decision lock evidence;
-- common-expiry-equal Brier strictly better than the coherent executable-market baseline for both horizons;
-- common-expiry-equal 10-bin ECE at most 0.05 for both horizons;
-- positive PnL under every available preregistered neighboring diagnostic setting.
+- a builder-authoritative verification digest derived by the supported high-level CLI from strict immutable public captures with `generated_fixture: false`;
+- verified test-universe and per-decision receipts whose forecast availability is strictly before common expiry;
+- receipt-timed replay with no pre-receipt surface, complete depth/fee evidence, partial-fill/timeout/unwind handling, official settlement evidence, and one-to-one reconciliation;
+- positive realized track net PnL;
+- a 5,000-resample common-expiry-cluster bootstrap, seed 712, whose lower 5% mean-PnL bound exceeds zero;
+- binding concentration `largest_positive_cluster_net_pnl / total_net_pnl <= 0.20`; non-positive total PnL makes the metric unavailable and fails the gate;
+- the two non-binding diagnostics `largest_positive / total_positive` and `largest_absolute / total_absolute`.
 
-Without verified pre-label lock provenance, status is `counterfactual_insufficient` and `qualified_net_pnl` is `null`, regardless of retrospective sample size or PnL. Generated fixtures prove implementation invariants only and never establish economic edge.
+The predictive track additionally requires common-expiry-equal Brier strictly better than the coherent executable-market baseline for both horizons, common-expiry-equal 10-bin ECE at most 0.05 for both horizons, and positive PnL under every available preregistered neighboring setting. Structural rows are excluded from all predictive forecast metrics and predictive sample counts.
+
+The structural track does not require Brier, ECE, model-neighborhood stability, Monte Carlo, or predictor history. It instead requires every structural reconciliation row to bind the exact decision-time selected quantity, both-leg executability, a strictly positive `structural_net_floor_per_pair`, the structural quantity-selection objective, and the matching positive guaranteed total. Theoretical floor is not realized evidence: at least 100 actual explainable structural economic attempts at 100 common expiries, complete execution/settlement reconciliation, positive realized PnL, bootstrap, and concentration must all pass.
+
+`predictive_true_edge_gate_satisfied` and `structural_true_edge_gate_satisfied` are serialized separately, with separate qualified PnL values. Top-level `true_edge_gate_satisfied` is the logical OR of the two complete track gates; top-level qualified PnL is non-null only for tracks that actually pass. `positive_net_pnl_user_check_passed` shares this qualified semantics and cannot be satisfied by raw arithmetic alone.
+
+Without the supported builder-authoritative revalidation path, status is `counterfactual_insufficient`, `positive_net_pnl_user_check_passed` is false, both true-edge flags are false, and all qualified PnL fields are `null`, regardless of caller-provided receipts, evidence booleans, retrospective sample size, theoretical floors, or PnL. Generated fixtures and mechanism diagnostics prove implementation arithmetic only and can never emit an economic predictive or structural true-edge result.
+
 ## Diagnostic sensitivity grid
 
 Sensitivity settings never select or modify primary actions. The builder reruns immutable data under volatility-floor offsets `-0.05` and `+0.05` when in range, and model-weight offsets `-0.25` and `+0.25` when in `[0, 1]`. Out-of-range neighbors are omitted. Volatility settings refit shrinkage on training only; model-weight settings are traceable diagnostic overrides. Sensitivity forecasts are counterfactual diagnostics and do not inherit primary pre-label lock claims.

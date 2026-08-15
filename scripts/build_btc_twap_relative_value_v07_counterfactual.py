@@ -55,6 +55,9 @@ from src.edge_lab.btc_twap_relative_value_v07 import (  # noqa: E402
     SharedTerminalModelConfig,
     SharedTerminalSimulationResult,
     TrainOnlyShrinkageArtifact,
+    V07EdgeBasis,
+    V07ForecastAvailabilityBasis,
+    V07ModelRejection,
     V07StrategyConfig,
     ValidationVetoEvidence,
     canonical_event_cluster_id,
@@ -65,11 +68,6 @@ from src.edge_lab.btc_twap_relative_value_v07 import (  # noqa: E402
     simulate_shared_terminal_twap_60_distribution,
 )
 from src.edge_lab.btc_twap_relative_value_v07_evaluation import (  # noqa: E402
-    BOOTSTRAP_RESAMPLES,
-    BOOTSTRAP_SEED,
-    CONCENTRATION_LIMIT,
-    ECE_BINS,
-    ECE_LIMIT,
     MINIMUM_EXPLAINABLE_ECONOMIC_ATTEMPTS,
     MINIMUM_SETTLED_CLUSTERS,
     LockedOOSEconomicAttempt,
@@ -77,6 +75,9 @@ from src.edge_lab.btc_twap_relative_value_v07_evaluation import (  # noqa: E402
     ParameterNeighborhoodEvidence,
     PreLabelLockProvenance,
     PreLabelLockStatus,
+    V07EvidenceStatus,
+    V07LockedOOSEvaluation,
+    evaluate_gate_mechanism_diagnostic,
     evaluate_locked_oos_evidence,
 )
 from src.edge_lab.btc_twap_relative_value_v07_replay import (  # noqa: E402
@@ -95,13 +96,13 @@ from src.edge_lab.settlement_regime import (  # noqa: E402
 )
 
 MANIFEST_SCHEMA_VERSION = "btc-5m-15m-v07-counterfactual-manifest.v2"
-REPORT_SCHEMA_VERSION = "btc-5m-15m-v07-counterfactual-report.v2"
-LOCK_JOURNAL_SCHEMA_VERSION = "btc-5m-15m-v07-lock-journal.v2"
+REPORT_SCHEMA_VERSION = "btc-5m-15m-v07-counterfactual-report.v8"
+LOCK_JOURNAL_SCHEMA_VERSION = "btc-5m-15m-v07-lock-journal.v4"
 LOCK_JOURNAL_SOURCE = "v07_locked_oos_journal"
 CAPTURE_CONFIG_SCHEMA_VERSION = "btc-5m-15m-relative-value-capture.v1"
 SOURCE_BASELINE = "c557160d0c98e195a988f4353bbe19a3b00b3576"
 EXPECTED_PREREGISTRATION_SHA256 = (
-    "6edaacecba43d4c961abc11c7ffdd0ac36794bfa37019d0ce6fecf9bfa431a40"
+    "de79f3e4d43b513a7c71e3196877ee110f04f7d31cec4b3cd060f6184f541bfe"
 )
 _MANIFEST_KEYS = frozenset(
     {
@@ -293,8 +294,7 @@ def _confirm_public_capture_config(document: Mapping[str, Any]) -> None:
         CAPTURE_CONFIG_SCHEMA_VERSION
     ):
         raise ValueError(
-            "capture config schema_version must equal "
-            f"{CAPTURE_CONFIG_SCHEMA_VERSION}"
+            f"capture config schema_version must equal {CAPTURE_CONFIG_SCHEMA_VERSION}"
         )
     for key in ("paper_only", "public_only", "new_orders_disabled"):
         if key not in document or document[key] is not True:
@@ -434,6 +434,10 @@ def _strategy_config(document: Mapping[str, Any]) -> V07StrategyConfig:
             document["max_leg_delay_ms"],
             label="max_leg_delay_ms",
         ),
+        counterfactual_computation_availability_delay_ms=_int(
+            document["counterfactual_computation_availability_delay_ms"],
+            label="counterfactual_computation_availability_delay_ms",
+        ),
         initial_cash=_decimal(document["initial_cash"], label="initial_cash"),
         settlement_regime=str(document["settlement_regime"]),
     )
@@ -467,6 +471,22 @@ def _verify_preregistration(
         raise ValueError("v0.7 preregistration must remain an undeployed draft")
     if preregistration.get("source_baseline") != SOURCE_BASELINE:
         raise ValueError("v0.7 preregistration source baseline mismatch")
+    if preregistration.get("drafted_at") != "2026-08-15T15:37:51Z":
+        raise ValueError("v0.7 preregistration draft timestamp mismatch")
+    draft_context = _mapping(
+        preregistration.get("draft_context"),
+        label="preregistration.draft_context",
+    )
+    if dict(draft_context) != {
+        "revision": "v7_windows_portability_and_trust_boundary_correction",
+        "created_after_known_v06_shadow_results": True,
+        "known_v06_settled_attempts": 48,
+        "known_v06_independent_expiry_clusters": 24,
+        "known_v06_net_pnl_usdc": "87.523635",
+        "known_v06_results_role": ("known_before_v7_draft_not_locked_oos_input"),
+        "provides_ex_ante_qualification_for_known_v06_results": False,
+    }:
+        raise ValueError("v0.7 preregistration draft context mismatch")
     scope = _mapping(preregistration.get("scope"), label="preregistration.scope")
     if (
         scope.get("paper_only") is not True
@@ -531,9 +551,7 @@ def _verify_preregistration(
         "label_available_at_definition": (
             "max_expiry_closing_receipt_and_both_official_resolution_receipts"
         ),
-        "independent_cluster_key": (
-            "sha256_capture_derived_common_expiry_ms_only"
-        ),
+        "independent_cluster_key": ("sha256_capture_derived_common_expiry_ms_only"),
         "pair_integrity_key": (
             "sha256_common_expiry_5m_market_condition_15m_market_condition"
         ),
@@ -569,9 +587,7 @@ def _verify_preregistration(
         "both_official_resolutions_required": True,
         "exact_taker_delay_ms": 250,
         "missing_required_execution_surface": "abort_case",
-        "pair_integrity_identity": (
-            "common_expiry_plus_both_market_and_condition_ids"
-        ),
+        "pair_integrity_identity": ("common_expiry_plus_both_market_and_condition_ids"),
         "independent_cluster_identity": "capture_derived_common_expiry_ms_only",
         "one_pair_per_common_expiry": True,
         (
@@ -579,6 +595,17 @@ def _verify_preregistration(
             "but_required_for_true_edge"
         ): True,
         "actionable_decision_reconciliation": "one_row_or_invalid_window",
+        "prediction_receipt_strictly_before_common_expiry": True,
+        "forecast_available_at_ms_verified_source": (
+            "immutable_prediction_receipt_received_at_ms"
+        ),
+        "backdated_prediction_locked_at_cannot_substitute_receipt_clock": True,
+        "first_execution_eligibility": (
+            "forecast_available_at_ms_plus_captured_taker_delay_ms"
+        ),
+        "counterfactual_computation_availability_delay_ms": 5000,
+        "counterfactual_timing_is_measured_production_runtime": False,
+        "effective_signal_to_execution_latency_reported": True,
     }:
         raise ValueError("preregistration causal metadata policy mismatch")
 
@@ -619,6 +646,11 @@ def _verify_preregistration(
             MINIMUM_EXPLAINABLE_ECONOMIC_ATTEMPTS
         ),
         "net_pnl_must_be_positive": True,
+        "diagnostic_positive_sample_pnl_field": ("diagnostic_positive_sample_pnl"),
+        "positive_net_pnl_user_check_requires_builder_authoritative_revalidation": (
+            True
+        ),
+        "synthetic_or_generated_fixture_can_pass_user_check": False,
     }:
         raise ValueError("preregistration non-promotional sample gate mismatch")
 
@@ -626,33 +658,9 @@ def _verify_preregistration(
         preregistration.get("true_edge_gates"),
         label="preregistration.true_edge_gates",
     )
-    if dict(true_edge) != {
-        "expiry_cluster_bootstrap_resamples": BOOTSTRAP_RESAMPLES,
-        "expiry_cluster_bootstrap_seed": BOOTSTRAP_SEED,
-        "bootstrap_statistic": "mean_cluster_net_pnl",
-        "bootstrap_lower_95_quantile_method": (
-            "sorted_order_statistic_at_ceil_0.05_times_resamples_minus_one"
-        ),
-        "bootstrap_mean_net_pnl_lower_95_must_exceed": "0",
-        "complete_cost_execution_and_settlement_evidence": True,
-        "brier_must_beat_executable_market_both_horizons": True,
-        "brier_weighting": "equal_common_expiry_then_equal_tau_within_expiry",
-        "ece_maximum_both_horizons": str(ECE_LIMIT),
-        "ece_bins": ECE_BINS,
-        "ece_bin_edges": "equal_width_on_closed_unit_interval",
-        "ece_weighting": "equal_common_expiry_then_equal_tau_within_expiry",
-        "neighboring_settings_must_be_positive": True,
-        "qualified_net_pnl_null_until_all_gates_pass": True,
-        "maximum_largest_positive_cluster_to_total_net_pnl": str(CONCENTRATION_LIMIT),
-        "binding_concentration_numerator": ("largest_positive_expiry_cluster_net_pnl"),
-        "binding_concentration_denominator": "total_net_pnl",
-        "nonpositive_total_net_pnl_concentration": ("unavailable_and_gate_fails"),
-        "diagnostic_largest_positive_to_total_positive_pnl": True,
-        "diagnostic_largest_absolute_to_total_absolute_pnl": True,
-        "coherent_depth_fee_market_baseline_both_horizons": True,
-        "auditable_prelabel_manifest_prediction_decision_lock_required": True,
-        "pair_hashes_do_not_count_as_independent_clusters": True,
-    }:
+    if hashlib.sha256(canonical_json_bytes(dict(true_edge))).hexdigest() != (
+        "7e126171f61729522ec380ae067a279a330eb3a961a2059400b2bffda43079fb"
+    ):
         raise ValueError("preregistration true-edge gate mismatch")
 
     model_uncertainty = _mapping(
@@ -685,6 +693,98 @@ def _verify_preregistration(
     }:
         raise ValueError("preregistration binding-market policy mismatch")
 
+    builder_evidence_policy = _mapping(
+        preregistration.get("builder_verified_evidence_policy"),
+        label="preregistration.builder_verified_evidence_policy",
+    )
+    if hashlib.sha256(
+        canonical_json_bytes(dict(builder_evidence_policy))
+    ).hexdigest() != (
+        "100c82349f212aa1f7b273fd171ae2d4c5f080c0e6bc7de6b3cc4f1a5c061612"
+    ):
+        raise ValueError("preregistration builder-evidence policy mismatch")
+
+    edge_basis_policy = _mapping(
+        preregistration.get("edge_basis_policy"),
+        label="preregistration.edge_basis_policy",
+    )
+    if hashlib.sha256(canonical_json_bytes(dict(edge_basis_policy))).hexdigest() != (
+        "5313caab621031e5958c4827b267d7241021bc4e1c8e223ae07fb88541d52230"
+    ):
+        raise ValueError("preregistration edge-basis policy mismatch")
+
+    quantity_policy = _mapping(
+        preregistration.get("quantity_selection_policy"),
+        label="preregistration.quantity_selection_policy",
+    )
+    if dict(quantity_policy) != {
+        "schema_version": "btc-5m-15m-v07-quantity-selection-policy.v1",
+        "quantity_is_optimization_variable": True,
+        "candidate_breakpoints": [
+            "common_minimum_order_size",
+            ("each_jointly_executable_cumulative_ask_depth_break_on_either_leg"),
+            ("exact_six_decimal_risk_budget_boundary_with_actual_fee_rounding"),
+        ],
+        "equal_quantity_required_on_both_legs": True,
+        "full_depth_walk_required": True,
+        "fee_method": (
+            "captured_dynamic_taker_fee_per_fill_level_with_actual_rounding"
+        ),
+        "risk_budget_role": "upper_bound_not_target",
+        "structural_eligibility": (
+            "strictly_positive_fee_inclusive_floor_and_full_two_leg_execution"
+        ),
+        "structural_objective": (
+            "maximize_quantity_times_structural_net_floor_per_pair"
+        ),
+        "predictive_eligibility": (
+            "per_pair_minimum_edge_and_positive_uncertainty_adjusted_total_pnl"
+        ),
+        "predictive_objective": "maximize_uncertainty_adjusted_total_pnl",
+        "stable_tie_break": [
+            "higher_total_objective",
+            "higher_per_pair_qualification_edge",
+            "lower_quantity",
+            "lexicographic_action_id",
+        ],
+        "audit_fields": [
+            "quantity_selection_basis",
+            "quantity_candidate_breakpoint_count",
+            "selected_guaranteed_total_pnl",
+            "selected_uncertainty_adjusted_total_pnl",
+        ],
+    }:
+        raise ValueError("preregistration quantity-selection policy mismatch")
+
+    structural_policy = _mapping(
+        preregistration.get("structural_primitive_policy"),
+        label="preregistration.structural_primitive_policy",
+    )
+    if dict(structural_policy) != {
+        "schema_version": "btc-5m-15m-v07-structural-primitive-policy.v1",
+        "inputs": [
+            "verified_shared_terminal_settlement_rule",
+            "captured_strike_5",
+            "captured_strike_15",
+            "decision_time_books",
+            "captured_dynamic_fees",
+            "common_safety_and_timing_state",
+        ],
+        "feasible_outcomes_source": (
+            "strike_ordering_under_one_shared_terminal_twap_60"
+        ),
+        "monte_carlo_distribution_required": False,
+        "predictor_history_required": False,
+        "volatility_shrinkage_brier_or_validation_veto_required": False,
+        "builder_scan_order": (
+            "common_safety_then_structural_then_predictive_simulation"
+        ),
+        "positive_structural_candidate_survives_predictive_model_rejection": True,
+        "nonstructural_without_predictive_distribution": "no_trade_fail_closed",
+        "structural_probability_and_brier_fields": ("explicit_non_applicable_null"),
+    }:
+        raise ValueError("preregistration structural-primitive policy mismatch")
+
     lock_policy = _mapping(
         preregistration.get("prelabel_lock_policy"),
         label="preregistration.prelabel_lock_policy",
@@ -695,12 +795,45 @@ def _verify_preregistration(
         "test_universe_receipt_before_earliest_test_decision": True,
         "test_universe_binds_expiry_and_pair_identities": True,
         "prediction_locked_at_equals_decision_at": True,
-        "prediction_and_receipt_before_label_available": True,
         "canonical_forecast_and_decision_hashes_required": True,
+        "public_evaluator_qualification_authority": False,
+        "builder_authoritative_revalidation_required": True,
+        "row_set_and_parameter_neighborhood_hash_binding": True,
+        "generic_caller_rows_plus_chain_authority_issuer_distributed": False,
+        "generated_fixture_builder_authority_allowed": False,
+        "trust_model": "api_misuse_guard_not_cryptographic_provenance",
+        "adversarial_provenance_claimed": False,
+        "arbitrary_local_code_execution_out_of_scope": True,
         "missing_journal_status": "counterfactual_insufficient",
         "qualified_net_pnl_without_verified_lock": None,
+        "prediction_lock_and_receipt_strictly_before_common_expiry": True,
+        "forecast_available_at_ms_equals_prediction_receipt_received_at_ms": True,
+        "backdated_lock_cannot_substitute_receipt_time": True,
+        "first_execution_not_before_forecast_available_plus_taker_delay": True,
+        "counterfactual_computation_availability_delay_ms": 5000,
+        "counterfactual_timing_is_production_runtime_validation": False,
     }:
         raise ValueError("preregistration pre-label lock policy mismatch")
+
+    timing_policy = _mapping(
+        preregistration.get("timing_availability_policy"),
+        label="preregistration.timing_availability_policy",
+    )
+    if dict(timing_policy) != {
+        "schema_version": "btc-5m-15m-v07-timing-availability-policy.v1",
+        "verified_forecast_available_source": (
+            "immutable_prediction_receipt_received_at_ms"
+        ),
+        "verified_receipt_strictly_before_common_expiry": True,
+        "first_execution_eligibility": (
+            "forecast_available_at_ms_plus_captured_taker_delay_ms"
+        ),
+        "counterfactual_computation_availability_delay_ms": 5000,
+        "counterfactual_delay_is_measured_production_runtime": False,
+        "counterfactual_timing_role": "paper_replay_timing_diagnostic_only",
+        "effective_signal_to_execution_latency_serialized": True,
+    }:
+        raise ValueError("preregistration timing-availability policy mismatch")
 
     reconciliation_policy = _mapping(
         preregistration.get("action_reconciliation_policy"),
@@ -1089,10 +1222,10 @@ class _RawDecisionContext:
     actual_5_up: bool
     actual_15_up: bool
     replay: CausalBookReplay
-    market_q_5_up: Decimal
-    market_q_15_up: Decimal
-    raw_top_ask_q_5_up: Decimal
-    raw_top_ask_q_15_up: Decimal
+    market_q_5_up: Decimal | None
+    market_q_15_up: Decimal | None
+    raw_top_ask_q_5_up: Decimal | None
+    raw_top_ask_q_15_up: Decimal | None
     clock_uncertainty_ms: int
     capture_identity: Mapping[str, Any]
     rules_and_fees: Mapping[str, Any]
@@ -1101,6 +1234,7 @@ class _RawDecisionContext:
     resolution_source_event_ids: Mapping[str, str]
     resolution_received_at_ms: Mapping[str, int]
     immutable_public_capture_evidence: bool
+    capture_config_evidence: Mapping[str, Any]
 
     @property
     def identity(self) -> tuple[str, int]:
@@ -1359,7 +1493,7 @@ def _load_case_contexts(
             decision_at_ms=decision_at_ms,
             seconds=model.minimum_history_seconds,
         )
-        if len(predictor_prices) != model.minimum_history_seconds:
+        if split != "test" and len(predictor_prices) != model.minimum_history_seconds:
             raise ValueError(
                 f"case {cluster_alias} lacks causal predictor history at tau {tau}"
             )
@@ -1403,7 +1537,7 @@ def _load_case_contexts(
             up_token_id=pair.market_15.up_token_id,
             down_token_id=pair.market_15.down_token_id,
         )
-        if (
+        if split != "test" and (
             market5 is None
             or market15 is None
             or raw_market5 is None
@@ -1458,6 +1592,16 @@ def _load_case_contexts(
                 resolution_received_at_ms=MappingProxyType(resolution_received_at_ms),
                 immutable_public_capture_evidence=(
                     capture_config["generated_fixture"] is False
+                ),
+                capture_config_evidence=MappingProxyType(
+                    {
+                        "schema_version": capture_config["schema_version"],
+                        "paper_only": capture_config["paper_only"],
+                        "public_only": capture_config["public_only"],
+                        "new_orders_disabled": capture_config["new_orders_disabled"],
+                        "generated_fixture": capture_config["generated_fixture"],
+                        "capture_config_sha256": integrity["capture_config"]["sha256"],
+                    }
                 ),
             )
         )
@@ -1797,8 +1941,10 @@ def _load_prelabel_lock_index(
             raise ValueError("forecast lock decision timestamp does not match context")
         if receipt.prediction_locked_at_ms != context.decision_at_ms:
             raise ValueError("prediction lock must equal the decision timestamp")
-        if receipt.received_at_ms >= context.label_available_at_ms:
-            raise ValueError("forecast/decision lock receipt is post-label")
+        if receipt.received_at_ms >= context.expiry_ms:
+            raise ValueError(
+                "forecast/decision lock receipt is not strictly pre-expiry"
+            )
     return _PreLabelLockIndex(
         journal_root=journal_root,
         journal_identity=MappingProxyType(journal_identity),
@@ -1807,33 +1953,86 @@ def _load_prelabel_lock_index(
     )
 
 
+def _forecast_availability(
+    *,
+    setting_id: str,
+    context: _RawDecisionContext,
+    strategy: V07StrategyConfig,
+    lock_index: _PreLabelLockIndex | None,
+) -> tuple[int, V07ForecastAvailabilityBasis]:
+    if setting_id == "primary" and lock_index is not None:
+        receipt = lock_index.prediction_by_identity[context.identity]
+        return (
+            receipt.received_at_ms,
+            V07ForecastAvailabilityBasis.VERIFIED_IMMUTABLE_RECEIPT,
+        )
+    return (
+        context.decision_at_ms
+        + strategy.counterfactual_computation_availability_delay_ms,
+        V07ForecastAvailabilityBasis.PREREGISTERED_COUNTERFACTUAL_DELAY,
+    )
+
+
 def _forecast_lock_document(
     *,
     setting_id: str,
     context: _RawDecisionContext,
-    simulation: SharedTerminalSimulationResult,
-    shrinkage: TrainOnlyShrinkageArtifact,
-    veto: ValidationVetoEvidence,
-    forecast_q_5_up: Decimal,
-    forecast_q_15_up: Decimal,
+    cycle: V07PaperCycleEvaluation,
+    forecast_q_5_up: Decimal | None,
+    forecast_q_15_up: Decimal | None,
+    forecast_available_at_ms: int,
+    forecast_availability_basis: V07ForecastAvailabilityBasis,
 ) -> dict[str, Any]:
+    decision = cycle.decision
+
+    def decimal_text(value: Decimal | None) -> str | None:
+        return None if value is None else str(value)
+
+    predictive = decision.edge_basis is V07EdgeBasis.PREDICTIVE
+    simulation = cycle.simulation
+    shrinkage = cycle.shrinkage
+    veto = cycle.validation_veto
     return {
-        "schema_version": "btc-5m-15m-v07-forecast-lock-payload.v2",
+        "schema_version": "btc-5m-15m-v07-forecast-lock-payload.v6",
         "setting_id": setting_id,
         "canonical_pair_id": context.canonical_pair_id,
         "expiry_cluster_id": context.expiry_cluster_id,
         "decision_tau_seconds": context.decision_tau_seconds,
         "decision_at_ms": context.decision_at_ms,
+        "forecast_available_at_ms": forecast_available_at_ms,
+        "forecast_availability_basis": forecast_availability_basis.value,
         "expiry_ms": context.expiry_ms,
         "strike_5": str(context.settlement_state.strike_5),
         "strike_15": str(context.settlement_state.strike_15),
-        "forecast_q_5_up": str(forecast_q_5_up),
-        "forecast_q_15_up": str(forecast_q_15_up),
-        "executable_market_q_5_up": str(context.market_q_5_up),
-        "executable_market_q_15_up": str(context.market_q_15_up),
-        "model_config_sha256": simulation.model_config_hash,
-        "shrinkage_artifact_hash": shrinkage.artifact_hash,
-        "validation_veto_artifact_hash": veto.artifact_hash,
+        "edge_basis": decision.edge_basis.value,
+        "probability_diagnostics_applicable": (
+            decision.probability_diagnostics_applicable
+        ),
+        "forecast_q_5_up": decimal_text(forecast_q_5_up if predictive else None),
+        "forecast_q_15_up": decimal_text(forecast_q_15_up if predictive else None),
+        "executable_market_q_5_up": decimal_text(
+            cycle.market_q_5_up if predictive else None
+        ),
+        "executable_market_q_15_up": decimal_text(
+            cycle.market_q_15_up if predictive else None
+        ),
+        "model_config_sha256": (
+            None if simulation is None else simulation.model_config_hash
+        ),
+        "shrinkage_artifact_hash": (
+            None if shrinkage is None else shrinkage.artifact_hash
+        ),
+        "validation_veto_artifact_hash": (None if veto is None else veto.artifact_hash),
+        "structural_primitive": (
+            {
+                "settlement_model_id": SETTLEMENT_MODEL_ID,
+                "strike_5": str(context.settlement_state.strike_5),
+                "strike_15": str(context.settlement_state.strike_15),
+                "monte_carlo_required": False,
+            }
+            if decision.edge_basis is V07EdgeBasis.STRUCTURAL
+            else None
+        ),
     }
 
 
@@ -1849,13 +2048,15 @@ def _decision_lock_document(
         return None if value is None else str(value)
 
     return {
-        "schema_version": "btc-5m-15m-v07-decision-lock-payload.v2",
+        "schema_version": "btc-5m-15m-v07-decision-lock-payload.v6",
         "setting_id": setting_id,
         "canonical_pair_id": context.canonical_pair_id,
         "expiry_ms": context.expiry_ms,
         "expiry_cluster_id": context.expiry_cluster_id,
         "decision_tau_seconds": context.decision_tau_seconds,
         "decision_at_ms": decision.decision_at_ms,
+        "forecast_available_at_ms": decision.forecast_available_at_ms,
+        "forecast_availability_basis": decision.forecast_availability_basis.value,
         "action": decision.action.value,
         "quantity": str(decision.quantity),
         "first_token_id": decision.first_token_id,
@@ -1874,10 +2075,35 @@ def _decision_lock_document(
         ),
         "cvar_per_pair": decimal_text(decision.cvar_per_pair),
         "loss_probability": decimal_text(decision.loss_probability),
-        "q_5_raw": str(decision.q_5_raw),
-        "q_15_raw": str(decision.q_15_raw),
+        "q_5_raw": decimal_text(decision.q_5_raw),
+        "q_15_raw": decimal_text(decision.q_15_raw),
         "q_5_calibrated": decimal_text(decision.q_5_calibrated),
         "q_15_calibrated": decimal_text(decision.q_15_calibrated),
+        "edge_basis": decision.edge_basis.value,
+        "edge_evaluation_quantity": decimal_text(decision.edge_evaluation_quantity),
+        "structural_worst_case_payoff_per_pair": decimal_text(
+            decision.structural_worst_case_payoff_per_pair
+        ),
+        "structural_net_floor_per_pair": decimal_text(
+            decision.structural_net_floor_per_pair
+        ),
+        "structural_quantity_executable": (decision.structural_quantity_executable),
+        "quantity_selection_basis": decision.quantity_selection_basis.value,
+        "quantity_candidate_breakpoint_count": (
+            decision.quantity_candidate_breakpoint_count
+        ),
+        "selected_guaranteed_total_pnl": decimal_text(
+            decision.selected_guaranteed_total_pnl
+        ),
+        "selected_uncertainty_adjusted_total_pnl": decimal_text(
+            decision.selected_uncertainty_adjusted_total_pnl
+        ),
+        "probability_diagnostics_applicable": (
+            decision.probability_diagnostics_applicable
+        ),
+        "qualification_edge_per_pair": decimal_text(
+            decision.qualification_edge_per_pair
+        ),
         "reason_codes": list(decision.reason_codes),
         "qualification": decision.qualification,
     }
@@ -1907,7 +2133,7 @@ def _prelabel_lock_provenance(
     if decision_hash != receipt.decision_payload_sha256:
         raise ValueError("decision payload does not match its pre-label lock receipt")
     universe = lock_index.universe
-    return PreLabelLockProvenance(
+    return PreLabelLockProvenance._create(
         status=PreLabelLockStatus.VERIFIED,
         test_universe_sha256=universe.test_universe_sha256,
         test_universe_locked_at_ms=universe.locked_at_ms,
@@ -1945,6 +2171,8 @@ def _probability_row(
     context: _RawDecisionContext,
     simulation: SharedTerminalSimulationResult,
 ) -> ProbabilityPairTrainingRow:
+    if context.market_q_5_up is None or context.market_q_15_up is None:
+        raise ValueError("predictive training row lacks executable market baseline")
     return ProbabilityPairTrainingRow(
         event_cluster_id=context.event_cluster_id,
         expiry_ms=context.expiry_ms,
@@ -1969,8 +2197,8 @@ def _probability_row(
 class _SettingResult:
     setting_id: str
     model: SharedTerminalModelConfig
-    shrinkage: TrainOnlyShrinkageArtifact
-    validation_veto: ValidationVetoEvidence
+    shrinkage: TrainOnlyShrinkageArtifact | None
+    validation_veto: ValidationVetoEvidence | None
     simulations: Mapping[tuple[str, int], SharedTerminalSimulationResult]
     cycles: tuple[V07PaperCycleEvaluation, ...]
     forecasts: tuple[LockedOOSForecastRow, ...]
@@ -1979,6 +2207,28 @@ class _SettingResult:
     @property
     def net_pnl(self) -> Decimal:
         return sum((row.net_pnl for row in self.attempts), Decimal(0))
+
+    @property
+    def predictive_net_pnl(self) -> Decimal:
+        return sum(
+            (
+                row.net_pnl
+                for row in self.attempts
+                if row.edge_basis is V07EdgeBasis.PREDICTIVE
+            ),
+            Decimal(0),
+        )
+
+    @property
+    def structural_net_pnl(self) -> Decimal:
+        return sum(
+            (
+                row.net_pnl
+                for row in self.attempts
+                if row.edge_basis is V07EdgeBasis.STRUCTURAL
+            ),
+            Decimal(0),
+        )
 
 
 def _run_setting(
@@ -1991,72 +2241,208 @@ def _run_setting(
     forced_model_weight: Decimal | None = None,
     lock_index: _PreLabelLockIndex | None = None,
 ) -> _SettingResult:
-    simulations = _simulate_contexts(contexts, model=model)
-    train_rows = tuple(
-        _probability_row(context, simulations[context.identity])
-        for context in contexts
-        if context.split == "train"
-    )
-    validation_rows = tuple(
-        _probability_row(context, simulations[context.identity])
-        for context in contexts
-        if context.split == "validation"
-    )
-    fit_at_ms = min(
-        context.decision_at_ms for context in contexts if context.split == "validation"
-    )
-    shrinkage = TrainOnlyShrinkageArtifact.fit(
-        train_rows,
-        fit_at_ms=fit_at_ms,
-        candidate_model_weights=candidate_weights,
-    )
-    if forced_model_weight is not None:
-        shrinkage = shrinkage.with_diagnostic_model_weight(
-            model_weight=forced_model_weight,
+    test_contexts = tuple(context for context in contexts if context.split == "test")
+    initial_cycles: dict[tuple[str, int], V07PaperCycleEvaluation] = {}
+    structural_identities: set[tuple[str, int]] = set()
+
+    # Structural scanning is deliberately first and model-free.  It consumes only
+    # the verified settlement rule/strikes, causal decision books, captured fees,
+    # and the already established forecast-availability clock.
+    for context in test_contexts:
+        forecast_available_at_ms, forecast_availability_basis = _forecast_availability(
             setting_id=setting_id,
+            context=context,
+            strategy=strategy,
+            lock_index=lock_index,
         )
-    veto_at_ms = min(
-        context.decision_at_ms for context in contexts if context.split == "test"
-    )
-    veto = evaluate_validation_veto(
-        validation_rows,
-        shrinkage=shrinkage,
-        evaluated_at_ms=veto_at_ms,
-    )
-    cycles: list[V07PaperCycleEvaluation] = []
-    forecasts: list[LockedOOSForecastRow] = []
-    attempts: list[LockedOOSEconomicAttempt] = []
-    for context in contexts:
-        if context.split != "test":
-            continue
-        simulation = simulations[context.identity]
-        q5, q15, _ = shrinkage.transform(
-            simulation.distribution,
-            market_q_5_up=context.market_q_5_up,
-            market_q_15_up=context.market_q_15_up,
-        )
-        health = SharedTerminalDataHealth(
+        structural_health = SharedTerminalDataHealth(
             decision_at_ms=context.decision_at_ms,
-            terminal_twap_60_observed_at_ms=(context.terminal_state_observed_at_ms),
-            terminal_twap_60_received_at_ms=(context.terminal_state_received_at_ms),
+            forecast_available_at_ms=forecast_available_at_ms,
+            forecast_availability_basis=forecast_availability_basis,
+            terminal_twap_60_observed_at_ms=context.terminal_state_observed_at_ms,
+            terminal_twap_60_received_at_ms=context.terminal_state_received_at_ms,
             absolute_clock_drift_ms=context.clock_uncertainty_ms,
-            shrinkage=shrinkage,
-            validation_veto=veto,
+            shrinkage=None,
+            validation_veto=None,
         )
-        cycle = evaluate_shared_terminal_paper_cycle(
+        structural_cycle = evaluate_shared_terminal_paper_cycle(
             event_cluster_id=context.event_cluster_id,
             event_cluster_alias=context.event_cluster_alias,
             decision_tau_seconds=context.decision_tau_seconds,
             pair=context.pair,
             settlement_state=context.settlement_state,
-            simulation=simulation,
+            simulation=None,
             replay=context.replay,
-            health=health,
+            health=structural_health,
             config=strategy,
             market_5_up=context.actual_5_up,
             market_15_up=context.actual_15_up,
             locked_oos=True,
         )
+        initial_cycles[context.identity] = structural_cycle
+        if (
+            structural_cycle.decision.action is not PairAction.NO_TRADE
+            and structural_cycle.decision.edge_basis is V07EdgeBasis.STRUCTURAL
+        ):
+            structural_identities.add(context.identity)
+
+    predictive_test_contexts = tuple(
+        context
+        for context in test_contexts
+        if context.identity not in structural_identities
+        and "predictive_distribution_unavailable_after_structural_scan"
+        in initial_cycles[context.identity].decision.reason_codes
+    )
+    simulations: dict[tuple[str, int], SharedTerminalSimulationResult] = {}
+    predictive_rejections: dict[tuple[str, int], str] = {}
+    shrinkage: TrainOnlyShrinkageArtifact | None = None
+    veto: ValidationVetoEvidence | None = None
+    if predictive_test_contexts:
+        simulation_contexts = tuple(
+            context for context in contexts if context.split in {"train", "validation"}
+        )
+        try:
+            predictive_training_simulations = _simulate_contexts(
+                simulation_contexts,
+                model=model,
+            )
+        except V07ModelRejection as exc:
+            rejection = (
+                f"predictive_training_model_rejected_after_structural_scan:{exc.code}"
+            )
+            predictive_rejections.update(
+                {context.identity: rejection for context in predictive_test_contexts}
+            )
+        else:
+            simulations.update(predictive_training_simulations)
+            train_rows = tuple(
+                _probability_row(context, simulations[context.identity])
+                for context in contexts
+                if context.split == "train"
+            )
+            validation_rows = tuple(
+                _probability_row(context, simulations[context.identity])
+                for context in contexts
+                if context.split == "validation"
+            )
+            fit_at_ms = min(
+                context.decision_at_ms
+                for context in contexts
+                if context.split == "validation"
+            )
+            shrinkage = TrainOnlyShrinkageArtifact.fit(
+                train_rows,
+                fit_at_ms=fit_at_ms,
+                candidate_model_weights=candidate_weights,
+            )
+            if forced_model_weight is not None:
+                shrinkage = shrinkage.with_diagnostic_model_weight(
+                    model_weight=forced_model_weight,
+                    setting_id=setting_id,
+                )
+            veto_at_ms = min(context.decision_at_ms for context in test_contexts)
+            veto = evaluate_validation_veto(
+                validation_rows,
+                shrinkage=shrinkage,
+                evaluated_at_ms=veto_at_ms,
+            )
+            for context in predictive_test_contexts:
+                if (
+                    len(context.predictor_prices) != model.minimum_history_seconds
+                    or context.market_q_5_up is None
+                    or context.market_q_15_up is None
+                    or context.raw_top_ask_q_5_up is None
+                    or context.raw_top_ask_q_15_up is None
+                ):
+                    predictive_rejections[context.identity] = (
+                        "predictive_inputs_unavailable_after_structural_scan"
+                    )
+                    continue
+                try:
+                    simulations[context.identity] = (
+                        simulate_shared_terminal_twap_60_distribution(
+                            predictor_prices=context.predictor_prices,
+                            current_terminal_twap_60=(context.current_terminal_twap_60),
+                            decision_at_ms=context.decision_at_ms,
+                            expiry_ms=context.expiry_ms,
+                            strike_5=context.settlement_state.strike_5,
+                            strike_15=context.settlement_state.strike_15,
+                            config=model,
+                            seed_salt=(
+                                f"{context.event_cluster_id}:"
+                                f"{context.decision_tau_seconds}"
+                            ),
+                        )
+                    )
+                except V07ModelRejection as exc:
+                    predictive_rejections[context.identity] = (
+                        f"predictive_model_rejected_after_structural_scan:{exc.code}"
+                    )
+
+    cycles: list[V07PaperCycleEvaluation] = []
+    forecasts: list[LockedOOSForecastRow] = []
+    attempts: list[LockedOOSEconomicAttempt] = []
+    for context in test_contexts:
+        forecast_available_at_ms, forecast_availability_basis = _forecast_availability(
+            setting_id=setting_id,
+            context=context,
+            strategy=strategy,
+            lock_index=lock_index,
+        )
+        if context.identity in structural_identities:
+            simulation = None
+            q5 = None
+            q15 = None
+            cycle = initial_cycles[context.identity]
+        elif context.identity not in simulations:
+            simulation = None
+            q5 = None
+            q15 = None
+            cycle = initial_cycles[context.identity]
+            rejection = predictive_rejections.get(context.identity)
+            if rejection is not None:
+                decision = replace(
+                    cycle.decision,
+                    reason_codes=(*cycle.decision.reason_codes, rejection),
+                )
+                cycle = replace(cycle, cycle=replace(cycle.cycle, decision=decision))
+        else:
+            if shrinkage is None or veto is None:
+                raise ValueError(
+                    "predictive context lacks train-only shrinkage/validation veto"
+                )
+            simulation = simulations[context.identity]
+            assert context.market_q_5_up is not None
+            assert context.market_q_15_up is not None
+            q5, q15, _ = shrinkage.transform(
+                simulation.distribution,
+                market_q_5_up=context.market_q_5_up,
+                market_q_15_up=context.market_q_15_up,
+            )
+            health = SharedTerminalDataHealth(
+                decision_at_ms=context.decision_at_ms,
+                forecast_available_at_ms=forecast_available_at_ms,
+                forecast_availability_basis=forecast_availability_basis,
+                terminal_twap_60_observed_at_ms=(context.terminal_state_observed_at_ms),
+                terminal_twap_60_received_at_ms=(context.terminal_state_received_at_ms),
+                absolute_clock_drift_ms=context.clock_uncertainty_ms,
+                shrinkage=shrinkage,
+                validation_veto=veto,
+            )
+            cycle = evaluate_shared_terminal_paper_cycle(
+                event_cluster_id=context.event_cluster_id,
+                event_cluster_alias=context.event_cluster_alias,
+                decision_tau_seconds=context.decision_tau_seconds,
+                pair=context.pair,
+                settlement_state=context.settlement_state,
+                simulation=simulation,
+                replay=context.replay,
+                health=health,
+                config=strategy,
+                market_5_up=context.actual_5_up,
+                market_15_up=context.actual_15_up,
+                locked_oos=True,
+            )
         cycles.append(cycle)
         missing_surface_reasons = {
             "first_leg_execution_book_missing",
@@ -2073,11 +2459,11 @@ def _run_setting(
         forecast_document = _forecast_lock_document(
             setting_id=setting_id,
             context=context,
-            simulation=simulation,
-            shrinkage=shrinkage,
-            veto=veto,
+            cycle=cycle,
             forecast_q_5_up=q5,
             forecast_q_15_up=q15,
+            forecast_available_at_ms=forecast_available_at_ms,
+            forecast_availability_basis=forecast_availability_basis,
         )
         decision_document = _decision_lock_document(
             setting_id=setting_id,
@@ -2091,6 +2477,7 @@ def _run_setting(
             forecast_document=forecast_document,
             decision_document=decision_document,
         )
+        decision = cycle.decision
         forecasts.append(
             LockedOOSForecastRow(
                 event_cluster_id=context.event_cluster_id,
@@ -2098,21 +2485,42 @@ def _run_setting(
                 expiry_ms=context.expiry_ms,
                 decision_tau_seconds=context.decision_tau_seconds,
                 decision_at_ms=context.decision_at_ms,
+                forecast_available_at_ms=forecast_available_at_ms,
+                forecast_availability_basis=forecast_availability_basis,
                 label_available_at_ms=context.label_available_at_ms,
                 forecast_q_5_up=q5,
                 forecast_q_15_up=q15,
-                market_q_5_up=context.market_q_5_up,
-                market_q_15_up=context.market_q_15_up,
-                raw_top_ask_q_5_up=context.raw_top_ask_q_5_up,
-                raw_top_ask_q_15_up=context.raw_top_ask_q_15_up,
+                market_q_5_up=cycle.market_q_5_up,
+                market_q_15_up=cycle.market_q_15_up,
+                raw_top_ask_q_5_up=cycle.raw_top_ask_q_5_up,
+                raw_top_ask_q_15_up=cycle.raw_top_ask_q_15_up,
                 actual_5_up=context.actual_5_up,
                 actual_15_up=context.actual_15_up,
                 strike_5=context.settlement_state.strike_5,
                 strike_15=context.settlement_state.strike_15,
                 lock_provenance=lock_provenance,
+                edge_basis=decision.edge_basis,
+                edge_evaluation_quantity=decision.edge_evaluation_quantity,
+                structural_worst_case_payoff_per_pair=(
+                    decision.structural_worst_case_payoff_per_pair
+                ),
+                structural_net_floor_per_pair=(decision.structural_net_floor_per_pair),
+                structural_quantity_executable=(
+                    decision.structural_quantity_executable
+                ),
+                quantity_selection_basis=decision.quantity_selection_basis,
+                quantity_candidate_breakpoint_count=(
+                    decision.quantity_candidate_breakpoint_count
+                ),
+                selected_guaranteed_total_pnl=(decision.selected_guaranteed_total_pnl),
+                selected_uncertainty_adjusted_total_pnl=(
+                    decision.selected_uncertainty_adjusted_total_pnl
+                ),
+                probability_diagnostics_applicable=(
+                    decision.probability_diagnostics_applicable
+                ),
             )
         )
-        decision = cycle.decision
         if decision.action is PairAction.NO_TRADE:
             continue
         if cycle.settlement is None or cycle.execution is None:
@@ -2151,6 +2559,20 @@ def _run_setting(
                 event_cluster_alias=context.event_cluster_alias,
                 expiry_ms=context.expiry_ms,
                 decision_tau_seconds=context.decision_tau_seconds,
+                decision_at_ms=context.decision_at_ms,
+                forecast_available_at_ms=cycle.forecast_available_at_ms,
+                forecast_availability_basis=cycle.forecast_availability_basis,
+                first_execution_not_before_ms=(
+                    cycle.first_execution_not_before_ms
+                    if cycle.first_execution_not_before_ms is not None
+                    else cycle.forecast_available_at_ms
+                ),
+                first_execution_observed_at_ms=(cycle.first_execution_observed_at_ms),
+                effective_signal_to_execution_latency_ms=(
+                    cycle.effective_signal_to_execution_latency_ms
+                    if cycle.effective_signal_to_execution_latency_ms is not None
+                    else cycle.forecast_available_at_ms - context.decision_at_ms
+                ),
                 net_pnl=cycle.settlement.net_pnl,
                 explainable=(
                     cycle.settlement.explainable if economic_attempt else False
@@ -2193,7 +2615,11 @@ def _run_setting(
                 immutable_public_capture_evidence=(
                     context.immutable_public_capture_evidence
                 ),
-                signal_strength=abs(q5 - q15),
+                signal_strength=(
+                    None
+                    if decision.edge_basis is V07EdgeBasis.STRUCTURAL
+                    else abs(q5 - q15)
+                ),
                 execution_status=cycle.execution.status.value,
                 economic_attempt=economic_attempt,
                 causal_no_fill=causal_no_fill,
@@ -2202,6 +2628,26 @@ def _run_setting(
                 ),
                 decision_action=decision.action.value,
                 lock_provenance=lock_provenance,
+                edge_basis=decision.edge_basis,
+                edge_evaluation_quantity=decision.edge_evaluation_quantity,
+                structural_worst_case_payoff_per_pair=(
+                    decision.structural_worst_case_payoff_per_pair
+                ),
+                structural_net_floor_per_pair=(decision.structural_net_floor_per_pair),
+                structural_quantity_executable=(
+                    decision.structural_quantity_executable
+                ),
+                quantity_selection_basis=decision.quantity_selection_basis,
+                quantity_candidate_breakpoint_count=(
+                    decision.quantity_candidate_breakpoint_count
+                ),
+                selected_guaranteed_total_pnl=(decision.selected_guaranteed_total_pnl),
+                selected_uncertainty_adjusted_total_pnl=(
+                    decision.selected_uncertainty_adjusted_total_pnl
+                ),
+                probability_diagnostics_applicable=(
+                    decision.probability_diagnostics_applicable
+                ),
             )
         )
     return _SettingResult(
@@ -2224,6 +2670,8 @@ def _neighbor_settings(
     candidate_weights: tuple[Decimal, ...],
     sensitivity: _SensitivityGrid,
 ) -> tuple[_SettingResult, ...]:
+    if primary.shrinkage is None:
+        return ()
     definitions: list[tuple[str, SharedTerminalModelConfig, Decimal | None]] = []
     floor = primary.model.annualized_volatility_floor
     for offset in sensitivity.volatility_floor_offsets:
@@ -2273,12 +2721,30 @@ def _neighbor_settings(
 def _setting_document(
     setting: _SettingResult, *, include_cycles: bool
 ) -> dict[str, Any]:
+    latencies = tuple(
+        latency
+        for cycle in setting.cycles
+        if (latency := cycle.effective_signal_to_execution_latency_ms) is not None
+    )
+    basis_counts = {
+        basis.value: sum(
+            cycle.forecast_availability_basis is basis for cycle in setting.cycles
+        )
+        for basis in V07ForecastAvailabilityBasis
+    }
     document: dict[str, Any] = {
         "setting_id": setting.setting_id,
         "model_config": setting.model.to_document(),
         "model_config_sha256": setting.model.artifact_hash,
-        "shrinkage": setting.shrinkage.to_document(),
-        "validation_veto": setting.validation_veto.to_document(),
+        "shrinkage": (
+            None if setting.shrinkage is None else setting.shrinkage.to_document()
+        ),
+        "validation_veto": (
+            None
+            if setting.validation_veto is None
+            else setting.validation_veto.to_document()
+        ),
+        "predictive_model_required": setting.shrinkage is not None,
         "forecast_count": len(setting.forecasts),
         "action_reconciliation_count": len(setting.attempts),
         "economic_attempt_count": sum(
@@ -2288,12 +2754,444 @@ def _setting_document(
             attempt.causal_no_fill for attempt in setting.attempts
         ),
         "net_pnl": str(setting.net_pnl),
+        "timing": {
+            "forecast_availability_basis_counts": basis_counts,
+            "effective_signal_to_execution_latency_ms": {
+                "values": list(latencies),
+                "minimum": None if not latencies else min(latencies),
+                "maximum": None if not latencies else max(latencies),
+            },
+            "verified_receipt_paths_execute_after_receipt_plus_taker_delay": True,
+            "counterfactual_computation_delay_is_preregistered": True,
+            "counterfactual_delay_is_production_runtime_validation": False,
+            "paper_replay_only": True,
+        },
+        "edge_basis_breakdown": {
+            "predictive": {
+                "forecast_count": sum(
+                    row.edge_basis is V07EdgeBasis.PREDICTIVE
+                    for row in setting.forecasts
+                ),
+                "action_reconciliation_count": sum(
+                    row.edge_basis is V07EdgeBasis.PREDICTIVE
+                    for row in setting.attempts
+                ),
+                "net_pnl": str(setting.predictive_net_pnl),
+            },
+            "structural": {
+                "forecast_count": sum(
+                    row.edge_basis is V07EdgeBasis.STRUCTURAL
+                    for row in setting.forecasts
+                ),
+                "action_reconciliation_count": sum(
+                    row.edge_basis is V07EdgeBasis.STRUCTURAL
+                    for row in setting.attempts
+                ),
+                "net_pnl": str(setting.structural_net_pnl),
+                "separate_true_edge_gate_implemented": True,
+                "requires_realized_execution_and_settlement_pnl": True,
+                "brier_ece_and_model_neighborhood_not_applicable": True,
+            },
+        },
+        "quantity_selection": {
+            "basis_by_forecast": [
+                row.quantity_selection_basis.value for row in setting.forecasts
+            ],
+            "candidate_breakpoint_count_by_forecast": [
+                row.quantity_candidate_breakpoint_count for row in setting.forecasts
+            ],
+            "selected_guaranteed_total_pnl_by_forecast": [
+                None
+                if row.selected_guaranteed_total_pnl is None
+                else str(row.selected_guaranteed_total_pnl)
+                for row in setting.forecasts
+            ],
+            "selected_uncertainty_adjusted_total_pnl_by_forecast": [
+                None
+                if row.selected_uncertainty_adjusted_total_pnl is None
+                else str(row.selected_uncertainty_adjusted_total_pnl)
+                for row in setting.forecasts
+            ],
+            "paper_only": True,
+        },
         "forecasts": [row.to_document() for row in setting.forecasts],
         "action_reconciliations": [row.to_document() for row in setting.attempts],
     }
     if include_cycles:
         document["cycles"] = [cycle.to_document() for cycle in setting.cycles]
     return document
+
+
+def _strict_context_capture_evidence(context: _RawDecisionContext) -> bool:
+    evidence = dict(context.capture_config_evidence)
+    expected_keys = {
+        "schema_version",
+        "paper_only",
+        "public_only",
+        "new_orders_disabled",
+        "generated_fixture",
+        "capture_config_sha256",
+    }
+    if set(evidence) != expected_keys:
+        return False
+    if evidence["schema_version"] != CAPTURE_CONFIG_SCHEMA_VERSION:
+        return False
+    if any(
+        evidence[name] is not True
+        for name in ("paper_only", "public_only", "new_orders_disabled")
+    ):
+        return False
+    if type(evidence["generated_fixture"]) is not bool:
+        return False
+    if evidence["generated_fixture"] is not False:
+        return False
+    config_hash = evidence["capture_config_sha256"]
+    if (
+        not isinstance(config_hash, str)
+        or len(config_hash) != 64
+        or any(character not in "0123456789abcdef" for character in config_hash)
+    ):
+        return False
+    capture_config_identity = context.capture_identity.get("capture_config")
+    if not isinstance(capture_config_identity, Mapping):
+        return False
+    return (
+        capture_config_identity.get("sha256") == config_hash
+        and context.immutable_public_capture_evidence
+    )
+
+
+def _evaluate_builder_authoritative_run(
+    *,
+    contexts: Sequence[_RawDecisionContext],
+    primary: _SettingResult,
+    lock_index: _PreLabelLockIndex | None,
+    preregistration_sha256: str,
+    parameter_neighborhood: ParameterNeighborhoodEvidence | None,
+) -> tuple[V07LockedOOSEvaluation, Mapping[str, Any] | None]:
+    """Evaluate one builder run after revalidating its loaded evidence spine.
+
+    The supported authority boundary is the high-level builder CLI, which reads
+    capture roots and the pre-expiry journal before this function is reached.
+    This is an API-misuse guard, not cryptographic protection from arbitrary
+    local Python execution or source modification.
+    """
+
+    evaluation = evaluate_locked_oos_evidence(
+        forecasts=primary.forecasts,
+        economic_attempts=primary.attempts,
+        parameter_neighborhood=parameter_neighborhood,
+    )
+    if lock_index is None:
+        return evaluation, None
+    test_contexts = tuple(context for context in contexts if context.split == "test")
+    if not test_contexts:
+        return evaluation, None
+    generated_fixture_count = sum(
+        context.capture_config_evidence.get("generated_fixture") is True
+        for context in test_contexts
+    )
+    if generated_fixture_count:
+        return evaluation, None
+    strict_contexts = tuple(
+        context
+        for context in test_contexts
+        if _strict_context_capture_evidence(context)
+    )
+    if len(strict_contexts) != len(test_contexts):
+        return evaluation, None
+    if any(not row.lock_provenance.verified for row in primary.forecasts):
+        return evaluation, None
+    if any(not row.lock_provenance.verified for row in primary.attempts):
+        return evaluation, None
+    if any(
+        row.forecast_availability_basis
+        is not V07ForecastAvailabilityBasis.VERIFIED_IMMUTABLE_RECEIPT
+        or row.forecast_available_at_ms >= row.expiry_ms
+        or row.lock_provenance.prediction_received_at_ms
+        != row.forecast_available_at_ms
+        for row in primary.forecasts
+    ):
+        return evaluation, None
+    if any(
+        row.forecast_availability_basis
+        is not V07ForecastAvailabilityBasis.VERIFIED_IMMUTABLE_RECEIPT
+        or row.forecast_available_at_ms >= row.expiry_ms
+        or row.first_execution_not_before_ms != row.forecast_available_at_ms + 250
+        for row in primary.attempts
+    ):
+        return evaluation, None
+
+    contexts_by_pair_tau = {
+        (context.canonical_pair_id, context.decision_tau_seconds): context
+        for context in test_contexts
+    }
+    if len(contexts_by_pair_tau) != len(test_contexts):
+        raise ValueError("test contexts have duplicate pair/tau identities")
+    if len(primary.cycles) != len(test_contexts):
+        raise ValueError("not every test context produced a replay cycle")
+    attempt_identities = {row.identity for row in primary.attempts}
+    actionable_count = 0
+    for cycle in primary.cycles:
+        context = contexts_by_pair_tau.get(
+            (cycle.event_cluster_id, cycle.decision_tau_seconds)
+        )
+        if context is None:
+            raise ValueError("replay cycle has no matching verified test context")
+        if cycle.decision.action is PairAction.NO_TRADE:
+            if context.identity in attempt_identities:
+                raise ValueError("no-trade cycle unexpectedly has reconciliation row")
+            continue
+        actionable_count += 1
+        if context.identity not in attempt_identities:
+            raise ValueError("actionable cycle is missing reconciliation row")
+    if actionable_count != len(primary.attempts):
+        raise ValueError("reconciliation ledger does not match actionable cycles")
+
+    universe_hashes = {
+        row.lock_provenance.test_universe_sha256 for row in primary.forecasts
+    }
+    universe_hashes.update(
+        row.lock_provenance.test_universe_sha256 for row in primary.attempts
+    )
+    if universe_hashes != {lock_index.universe.test_universe_sha256}:
+        raise ValueError("builder rows do not bind to the verified test universe")
+
+    def hash_documents(documents: Sequence[Mapping[str, Any]]) -> str:
+        return hashlib.sha256(canonical_json_bytes(list(documents))).hexdigest()
+
+    forecast_documents = sorted(
+        (row.to_document() for row in primary.forecasts),
+        key=lambda item: (
+            item["expiry_ms"],
+            item["decision_tau_seconds"],
+            item["canonical_pair_id"],
+        ),
+    )
+    reconciliation_documents = sorted(
+        (row.to_document() for row in primary.attempts),
+        key=lambda item: item["attempt_id"],
+    )
+    neighborhood_document: Mapping[str, Any] = (
+        {"parameter_neighborhood": None}
+        if parameter_neighborhood is None
+        else parameter_neighborhood.to_document()
+    )
+    context_documents = [
+        {
+            "canonical_pair_id": context.canonical_pair_id,
+            "expiry_ms": context.expiry_ms,
+            "expiry_cluster_id": context.expiry_cluster_id,
+            "decision_tau_seconds": context.decision_tau_seconds,
+            "capture_config_evidence": _json_document(
+                context.capture_config_evidence
+            ),
+            "capture_identity": _json_document(context.capture_identity),
+        }
+        for context in sorted(test_contexts, key=lambda item: item.identity)
+    ]
+    cycle_reconciliation_document = {
+        "cycles": [
+            cycle.to_document()
+            for cycle in sorted(
+                primary.cycles,
+                key=lambda item: (
+                    item.event_cluster_id,
+                    item.decision_tau_seconds,
+                ),
+            )
+        ],
+        "reconciliations": reconciliation_documents,
+    }
+    verification_chain = {
+        "schema_version": "btc-5m-15m-v07-builder-verification-chain.v5",
+        "builder_id": "scripts.build_btc_twap_relative_value_v07_counterfactual",
+        "supported_entry_point": "build_counterfactual_report",
+        "source_baseline": SOURCE_BASELINE,
+        "preregistration_sha256": preregistration_sha256,
+        "capture_config_schema_version": CAPTURE_CONFIG_SCHEMA_VERSION,
+        "strict_capture_config_count": len(strict_contexts),
+        "generated_fixture_count": generated_fixture_count,
+        "immutable_capture_count": sum(
+            context.immutable_public_capture_evidence for context in test_contexts
+        ),
+        "test_context_count": len(test_contexts),
+        "forecast_count": len(primary.forecasts),
+        "reconciliation_count": len(primary.attempts),
+        "predictive_forecast_count": sum(
+            row.edge_basis is V07EdgeBasis.PREDICTIVE for row in primary.forecasts
+        ),
+        "structural_forecast_count": sum(
+            row.edge_basis is V07EdgeBasis.STRUCTURAL for row in primary.forecasts
+        ),
+        "non_edge_forecast_count": sum(
+            row.edge_basis is V07EdgeBasis.NONE for row in primary.forecasts
+        ),
+        "predictive_reconciliation_count": sum(
+            row.edge_basis is V07EdgeBasis.PREDICTIVE for row in primary.attempts
+        ),
+        "structural_reconciliation_count": sum(
+            row.edge_basis is V07EdgeBasis.STRUCTURAL for row in primary.attempts
+        ),
+        "structural_executable_positive_floor_reconciliation_count": sum(
+            row.edge_basis is V07EdgeBasis.STRUCTURAL
+            and row.structural_quantity_executable
+            and row.structural_net_floor_per_pair is not None
+            and row.structural_net_floor_per_pair > 0
+            and row.selected_guaranteed_total_pnl is not None
+            and row.selected_guaranteed_total_pnl > 0
+            for row in primary.attempts
+        ),
+        "preexpiry_prediction_receipt_count": len(primary.forecasts),
+        "receipt_timed_replay_count": len(primary.attempts),
+        "counterfactual_timing_count": 0,
+        "test_universe_sha256": lock_index.universe.test_universe_sha256,
+        "prelabel_lock_journal_identity_sha256": hashlib.sha256(
+            canonical_json_bytes(_json_document(lock_index.journal_identity))
+        ).hexdigest(),
+        "capture_config_and_tree_verification_sha256": hashlib.sha256(
+            canonical_json_bytes(context_documents)
+        ).hexdigest(),
+        "cycle_reconciliation_sha256": hashlib.sha256(
+            canonical_json_bytes(cycle_reconciliation_document)
+        ).hexdigest(),
+        "forecast_rows_sha256": hash_documents(forecast_documents),
+        "reconciliation_rows_sha256": hash_documents(reconciliation_documents),
+        "parameter_neighborhood_sha256": hashlib.sha256(
+            canonical_json_bytes(neighborhood_document)
+        ).hexdigest(),
+    }
+    verification_sha256 = hashlib.sha256(
+        canonical_json_bytes(verification_chain)
+    ).hexdigest()
+
+    predictive_rows = tuple(
+        row
+        for row in primary.attempts
+        if row.edge_basis is V07EdgeBasis.PREDICTIVE
+    )
+    structural_rows = tuple(
+        row
+        for row in primary.attempts
+        if row.edge_basis is V07EdgeBasis.STRUCTURAL
+    )
+
+    def complete_track(rows: Sequence[LockedOOSEconomicAttempt]) -> bool:
+        return bool(rows) and all(
+            row.complete_cost_evidence
+            and row.complete_execution_evidence
+            and row.complete_settlement_evidence
+            and row.immutable_public_capture_evidence
+            and (row.explainable if row.economic_attempt else row.causal_no_fill)
+            for row in rows
+        )
+
+    predictive_complete = complete_track(predictive_rows)
+    structural_complete = complete_track(structural_rows) and all(
+        row.structural_quantity_executable
+        and row.structural_net_floor_per_pair is not None
+        and row.structural_net_floor_per_pair > 0
+        and row.selected_guaranteed_total_pnl is not None
+        and row.selected_guaranteed_total_pnl > 0
+        and not row.probability_diagnostics_applicable
+        for row in structural_rows
+    )
+    complete_evidence = complete_track(primary.attempts)
+    diagnostic = evaluate_gate_mechanism_diagnostic(
+        forecasts=primary.forecasts,
+        economic_attempts=primary.attempts,
+        parameter_neighborhood=parameter_neighborhood,
+    )
+    predictive_true = (
+        diagnostic.mathematical_predictive_gate_conditions_satisfied
+        and predictive_complete
+    )
+    structural_true = (
+        diagnostic.mathematical_structural_gate_conditions_satisfied
+        and structural_complete
+    )
+    true_edge = predictive_true or structural_true
+    predictive_qualified = (
+        evaluation.predictive_net_pnl if predictive_true else None
+    )
+    structural_qualified = (
+        evaluation.structural_net_pnl if structural_true else None
+    )
+    qualified_values = tuple(
+        value
+        for value in (predictive_qualified, structural_qualified)
+        if value is not None
+    )
+    qualified_net_pnl = (
+        sum(qualified_values, Decimal("0")) if qualified_values else None
+    )
+    if true_edge:
+        status = V07EvidenceStatus.TRUE_EDGE_GATE_SATISFIED
+    elif not (
+        diagnostic.sample_gate_passed
+        or diagnostic.structural_sample_gate_passed
+    ):
+        status = V07EvidenceStatus.INSUFFICIENT_DATA
+    elif not (
+        evaluation.predictive_diagnostic_positive_sample_pnl
+        or evaluation.structural_diagnostic_positive_sample_pnl
+    ):
+        status = V07EvidenceStatus.NOT_PROFITABLE
+    else:
+        status = V07EvidenceStatus.POSITIVE_BUT_NOT_TRUE_EDGE
+
+    removed_reasons = {
+        "positive_sample_pnl_is_diagnostic_without_builder_verification",
+        "builder_verified_evidence_chain_missing",
+        "auditable_prelabel_manifest_prediction_decision_lock_missing",
+    }
+    if predictive_complete:
+        removed_reasons.add("cost_execution_or_settlement_evidence_incomplete")
+    if structural_complete:
+        removed_reasons.add(
+            "structural_cost_execution_or_settlement_evidence_incomplete"
+        )
+    reason_codes = tuple(
+        reason for reason in evaluation.reason_codes if reason not in removed_reasons
+    )
+    evaluation = replace(
+        evaluation,
+        status=status,
+        qualified_net_pnl=qualified_net_pnl,
+        predictive_qualified_net_pnl=predictive_qualified,
+        predictive_true_edge_gate_satisfied=predictive_true,
+        structural_qualified_net_pnl=structural_qualified,
+        structural_true_edge_gate_satisfied=structural_true,
+        positive_net_pnl_user_check_passed=true_edge,
+        true_edge_gate_satisfied=true_edge,
+        auditable_prelabel_lock_evidence=True,
+        builder_verified_evidence_chain=True,
+        builder_verification_sha256=verification_sha256,
+        complete_cost_and_execution_evidence=complete_evidence,
+        predictive_complete_cost_and_execution_evidence=predictive_complete,
+        structural_complete_cost_and_execution_evidence=structural_complete,
+        reason_codes=reason_codes,
+    )
+    authority_document = MappingProxyType(
+        {
+            "schema_version": (
+                "btc-5m-15m-v07-builder-authoritative-evidence.v5"
+            ),
+            "supported_entry_point": "build_counterfactual_report",
+            "verification_chain_sha256": verification_sha256,
+            "verification_chain": verification_chain,
+            "trust_model": "api_misuse_guard_not_cryptographic_provenance",
+            "external_signature_or_third_party_timestamp_present": False,
+            "adversarial_provenance_claimed": False,
+            "arbitrary_local_code_execution_out_of_scope": True,
+            "residual_threat": (
+                "an actor with arbitrary local Python execution or source-modification "
+                "authority can invoke or alter private internals and synthesize an "
+                "authority-shaped result"
+            ),
+        }
+    )
+    return evaluation, authority_document
 
 
 def build_counterfactual_report(
@@ -2365,15 +3263,22 @@ def build_counterfactual_report(
         candidate_weights=candidate_weights,
         sensitivity=sensitivity,
     )
-    neighborhood = ParameterNeighborhoodEvidence(
-        net_pnl_by_setting={
-            setting.setting_id: setting.net_pnl for setting in neighbors
-        },
-        required_setting_ids=tuple(setting.setting_id for setting in neighbors),
+    neighborhood = (
+        None
+        if not neighbors
+        else ParameterNeighborhoodEvidence(
+            net_pnl_by_setting={
+                setting.setting_id: setting.predictive_net_pnl for setting in neighbors
+            },
+            required_setting_ids=tuple(setting.setting_id for setting in neighbors),
+        )
     )
-    evaluation = evaluate_locked_oos_evidence(
-        forecasts=primary.forecasts,
-        economic_attempts=primary.attempts,
+    preregistration_sha256 = _sha256(preregistration_path)
+    evaluation, builder_authority = _evaluate_builder_authoritative_run(
+        contexts=contexts,
+        primary=primary,
+        lock_index=lock_index,
+        preregistration_sha256=preregistration_sha256,
         parameter_neighborhood=neighborhood,
     )
     context_documents = [
@@ -2391,10 +3296,22 @@ def build_counterfactual_report(
             "strike_15": str(context.settlement_state.strike_15),
             "actual_5_up": context.actual_5_up,
             "actual_15_up": context.actual_15_up,
-            "market_q_5_up": str(context.market_q_5_up),
-            "market_q_15_up": str(context.market_q_15_up),
-            "raw_top_ask_q_5_up_diagnostic": str(context.raw_top_ask_q_5_up),
-            "raw_top_ask_q_15_up_diagnostic": str(context.raw_top_ask_q_15_up),
+            "market_q_5_up": (
+                None if context.market_q_5_up is None else str(context.market_q_5_up)
+            ),
+            "market_q_15_up": (
+                None if context.market_q_15_up is None else str(context.market_q_15_up)
+            ),
+            "raw_top_ask_q_5_up_diagnostic": (
+                None
+                if context.raw_top_ask_q_5_up is None
+                else str(context.raw_top_ask_q_5_up)
+            ),
+            "raw_top_ask_q_15_up_diagnostic": (
+                None
+                if context.raw_top_ask_q_15_up is None
+                else str(context.raw_top_ask_q_15_up)
+            ),
             "opening_source_event_ids": dict(context.opening_source_event_ids),
             "closing_source_event_id": context.closing_source_event_id,
             "resolution_source_event_ids": dict(context.resolution_source_event_ids),
@@ -2402,10 +3319,21 @@ def build_counterfactual_report(
             "immutable_public_capture_evidence": (
                 context.immutable_public_capture_evidence
             ),
+            "capture_config_evidence": _json_document(context.capture_config_evidence),
             "clock_uncertainty_ms": context.clock_uncertainty_ms,
             "capture_identity": _json_document(context.capture_identity),
             "rules_and_fees": _json_document(context.rules_and_fees),
-            "simulation": primary.simulations[context.identity].to_document(),
+            "simulation": (
+                None
+                if primary.simulations.get(context.identity) is None
+                else primary.simulations[context.identity].to_document()
+            ),
+            "simulation_status": (
+                "not_required_or_unavailable_after_structural_scan"
+                if primary.simulations.get(context.identity) is None
+                else "available_predictive_diagnostic"
+            ),
+            "predictive_simulation_required_for_structural_decision": False,
         }
         for context in sorted(
             contexts,
@@ -2427,8 +3355,12 @@ def build_counterfactual_report(
         "preregistration": {
             "path": preregistration_path.name,
             "sha256": _sha256(preregistration_path),
+            "drafted_at": preregistration["drafted_at"],
+            "draft_context": _json_document(preregistration["draft_context"]),
             "draft_only": True,
             "deployment_claimed": False,
+            "postdates_known_48_attempt_v06_shadow_result": True,
+            "provides_ex_ante_qualification_for_known_v06_results": False,
         },
         "settlement_model_id": SETTLEMENT_MODEL_ID,
         "model_version": MODEL_VERSION,
@@ -2449,6 +3381,62 @@ def build_counterfactual_report(
             "manifest_expiry_field_accepted": False,
             "manifest_event_cluster_id_is_alias_only": True,
         },
+        "qualification_authority": {
+            "public_evaluator_can_grant_qualification": False,
+            "supported_authority_entry_point": "build_counterfactual_report",
+            "builder_authoritative_revalidation_required": True,
+            "generic_caller_rows_plus_chain_issuer_distributed": False,
+            "caller_rows_hashes_timestamps_and_evidence_flags_are_authority": False,
+            "generated_fixture_builder_authority_allowed": False,
+            "trust_model": "api_misuse_guard_not_cryptographic_provenance",
+            "external_signature_or_third_party_timestamp_present": False,
+            "adversarial_provenance_claimed": False,
+            "arbitrary_local_code_execution_out_of_scope": True,
+            "residual_threat": (
+                "arbitrary local Python execution or source modification can "
+                "invoke or alter private internals and synthesize an "
+                "authority-shaped result"
+            ),
+        },
+        "timing_policy": {
+            "forecast_available_at_ms_verified_source": (
+                "immutable_prediction_receipt_received_at_ms"
+            ),
+            "verified_receipt_strictly_before_common_expiry": True,
+            "first_execution_eligibility": (
+                "forecast_available_at_ms_plus_captured_taker_delay_ms"
+            ),
+            "counterfactual_computation_availability_delay_ms": (
+                strategy.counterfactual_computation_availability_delay_ms
+            ),
+            "counterfactual_delay_is_measured_production_runtime": False,
+            "counterfactual_timing_role": "paper_replay_timing_diagnostic_only",
+            "effective_signal_to_execution_latency_serialized": True,
+        },
+        "edge_basis_policy": {
+            "common_safety_checks_precede_all_candidates": True,
+            "structural_evaluated_before_predictive_readiness": True,
+            "structural_depends_on_predictive_veto": False,
+            "structural_floor_uses_feasible_shared_terminal_states": True,
+            "full_decision_quantity_depth_and_dynamic_fees_required": True,
+            "structural_requires_two_executable_legs_and_positive_floor": True,
+            "predictive_and_structural_evidence_separate": True,
+            "predictive_qualification_excludes_structural_rows": True,
+            "quantity_is_optimized_not_budget_filled": True,
+            "structural_quantity_objective": (
+                "maximum_guaranteed_total_pnl_over_joint_depth_breakpoints"
+            ),
+            "predictive_quantity_objective": (
+                "maximum_uncertainty_adjusted_total_pnl_over_joint_depth_breakpoints"
+            ),
+            "stable_quantity_tie_break": (
+                "higher_per_pair_edge_then_lower_quantity_then_action_id"
+            ),
+            "structural_scan_requires_monte_carlo": False,
+            "structural_true_edge_gate_implemented": True,
+            "structural_gate_requires_real_execution_and_realized_pnl": True,
+            "structural_gate_requires_brier_ece_or_model_neighborhood": False,
+        },
         "prelabel_lock": {
             "journal_supplied": lock_index is not None,
             "counterfactual_when_absent": True,
@@ -2463,6 +3451,15 @@ def build_counterfactual_report(
             "test_universe_sha256": (
                 None if lock_index is None else lock_index.universe.test_universe_sha256
             ),
+            "builder_verified_evidence": (
+                None
+                if builder_authority is None
+                else _json_document(builder_authority)
+            ),
+            "caller_supplied_evidence_flags_are_not_authority": True,
+            "trust_model": "api_misuse_guard_not_cryptographic_provenance",
+            "arbitrary_local_code_execution_out_of_scope": True,
+            "adversarial_provenance_claimed": False,
         },
         "primary": _setting_document(primary, include_cycles=True),
         "sensitivity": {
@@ -2479,7 +3476,9 @@ def build_counterfactual_report(
                 _setting_document(setting, include_cycles=True) for setting in neighbors
             ],
         },
-        "parameter_neighborhood": neighborhood.to_document(),
+        "parameter_neighborhood": (
+            None if neighborhood is None else neighborhood.to_document()
+        ),
         "evaluation": evaluation.to_document(),
         "contexts": context_documents,
         "safety": {
@@ -2494,6 +3493,15 @@ def build_counterfactual_report(
         "limitations": [
             "Generated fixtures prove invariants only and never satisfy "
             "economic gates.",
+            "The public evaluator cannot grant qualification from caller-created "
+            "rows, receipt-looking strings, or self-reported evidence booleans.",
+            "Structural-floor and predictive PnL are reported and gated separately; "
+            "the structural gate still requires 100 real common-expiry attempts, "
+            "positive realized PnL, bootstrap, concentration, and complete evidence.",
+            "This v6 draft was created after the known 48-attempt v0.6 shadow "
+            "result and cannot provide ex-ante qualification for those outcomes.",
+            "Counterfactual computation availability uses a preregistered 5000ms "
+            "paper timing assumption, not measured production runtime validation.",
             "A positive shadow or counterfactual sample is not production validation.",
             "Qualified net PnL remains null until every cluster-level gate passes.",
         ],

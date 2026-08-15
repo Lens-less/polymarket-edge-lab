@@ -11,11 +11,11 @@ from pathlib import Path
 
 import pytest
 
+from src.edge_lab import data_store as data_store_module
 from src.edge_lab.data_store import (
     BatchFinalizedError,
     CaptureStore,
     CriticalFloatError,
-    _can_reuse_integrity_validation,
     canonical_event_fingerprint,
     canonical_json_bytes,
     canonical_record_id,
@@ -442,10 +442,8 @@ def test_repeated_integrity_audit_revalidates_only_new_clean_pairs(
         "checksum_mismatches": [],
         "invalid_manifests": [],
     }
-    if _can_reuse_integrity_validation():
-        assert raw_reads == {old_writer.path: 0, new_writer.path: 1}
-    else:
-        assert raw_reads == {old_writer.path: 1, new_writer.path: 1}
+    old_expected_reads = 0 if hasattr(old_writer.path.stat(), "st_rdev") else 1
+    assert raw_reads == {old_writer.path: old_expected_reads, new_writer.path: 1}
 
 
 def test_cached_integrity_audit_invalidates_same_size_raw_tamper(
@@ -522,6 +520,129 @@ def test_cached_integrity_audit_invalidates_same_size_manifest_tamper(
     assert report["invalid_manifests"][0]["manifest_path"] == (
         "raw/clob_market_ws/cached-manifest.manifest.json"
     )
+
+
+def test_integrity_pair_token_preserves_posix_metadata_bytes(
+    tmp_path: Path,
+) -> None:
+    store = CaptureStore(tmp_path)
+    writer = store.open_raw_batch(
+        source="clob_market_ws",
+        batch_id="posix-token",
+        schema_version="clob.book.v1",
+    )
+    writer.append(
+        received_at="2026-07-24T08:00:00Z",
+        event_at="2026-07-24T08:00:00Z",
+        sequence=1,
+        payload={"asset_id": "yes", "price": Decimal("0.42")},
+    )
+    writer.finalize(finalized_at="2026-07-24T08:01:00Z")
+
+    metadata = writer.path.stat()
+    if not all(
+        hasattr(metadata, field)
+        for field in data_store_module._INTEGRITY_TOKEN_STAT_FIELDS
+    ):
+        pytest.skip("platform does not expose the complete POSIX stat token")
+
+    expected = hashlib.sha256()
+    for path in (writer.manifest_path, writer.path):
+        encoded_path = os.fsencode(path)
+        expected.update(len(encoded_path).to_bytes(8, "big"))
+        expected.update(encoded_path)
+        for stat_result in (path.lstat(), path.stat()):
+            for field in data_store_module._INTEGRITY_TOKEN_STAT_FIELDS:
+                expected.update(
+                    int(getattr(stat_result, field)).to_bytes(
+                        16,
+                        "big",
+                        signed=True,
+                    )
+                )
+
+    assert data_store_module._integrity_pair_token(
+        writer.manifest_path,
+        writer.path,
+    ) == expected.digest()
+
+
+def test_integrity_audit_revalidates_when_stat_token_is_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = CaptureStore(tmp_path)
+    writer = store.open_raw_batch(
+        source="clob_market_ws",
+        batch_id="portable-token",
+        schema_version="clob.book.v1",
+    )
+    writer.append(
+        received_at="2026-07-24T08:00:00Z",
+        event_at="2026-07-24T08:00:00Z",
+        sequence=1,
+        payload={"asset_id": "yes", "price": Decimal("0.42")},
+    )
+    writer.finalize(finalized_at="2026-07-24T08:01:00Z")
+    original_raw = writer.path.read_bytes()
+
+    real_stat = Path.stat
+    real_lstat = Path.lstat
+
+    class StatWithoutRdev:
+        def __init__(self, result: os.stat_result) -> None:
+            self._result = result
+
+        def __getattr__(self, name: str) -> object:
+            if name == "st_rdev":
+                raise AttributeError(name)
+            return getattr(self._result, name)
+
+    def stat_without_rdev(
+        path: Path,
+        *args: object,
+        **kwargs: object,
+    ) -> StatWithoutRdev:
+        return StatWithoutRdev(real_stat(path, *args, **kwargs))
+
+    def lstat_without_rdev(
+        path: Path,
+        *args: object,
+        **kwargs: object,
+    ) -> StatWithoutRdev:
+        return StatWithoutRdev(real_lstat(path, *args, **kwargs))
+
+    hash_reads: list[Path] = []
+    real_sha256_path = data_store_module._sha256_path
+
+    def tracking_sha256_path(path: Path) -> str:
+        hash_reads.append(path)
+        return real_sha256_path(path)
+
+    monkeypatch.setattr(Path, "stat", stat_without_rdev)
+    monkeypatch.setattr(Path, "lstat", lstat_without_rdev)
+    monkeypatch.setattr(data_store_module, "_sha256_path", tracking_sha256_path)
+
+    assert data_store_module._integrity_pair_token(
+        writer.manifest_path,
+        writer.path,
+    ) is None
+    assert store.audit_integrity()["checksum_mismatches"] == []
+    assert store.audit_integrity()["checksum_mismatches"] == []
+    assert hash_reads == [writer.path, writer.path]
+    assert store._verified_integrity_pairs == set()
+
+    tampered = original_raw.replace(b'"yes"', b'"no!"', 1)
+    assert len(tampered) == len(original_raw)
+    writer.path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+    writer.path.write_bytes(tampered)
+
+    report = store.audit_integrity()
+    assert len(report["checksum_mismatches"]) == 1
+    assert report["checksum_mismatches"][0]["raw_path"] == (
+        "raw/clob_market_ws/portable-token.jsonl"
+    )
+    assert hash_reads == [writer.path, writer.path, writer.path]
 
 
 def test_path_components_cannot_escape_store(tmp_path: Path) -> None:
