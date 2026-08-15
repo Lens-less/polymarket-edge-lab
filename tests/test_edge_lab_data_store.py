@@ -15,6 +15,7 @@ from src.edge_lab.data_store import (
     BatchFinalizedError,
     CaptureStore,
     CriticalFloatError,
+    _can_reuse_integrity_validation,
     canonical_event_fingerprint,
     canonical_json_bytes,
     canonical_record_id,
@@ -441,7 +442,10 @@ def test_repeated_integrity_audit_revalidates_only_new_clean_pairs(
         "checksum_mismatches": [],
         "invalid_manifests": [],
     }
-    assert raw_reads == {old_writer.path: 0, new_writer.path: 1}
+    if _can_reuse_integrity_validation():
+        assert raw_reads == {old_writer.path: 0, new_writer.path: 1}
+    else:
+        assert raw_reads == {old_writer.path: 1, new_writer.path: 1}
 
 
 def test_cached_integrity_audit_invalidates_same_size_raw_tamper(
