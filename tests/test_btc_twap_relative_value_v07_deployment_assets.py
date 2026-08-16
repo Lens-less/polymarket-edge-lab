@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -169,6 +170,14 @@ def test_v07_health_service_timer_and_script_are_read_only() -> None:
     assert "disk_below_minimum" in script_text
     assert "mode_mismatch" in script_text
     assert "orders_submitted_nonzero" in script_text
+    assert "authenticated_endpoints_used_nonzero" in script_text
+    assert "shadow_validate_failed" in script_text
+    assert "status_phase_unhealthy" in script_text
+    assert "qualified_pnl_must_be_null" in script_text
+    assert "true_edge_guard_invalid" in script_text
+    assert "positive_100_trade_guard_invalid" in script_text
+    assert "prelabel_guard_invalid" in script_text
+    assert "heartbeat_age_seconds < -60" in script_text
     assert "status_stale" in script_text
     assert "mv -f \"${TMP_PATH}\" \"${OUTPUT_PATH}\"" in script_text
     assert "cp \"${OUTPUT_PATH}\" \"${HISTORY_TMP}\"" in script_text
@@ -191,14 +200,18 @@ def test_v07_bootstrap_uses_release_markers_reflink_probe_and_manual_start() -> 
         'IMPLEMENTATION_REVISION_PATH="${INSTALL_ROOT}/.implementation-revision"'
         in bootstrap_text
     )
-    assert "checkout --detach" in bootstrap_text
+    assert "checkout -f --detach" in bootstrap_text
+    assert 'git -C "${INSTALL_ROOT}" clean -ffdx' in bootstrap_text
+    assert "status --porcelain=v1 --untracked-files=all" in bootstrap_text
     assert "--shell /sbin/nologin" in bootstrap_text
     assert (
         "preregistration source_baseline must be a 40-character commit"
         in bootstrap_text
     )
     assert "merge-base --is-ancestor" in bootstrap_text
-    assert "verified source archive" in bootstrap_text
+    assert "release-marker-only archives are forbidden" in bootstrap_text
+    assert 'stat -f -c %T "${xfs_path}"' in bootstrap_text
+    assert '!= "xfs"' in bootstrap_text
     assert "cp --reflink=always" in bootstrap_text
     assert "distinct inode" in bootstrap_text
     assert "systemctl daemon-reload" in bootstrap_text
@@ -217,3 +230,56 @@ def test_v07_bootstrap_uses_release_markers_reflink_probe_and_manual_start() -> 
     assert "future-only v0.7 counterfactual shadow track" in readme_text
     assert "never submits orders" in readme_text
     assert "does not prove true edge or real trading profitability" in readme_text
+
+
+def test_release_checkout_commands_remove_dirty_and_untracked_state(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "config", "user.email", "review@example.invalid"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo), "config", "user.name", "Deployment Review"],
+        check=True,
+    )
+    tracked = repo / "tracked.txt"
+    tracked.write_text("committed\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "tracked.txt"], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-qm", "baseline"], check=True)
+    revision = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    tracked.write_text("dirty\n", encoding="utf-8")
+    (repo / "untracked.py").write_text("print('stale')\n", encoding="utf-8")
+
+    subprocess.run(
+        ["git", "-C", str(repo), "checkout", "-f", "--detach", revision],
+        check=True,
+    )
+    subprocess.run(["git", "-C", str(repo), "clean", "-ffdx"], check=True)
+
+    assert tracked.read_text(encoding="utf-8") == "committed\n"
+    assert not (repo / "untracked.py").exists()
+    assert (
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo),
+                "status",
+                "--porcelain=v1",
+                "--untracked-files=all",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        == ""
+    )

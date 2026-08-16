@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 from datetime import datetime, timezone
@@ -48,7 +49,7 @@ def _target(expiry_ms: int, horizon: str) -> dict[str, Any]:
         },
         "taker_delay_ms": 250,
         "accepting_orders": True,
-        "rule_hash": f"{suffix}" * 64,
+        "rule_hash": ("5" if horizon == "5m" else "f") * 64,
     }
 
 
@@ -66,13 +67,28 @@ def _source_config(
     return {
         "schema_version": "edge-lab-forward-capture-config.v1",
         "data_root": str(root),
-        "asset_ids": [targets[0]["up_token_id"], targets[1]["up_token_id"]],
+        "asset_ids": [
+            targets[0]["up_token_id"],
+            targets[0]["down_token_id"],
+            targets[1]["up_token_id"],
+            targets[1]["down_token_id"],
+        ],
         "condition_ids": [targets[0]["condition_id"], targets[1]["condition_id"]],
         "rule_market_ids": [targets[0]["market_id"], targets[1]["market_id"]],
         "rtds_subscriptions": [
-            {"topic": "crypto_prices_twap_sixty", "payload": {"symbol": "btc/usd"}}
+            {"topic": "crypto_prices", "type": "update"},
+            {
+                "topic": "crypto_prices_twap_thirty",
+                "type": "update",
+                "filters": '{"symbol":"btc/usd"}',
+            },
+            {
+                "topic": "crypto_prices_twap_sixty",
+                "type": "update",
+                "filters": '{"symbol":"btc/usd"}',
+            },
         ],
-        "snapshot_intervals": {"gamma_markets": 60.0},
+        "snapshot_intervals": {"gamma": 30.0, "clob": 5.0, "rules": 30.0},
         "targets": targets,
         "clock_sync": {"offset_ms": 0},
         "capture_started_at_ms": capture_started_at_ms,
@@ -82,25 +98,14 @@ def _source_config(
 
 
 def _summary(
+    root: Path,
     expiry_ms: int,
     *,
     failed: bool = False,
     integrity_issue: bool = False,
     resolved: bool = True,
 ) -> dict[str, Any]:
-    targets = [_target(expiry_ms, "5m"), _target(expiry_ms, "15m")]
-    latest_rules: dict[str, Any] = {}
-    for target in targets:
-        latest_rules[target["market_id"]] = {
-            "resolution_event": (
-                {
-                    "condition_id": target["condition_id"],
-                    "winning_outcome": "Up",
-                }
-                if resolved
-                else None
-            )
-        }
+    del resolved  # Compact V6 summaries do not carry settlement detail.
     integrity = {
         "checksum_mismatches": [],
         "invalid_manifests": [],
@@ -109,13 +114,30 @@ def _summary(
         "raw_without_manifest": [],
     }
     if integrity_issue:
-        integrity["checksum_mismatches"] = ["bad"]
+        integrity["checksum_mismatches"] = [{"raw_path": "raw/bad.jsonl"}]
     return {
         "schema_version": "btc-twap-compact-forward-capture-summary.v1",
-        "capture_error": None if not failed else {"error_code": "capture_failed"},
+        "generated_at": datetime.fromtimestamp(
+            (expiry_ms + 360_000) / 1_000, timezone.utc
+        )
+        .isoformat()
+        .replace("+00:00", "Z"),
+        "data_root": str(root),
+        "duration_seconds": "900",
+        "target_count": 2,
+        "asset_count": 4,
+        "recorder_leg_count": 2,
+        "recorder_leg_failures": [],
+        "websocket_redundancy": {"clob_market_ws": 2, "rtds_ws": 2},
+        "manifest_count": 1,
+        "manifest_record_count": 1,
         "integrity": integrity,
-        "latest_rules": latest_rules,
-        "observed": {"officially_resolved_markets": 2 if resolved else 1},
+        "paper_only": True,
+        "public_only": True,
+        "new_orders_disabled": True,
+        "authenticated_endpoints_used": 0,
+        "orders_submitted": 0,
+        "capture_error": None if not failed else {"error_code": "capture_failed"},
     }
 
 
@@ -135,19 +157,32 @@ def _make_source_attempt(
         root / "capture-config.json",
         _source_config(root, expiry_ms, capture_started_at_ms),
     )
+    raw_dir = root / "raw" / "clob_market_ws"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    (root / "derived").mkdir(parents=True, exist_ok=True)
+    (root / "checkpoints").mkdir(parents=True, exist_ok=True)
+    raw_path = raw_dir / "events.jsonl"
+    raw_path.write_text('{"event":"ok"}\n', encoding="utf-8")
+    _write_json(
+        raw_dir / "events.manifest.json",
+        {
+            "checksum": {
+                "algorithm": "sha256",
+                "value": hashlib.sha256(raw_path.read_bytes()).hexdigest(),
+            }
+        },
+    )
+    (root / "notes.txt").write_text("shadow source\n", encoding="utf-8")
     _write_json(
         root / "capture-summary.json",
         _summary(
+            root,
             expiry_ms,
             failed=failed,
             integrity_issue=integrity_issue,
             resolved=resolved,
         ),
     )
-    raw_dir = root / "raw" / "clob_market_ws"
-    raw_dir.mkdir(parents=True, exist_ok=True)
-    (raw_dir / "events.jsonl").write_text('{"event":"ok"}\n', encoding="utf-8")
-    (root / "notes.txt").write_text("shadow source\n", encoding="utf-8")
     return root
 
 
@@ -166,20 +201,22 @@ def _service_config_path(tmp_path: Path) -> Path:
     cutoff_iso = "2026-08-16T15:00:00Z"
     deployment_spec_path = tmp_path / "DEPLOYMENT_SPEC.md"
     deployment_spec_path.write_text("test deployment spec\n", encoding="utf-8")
-    _write_json(
-        source_runs_root.parent / "service" / "status.json",
-        {
-            "schema_version": "btc-twap-relative-value-service-status.v1",
-            "heartbeat_at": datetime.now(timezone.utc)
-            .isoformat()
-            .replace("+00:00", "Z"),
-            "paper_only": True,
-            "public_only": True,
-            "new_orders_disabled": True,
-            "orders_submitted": 0,
-            "authenticated_endpoints_used": 0,
-        },
-    )
+    source_status = {
+        "schema_version": "btc-twap-relative-value-service-status.v1",
+        "phase": "cycle_complete",
+        "heartbeat_at": datetime.now(timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z"),
+        "paper_only": True,
+        "public_only": True,
+        "new_orders_disabled": True,
+        "orders_submitted": 0,
+        "authenticated_endpoints_used": 0,
+    }
+    source_status["status_sha256"] = hashlib.sha256(
+        canonical_json_bytes(source_status)
+    ).hexdigest()
+    _write_json(source_runs_root.parent / "service" / "status.json", source_status)
     config_path = tmp_path / "SERVICE_CONFIG.json"
     _write_json(
         config_path,
@@ -312,6 +349,10 @@ def test_source_status_safety_guards_fail_closed(
     config = shadow_module.load_shadow_config(_service_config_path(tmp_path))
     status = _load_json(config.source_status_path)
     status[field] = value
+    status.pop("status_sha256")
+    status["status_sha256"] = hashlib.sha256(
+        canonical_json_bytes(status)
+    ).hexdigest()
     _write_json(config.source_status_path, status)
     monkeypatch.setattr(shadow_module, "_ensure_reflink_available", lambda: None)
 
@@ -325,6 +366,10 @@ def test_source_status_staleness_fails_closed(
     config = shadow_module.load_shadow_config(_service_config_path(tmp_path))
     status = _load_json(config.source_status_path)
     status["heartbeat_at"] = "2026-08-01T00:00:00Z"
+    status.pop("status_sha256")
+    status["status_sha256"] = hashlib.sha256(
+        canonical_json_bytes(status)
+    ).hexdigest()
     _write_json(config.source_status_path, status)
     monkeypatch.setattr(shadow_module, "_ensure_reflink_available", lambda: None)
 
@@ -352,13 +397,13 @@ def test_cutoff_and_latest_success_per_expiry_are_selected(
         source_runs_root,
         expiry_ms=kept_expiry,
         attempt_name="earlier-good",
-        capture_started_at_ms=1_786_896_050_000,
+        capture_started_at_ms=kept_expiry - 960_000,
     )
     _make_source_attempt(
         source_runs_root,
         expiry_ms=kept_expiry,
         attempt_name="latest-good",
-        capture_started_at_ms=1_786_896_060_000,
+        capture_started_at_ms=kept_expiry - 950_000,
     )
     _make_source_attempt(
         source_runs_root,
@@ -455,7 +500,7 @@ def test_projection_creates_independent_snapshot_and_preserves_source(
         config.source_runs_root,
         expiry_ms=1_800_000_000_000,
         attempt_name="attempt-a",
-        capture_started_at_ms=1_800_000_100_000,
+        capture_started_at_ms=1_800_000_000_000 - 960_000,
     )
     monkeypatch.setattr(
         shadow_module,
@@ -496,13 +541,18 @@ def test_three_cases_call_builder_and_write_status(
 ) -> None:
     config_path = _service_config_path(tmp_path)
     config = shadow_module.load_shadow_config(config_path)
-    expiries = [1_800_000_000_000, 1_800_003_600_000, 1_800_007_200_000]
+    expiries = [
+        1_800_000_000_000,
+        1_800_003_600_000,
+        1_800_007_200_000,
+        1_800_010_800_000,
+    ]
     for index, expiry_ms in enumerate(expiries):
         _make_source_attempt(
             config.source_runs_root,
             expiry_ms=expiry_ms,
             attempt_name=f"attempt-{index}",
-            capture_started_at_ms=expiry_ms + 1_000,
+            capture_started_at_ms=expiry_ms - 540_000,
         )
 
     seen: dict[str, Any] = {}
@@ -550,9 +600,15 @@ def test_three_cases_call_builder_and_write_status(
         "validation",
         "test",
     ]
+    assert manifest["cases"][0]["capture_root"].endswith("attempt-1")
+    assert len(manifest["cases"][0]["history_roots"]) == 1
+    assert manifest["cases"][0]["history_roots"][0].endswith("attempt-0")
+    assert all(len(case["history_roots"]) <= 1 for case in manifest["cases"])
+    assert manifest["cases"][1]["history_roots"][0].endswith("attempt-1")
+    assert manifest["cases"][2]["history_roots"][0].endswith("attempt-2")
     status = _load_json(config.status_path)
     assert status["evaluation_status"] == "counterfactual_insufficient"
-    assert status["builder_evaluation_status"] == "true_edge_gate_satisfied"
+    assert status["builder_evaluation_status"] == "suppressed_no_prelabel_journal"
     assert status["true_edge_gate"] is False
     assert status["qualified_net_pnl"] is None
     assert status["live_execution"] is False
@@ -571,13 +627,18 @@ def test_repeat_runs_are_idempotent(
     config_path = _service_config_path(tmp_path)
     config = shadow_module.load_shadow_config(config_path)
     for index, expiry_ms in enumerate(
-        [1_800_000_000_000, 1_800_003_600_000, 1_800_007_200_000]
+        [
+            1_800_000_000_000,
+            1_800_003_600_000,
+            1_800_007_200_000,
+            1_800_010_800_000,
+        ]
     ):
         _make_source_attempt(
             config.source_runs_root,
             expiry_ms=expiry_ms,
             attempt_name=f"attempt-{index}",
-            capture_started_at_ms=expiry_ms + 2_000,
+            capture_started_at_ms=expiry_ms - 540_000,
         )
     monkeypatch.setattr(
         shadow_module,
@@ -620,7 +681,7 @@ def test_symlink_rejection_writes_safe_failure_status(
         config.source_runs_root,
         expiry_ms=1_800_000_000_000,
         attempt_name="attempt-a",
-        capture_started_at_ms=1_800_000_100_000,
+        capture_started_at_ms=1_800_000_000_000 - 960_000,
     )
     outside = tmp_path / "outside.txt"
     outside.write_text("outside\n", encoding="utf-8")
@@ -636,3 +697,140 @@ def test_symlink_rejection_writes_safe_failure_status(
         "error_type": "ValueError",
         "error_code": "v07_shadow_refresh_failed",
     }
+
+
+def test_source_status_hash_corruption_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = shadow_module.load_shadow_config(_service_config_path(tmp_path))
+    status = _load_json(config.source_status_path)
+    status["paper_only"] = False
+    _write_json(config.source_status_path, status)
+    monkeypatch.setattr(shadow_module, "_ensure_reflink_available", lambda: None)
+
+    with pytest.raises(ValueError, match="status hash is invalid"):
+        shadow_module._validate_runtime_inputs(config, validate_only=True)
+
+
+def test_source_status_unhealthy_phase_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = shadow_module.load_shadow_config(_service_config_path(tmp_path))
+    status = _load_json(config.source_status_path)
+    status["phase"] = "stopped"
+    status.pop("status_sha256")
+    status["status_sha256"] = hashlib.sha256(
+        canonical_json_bytes(status)
+    ).hexdigest()
+    _write_json(config.source_status_path, status)
+    monkeypatch.setattr(shadow_module, "_ensure_reflink_available", lambda: None)
+
+    with pytest.raises(ValueError, match="phase is unhealthy"):
+        shadow_module._validate_runtime_inputs(config, validate_only=True)
+
+
+def test_claimed_clean_summary_cannot_hide_missing_raw_manifest(
+    tmp_path: Path,
+    fake_copy: list[tuple[Path, Path]],
+) -> None:
+    config_path = _service_config_path(tmp_path)
+    config = shadow_module.load_shadow_config(config_path)
+    expiry_ms = 1_800_000_000_000
+    source_root = _make_source_attempt(
+        config.source_runs_root,
+        expiry_ms=expiry_ms,
+        attempt_name="attempt-a",
+        capture_started_at_ms=expiry_ms - 960_000,
+    )
+    (source_root / "raw" / "clob_market_ws" / "events.manifest.json").unlink()
+
+    exit_code = shadow_module.main(["--config", str(config_path)])
+
+    assert exit_code == 1
+    assert _load_json(config.status_path)["phase"] == "failed"
+    assert fake_copy == []
+
+
+def test_source_mutation_during_projection_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = shadow_module.load_shadow_config(_service_config_path(tmp_path))
+    expiry_ms = 1_800_000_000_000
+    source_root = _make_source_attempt(
+        config.source_runs_root,
+        expiry_ms=expiry_ms,
+        attempt_name="attempt-a",
+        capture_started_at_ms=expiry_ms - 960_000,
+    )
+    monkeypatch.setattr(shadow_module, "_ensure_reflink_available", lambda: None)
+    mutated = False
+
+    def copy_and_mutate(source: Path, destination: Path) -> None:
+        nonlocal mutated
+        shutil.copy2(source, destination)
+        if not mutated:
+            mutated = True
+            (source_root / "notes.txt").write_text(
+                "changed during projection\n", encoding="utf-8"
+            )
+
+    monkeypatch.setattr(shadow_module, "_copy_regular_file", copy_and_mutate)
+
+    with pytest.raises(ValueError, match="changed during projection"):
+        shadow_module.run_shadow_refresh(config)
+
+    assert not (
+        config.data_root / "captures" / str(expiry_ms) / "attempt-a"
+    ).exists()
+
+
+def test_source_capture_hardlink_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = _service_config_path(tmp_path)
+    config = shadow_module.load_shadow_config(config_path)
+    expiry_ms = 1_800_000_000_000
+    source_root = _make_source_attempt(
+        config.source_runs_root,
+        expiry_ms=expiry_ms,
+        attempt_name="attempt-a",
+        capture_started_at_ms=expiry_ms - 960_000,
+    )
+    outside = tmp_path / "outside-hardlink.txt"
+    outside.hardlink_to(source_root / "notes.txt")
+    monkeypatch.setattr(shadow_module, "_ensure_reflink_available", lambda: None)
+
+    exit_code = shadow_module.main(["--config", str(config_path)])
+
+    assert exit_code == 1
+    status = _load_json(config.status_path)
+    assert status["phase"] == "failed"
+    assert status["orders_submitted"] == 0
+    assert status["true_edge"] is False
+    assert status["qualified_net_pnl"] is None
+
+
+def test_symlinked_expiry_directory_cannot_escape_source_root(
+    tmp_path: Path,
+    fake_copy: list[tuple[Path, Path]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = _service_config_path(tmp_path)
+    config = shadow_module.load_shadow_config(config_path)
+    expiry_ms = 1_800_000_000_000
+    outside_runs = tmp_path / "outside-runs"
+    outside_root = _make_source_attempt(
+        outside_runs,
+        expiry_ms=expiry_ms,
+        attempt_name="attempt-a",
+        capture_started_at_ms=expiry_ms - 960_000,
+    )
+    expiry_link = config.source_runs_root / str(expiry_ms // 1_000)
+    expiry_link.symlink_to(outside_root.parent, target_is_directory=True)
+    monkeypatch.setattr(shadow_module, "_ensure_reflink_available", lambda: None)
+
+    exit_code = shadow_module.main(["--config", str(config_path)])
+
+    assert exit_code == 1
+    assert _load_json(config.status_path)["phase"] == "failed"
+    assert fake_copy == []

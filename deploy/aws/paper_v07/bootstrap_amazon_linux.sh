@@ -42,17 +42,16 @@ getent group polybotv06 >/dev/null 2>&1 || {
 if [[ ! -e "${INSTALL_ROOT}" ]]; then
   git clone "${REPO_URL}" "${INSTALL_ROOT}"
 fi
-if [[ -d "${INSTALL_ROOT}/.git" ]]; then
-  git -C "${INSTALL_ROOT}" fetch --tags --prune origin
-  git -C "${INSTALL_ROOT}" checkout --detach "${DEPLOY_REF}"
-  test "$(git -C "${INSTALL_ROOT}" rev-parse HEAD)" = "${DEPLOY_REF}"
-  printf '%s\n' "${DEPLOY_REF}" >"${DEPLOYMENT_REVISION_PATH}"
-elif [[ -f "${DEPLOYMENT_REVISION_PATH}" ]]; then
-  test "$(tr -d '\r\n' <"${DEPLOYMENT_REVISION_PATH}")" = "${DEPLOY_REF}"
-else
-  echo "${INSTALL_ROOT} is neither a Git checkout nor a verified source archive." >&2
+if [[ ! -d "${INSTALL_ROOT}/.git" ]]; then
+  echo "${INSTALL_ROOT} must be a Git checkout; release-marker-only archives are forbidden." >&2
   exit 1
 fi
+git -C "${INSTALL_ROOT}" fetch --tags --prune origin
+git -C "${INSTALL_ROOT}" checkout -f --detach "${DEPLOY_REF}"
+git -C "${INSTALL_ROOT}" clean -ffdx
+test "$(git -C "${INSTALL_ROOT}" rev-parse HEAD)" = "${DEPLOY_REF}"
+test -z "$(git -C "${INSTALL_ROOT}" status --porcelain=v1 --untracked-files=all)"
+printf '%s\n' "${DEPLOY_REF}" >"${DEPLOYMENT_REVISION_PATH}"
 
 FROZEN_IMPLEMENTATION_REVISION="$(python3.11 - <<PY
 import json
@@ -65,15 +64,10 @@ if not isinstance(revision, str) or len(revision) != 40:
 print(revision)
 PY
 )"
-if [[ -d "${INSTALL_ROOT}/.git" ]]; then
-  git -C "${INSTALL_ROOT}" merge-base --is-ancestor \
-    "${FROZEN_IMPLEMENTATION_REVISION}" "${DEPLOY_REF}"
-  printf '%s\n' "${FROZEN_IMPLEMENTATION_REVISION}" \
-    >"${IMPLEMENTATION_REVISION_PATH}"
-else
-  test "$(tr -d '\r\n' <"${IMPLEMENTATION_REVISION_PATH}")" = \
-    "${FROZEN_IMPLEMENTATION_REVISION}"
-fi
+git -C "${INSTALL_ROOT}" merge-base --is-ancestor \
+  "${FROZEN_IMPLEMENTATION_REVISION}" "${DEPLOY_REF}"
+printf '%s\n' "${FROZEN_IMPLEMENTATION_REVISION}" \
+  >"${IMPLEMENTATION_REVISION_PATH}"
 
 python3.11 -m venv "${INSTALL_ROOT}/.venv"
 "${INSTALL_ROOT}/.venv/bin/pip" install --upgrade pip
@@ -86,6 +80,13 @@ install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0755 \
   "${DATA_ROOT}/status" \
   "${DATA_ROOT}/monitor" \
   "${DATA_ROOT}/monitor/history"
+
+for xfs_path in "${DATA_ROOT}" /var/lib/poly-mm-v06; do
+  if [[ "$(stat -f -c %T "${xfs_path}")" != "xfs" ]]; then
+    echo "XFS is mandatory for V0.7 reflink snapshots: ${xfs_path}" >&2
+    exit 1
+  fi
+done
 
 tmp_probe_dir="$(mktemp -d "${DATA_ROOT}/reflink-probe.XXXXXX")"
 src_probe="${tmp_probe_dir}/src.txt"

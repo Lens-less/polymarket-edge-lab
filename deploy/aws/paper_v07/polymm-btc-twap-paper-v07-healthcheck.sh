@@ -67,8 +67,22 @@ source_active = subprocess.run(
 performance_timer = systemctl_show("polymm-btc-twap-paper-v07-performance.timer")
 health_timer = systemctl_show("polymm-btc-twap-paper-v07-health.timer")
 free_bytes = shutil.disk_usage(Path(config["data_root"])).free
+shadow_validation = subprocess.run(
+    [
+        "/opt/poly-mm-v07/.venv/bin/python",
+        "/opt/poly-mm-v07/scripts/run_btc_twap_relative_value_v07_shadow.py",
+        "--config",
+        "/opt/poly-mm-v07/research/btc_5m_15m_relative_value_paper_v07_shadow_2026-08-16/SERVICE_CONFIG.json",
+        "--validate-only",
+    ],
+    check=False,
+    capture_output=True,
+    text=True,
+)
 failures: list[str] = []
 
+if shadow_validation.returncode != 0:
+    failures.append("shadow_validate_failed")
 if performance_timer.get("ActiveState") != "active":
     failures.append("performance_timer_inactive")
 if health_timer.get("ActiveState") != "active":
@@ -88,7 +102,32 @@ else:
         failures.append("live_flag_invalid")
     if status.get("orders_submitted") != 0:
         failures.append("orders_submitted_nonzero")
-    if heartbeat_age_seconds is None or heartbeat_age_seconds > int(config["maximum_status_age_seconds"]):
+    if status.get("authenticated_endpoints_used") != 0:
+        failures.append("authenticated_endpoints_used_nonzero")
+    if status.get("phase") not in {"warming_up", "ok"}:
+        failures.append("status_phase_unhealthy")
+    if status.get("qualified_net_pnl") is not None:
+        failures.append("qualified_pnl_must_be_null")
+    if (
+        status.get("true_edge") is not False
+        or status.get("true_edge_gate") is not False
+    ):
+        failures.append("true_edge_guard_invalid")
+    if (
+        status.get("positive_100_trade_check") is not False
+        or status.get("positive_100_trade_pnl_check") is not False
+    ):
+        failures.append("positive_100_trade_guard_invalid")
+    if (
+        status.get("prelabel_lock_journal") is not False
+        or status.get("prelabel") is not False
+    ):
+        failures.append("prelabel_guard_invalid")
+    if (
+        heartbeat_age_seconds is None
+        or heartbeat_age_seconds < -60
+        or heartbeat_age_seconds > int(config["maximum_status_age_seconds"])
+    ):
         failures.append("status_stale")
 if not source_active:
     failures.append("source_v06_inactive")
@@ -110,6 +149,7 @@ payload = {
     "source_v06_active": source_active,
     "free_bytes": free_bytes,
     "minimum_free_bytes": config["minimum_free_bytes"],
+    "shadow_validation_returncode": shadow_validation.returncode,
 }
 print(json.dumps(payload, indent=2, sort_keys=True))
 PY
