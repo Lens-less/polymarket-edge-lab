@@ -22,6 +22,15 @@ ACL access to the exact V6 capture and service-status paths, and asserts it
 cannot write either source. The runtime unit keeps `/var/lib/poly-mm-v06`
 mounted read-only as a second boundary.
 
+V6 checkpoint files are atomically replaced with mode `0600`, which resets the
+effective mask of inherited named ACLs. Before every 30-minute refresh, a
+hardened root oneshot repairs read-only ACLs only on single-link `*.json`
+checkpoint files in attempts that already have `capture-summary.json`. It does
+not follow links, alter capture content, or grant V7 write access. The helper
+opens every directory and file with no-follow semantics, applies the ACL through
+a stable inherited file descriptor, and rechecks device, inode, type, and link
+count before retaining the grant.
+
 Bootstrap validates the frozen release, the preregistration binding, and the
 required same-filesystem V6-to-V7 XFS reflink behavior, but it does not
 auto-start the timers:

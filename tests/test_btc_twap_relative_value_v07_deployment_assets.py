@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import importlib.util
 import json
+import os
 import subprocess
 from pathlib import Path
+
+import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEPLOY_ROOT = PROJECT_ROOT / "deploy" / "aws" / "paper_v07"
@@ -25,6 +29,8 @@ def test_v07_research_and_deploy_assets_exist() -> None:
         "bootstrap_amazon_linux.sh",
         "polymm-btc-twap-paper-v07-performance.service",
         "polymm-btc-twap-paper-v07-performance.timer",
+        "polymm-btc-twap-paper-v07-source-acl.service",
+        "polymm-btc-twap-paper-v07-source-acl.py",
         "polymm-btc-twap-paper-v07-health.service",
         "polymm-btc-twap-paper-v07-health.timer",
         "polymm-btc-twap-paper-v07-healthcheck.sh",
@@ -102,6 +108,10 @@ def test_v07_performance_service_and_timer_are_hardened() -> None:
     ).read_text(encoding="utf-8")
 
     assert "Type=oneshot" in service_text
+    assert (
+        "Requires=polymm-btc-twap-paper-v07-source-acl.service" in service_text
+    )
+    assert "polymm-btc-twap-paper-v07-source-acl.service" in service_text
     assert "Wants=polymm-btc-twap-paper-v06.service" not in service_text
     assert "User=polybotv07" in service_text
     assert "Group=polybotv07" in service_text
@@ -136,6 +146,126 @@ def test_v07_performance_service_and_timer_are_hardened() -> None:
     assert "Unit=polymm-btc-twap-paper-v07-performance.service" in timer_text
 
 
+def test_v07_source_acl_refresh_is_narrow_read_only_and_hardened() -> None:
+    service_text = (
+        DEPLOY_ROOT / "polymm-btc-twap-paper-v07-source-acl.service"
+    ).read_text(encoding="utf-8")
+    script_text = (
+        DEPLOY_ROOT / "polymm-btc-twap-paper-v07-source-acl.py"
+    ).read_text(encoding="utf-8")
+
+    source_runs_root = (
+        "/var/lib/poly-mm-v06/data/"
+        "btc_5m_15m_relative_value_paper_v06_linux_2026-08-14/runs"
+    )
+    assert "Type=oneshot" in service_text
+    assert "User=root" in service_text
+    assert "Group=root" in service_text
+    assert (
+        "ExecStart=/usr/bin/python3.11 /usr/local/libexec/"
+        "polymm-btc-twap-paper-v07-source-acl.py" in service_text
+    )
+    assert f"ReadWritePaths={source_runs_root}" in service_text
+    assert (
+        "CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_FOWNER" in service_text
+    )
+    assert "NoNewPrivileges=true" in service_text
+    assert "ProtectSystem=strict" in service_text
+    assert "PrivateDevices=true" in service_text
+    assert "IPAddressDeny=any" in service_text
+    assert "RestrictAddressFamilies=AF_UNIX" in service_text
+
+    assert '    "/var/lib/poly-mm-v06/data/"' in script_text
+    assert (
+        '    "btc_5m_15m_relative_value_paper_v06_linux_2026-08-14/runs"'
+        in script_text
+    )
+    assert 'SERVICE_USER = "polybotv07"' in script_text
+    assert "os.O_NOFOLLOW" in script_text
+    assert "pass_fds=(descriptor,)" in script_text
+    assert '"capture-summary.json"' in script_text
+    assert 'checkpoint_name.endswith(".json")' in script_text
+    assert "st_nlink != 1" in script_text
+    assert "os.fstat(descriptor)" in script_text
+    assert "status.st_dev != expected_device" in script_text
+    assert "root_device = os.fstat(root_fd).st_dev" in script_text
+    assert "expected_device=root_device" in script_text
+    assert "follow_symlinks=False" in script_text
+    assert "source ACL target changed during repair" in script_text
+    assert 'operation="-m"' in script_text
+    assert 'acl=f"u:{SERVICE_USER}:r--"' in script_text
+    assert 'operation="-x"' in script_text
+    assert '["getfacl", "-cp",' in script_text
+    assert 'line.startswith("mask::r")' in script_text
+    assert "requests" not in script_text
+    assert "urllib" not in script_text
+
+
+@pytest.mark.skipif(
+    os.name != "posix" or not hasattr(os, "O_NOFOLLOW"),
+    reason="the deployed source ACL helper is Linux-only",
+)
+def test_v07_source_acl_helper_revokes_when_a_path_is_swapped(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    helper_path = DEPLOY_ROOT / "polymm-btc-twap-paper-v07-source-acl.py"
+    spec = importlib.util.spec_from_file_location("v07_source_acl_helper", helper_path)
+    assert spec is not None
+    assert spec.loader is not None
+    helper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helper)
+
+    checkpoint_path = tmp_path / "checkpoint.json"
+    checkpoint_path.write_text("{}\n", encoding="utf-8")
+    checkpoint_root_fd = os.open(tmp_path, os.O_RDONLY | os.O_DIRECTORY)
+    original = checkpoint_path.stat()
+    with pytest.raises(RuntimeError, match="same-device"):
+        helper._open_regular_single_link(
+            checkpoint_path.name,
+            parent_fd=checkpoint_root_fd,
+            expected_device=original.st_dev + 1,
+        )
+    swapped_values = list(original)
+    swapped_values[1] = original.st_ino + 1
+    swapped = os.stat_result(swapped_values)
+    path_statuses = iter((original, swapped))
+    acl_operations: list[str] = []
+    revoked: list[int] = []
+
+    monkeypatch.setattr(
+        helper,
+        "_path_status",
+        lambda name, *, parent_fd: next(path_statuses),
+    )
+    monkeypatch.setattr(
+        helper,
+        "_setfacl_via_descriptor",
+        lambda descriptor, *, operation, acl: (
+            acl_operations.append(operation)
+            or subprocess.CompletedProcess([], 0, "", "")
+        ),
+    )
+    monkeypatch.setattr(
+        helper,
+        "_revoke_acl",
+        lambda descriptor: revoked.append(descriptor),
+    )
+
+    try:
+        with pytest.raises(RuntimeError, match="changed during repair"):
+            helper._grant_checkpoint_acl(
+                checkpoint_path.name,
+                checkpoint_root_fd=checkpoint_root_fd,
+                expected_device=original.st_dev,
+            )
+    finally:
+        os.close(checkpoint_root_fd)
+
+    assert acl_operations == ["-m"]
+    assert len(revoked) == 1
+
+
 def test_v07_health_service_timer_and_script_are_read_only() -> None:
     service_text = (
         DEPLOY_ROOT / "polymm-btc-twap-paper-v07-health.service"
@@ -165,7 +295,9 @@ def test_v07_health_service_timer_and_script_are_read_only() -> None:
         'btc_5m_15m_relative_value_paper_v07_shadow_2026-08-16/'
         'service/status.json"'
     ) in script_text
-    assert "systemctl\", \"show\", unit" in script_text
+    assert '"systemctl",' in script_text
+    assert '"show",' in script_text
+    assert "unit," in script_text
     assert "source_v06_active" in script_text
     assert "disk_below_minimum" in script_text
     assert "mode_mismatch" in script_text
@@ -176,6 +308,7 @@ def test_v07_health_service_timer_and_script_are_read_only() -> None:
     assert "source_accounting_invalid" in script_text
     assert "source_accounting_inconsistent" in script_text
     assert "source_attempt_capture_error_present" in script_text
+    assert "source_acl_service_failed" in script_text
     assert "no_clean_post_cutoff_source_attempts_yet" in script_text
     assert '"warnings": warnings' in script_text
     assert "qualified_pnl_must_be_null" in script_text
@@ -242,6 +375,11 @@ def test_v07_bootstrap_uses_release_markers_reflink_probe_and_manual_start() -> 
     assert "cp --reflink=always" in bootstrap_text
     assert "distinct inode" in bootstrap_text
     assert "systemctl daemon-reload" in bootstrap_text
+    assert "polymm-btc-twap-paper-v07-source-acl.service" in bootstrap_text
+    assert "polymm-btc-twap-paper-v07-source-acl.py" in bootstrap_text
+    assert "/usr/local/libexec/polymm-btc-twap-paper-v07-source-acl.py" in (
+        bootstrap_text
+    )
     assert "run_btc_twap_relative_value_v07_shadow.py" in bootstrap_text
     assert (
         "systemctl enable polymm-btc-twap-paper-v07-performance.timer"

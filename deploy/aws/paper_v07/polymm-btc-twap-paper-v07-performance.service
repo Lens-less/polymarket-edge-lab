@@ -1,6 +1,7 @@
 [Unit]
 Description=BTC 5m/15m relative-value paper v0.7 prospective shadow refresh
-After=local-fs.target polymm-btc-twap-paper-v06.service
+Requires=polymm-btc-twap-paper-v07-source-acl.service
+After=local-fs.target polymm-btc-twap-paper-v06.service polymm-btc-twap-paper-v07-source-acl.service
 
 [Service]
 Type=oneshot

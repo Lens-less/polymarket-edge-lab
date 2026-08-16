@@ -35,7 +35,12 @@ def read_json(path: Path) -> dict[str, object] | None:
 
 def systemctl_show(unit: str) -> dict[str, str]:
     completed = subprocess.run(
-        ["systemctl", "show", unit, "--property=ActiveState,SubState,UnitFileState,NextElapseUSecRealtime"],
+        [
+            "systemctl",
+            "show",
+            unit,
+            "--property=ActiveState,SubState,UnitFileState,NextElapseUSecRealtime,Result,ExecMainStatus",
+        ],
         check=False,
         capture_output=True,
         text=True,
@@ -66,6 +71,7 @@ source_active = subprocess.run(
 
 performance_timer = systemctl_show("polymm-btc-twap-paper-v07-performance.timer")
 health_timer = systemctl_show("polymm-btc-twap-paper-v07-health.timer")
+source_acl_service = systemctl_show("polymm-btc-twap-paper-v07-source-acl.service")
 free_bytes = shutil.disk_usage(Path(config["data_root"])).free
 shadow_validation = subprocess.run(
     [
@@ -88,6 +94,11 @@ if performance_timer.get("ActiveState") != "active":
     failures.append("performance_timer_inactive")
 if health_timer.get("ActiveState") != "active":
     failures.append("health_timer_inactive")
+if (
+    source_acl_service.get("Result") != "success"
+    or source_acl_service.get("ExecMainStatus") != "0"
+):
+    failures.append("source_acl_service_failed")
 if status is None:
     failures.append("status_missing_or_invalid")
 else:
@@ -190,6 +201,7 @@ payload = {
     "status_freshness_seconds": heartbeat_age_seconds,
     "performance_timer": performance_timer,
     "health_timer": health_timer,
+    "source_acl_service": source_acl_service,
     "source_v06_active": source_active,
     "free_bytes": free_bytes,
     "minimum_free_bytes": config["minimum_free_bytes"],

@@ -206,6 +206,13 @@ cleanup_reflink_probe
 trap - EXIT
 
 install -o root -g root -m 0644 \
+  "${INSTALL_ROOT}/deploy/aws/paper_v07/polymm-btc-twap-paper-v07-source-acl.service" \
+  /etc/systemd/system/polymm-btc-twap-paper-v07-source-acl.service
+install -d -o root -g root -m 0755 /usr/local/libexec
+install -o root -g root -m 0755 \
+  "${INSTALL_ROOT}/deploy/aws/paper_v07/polymm-btc-twap-paper-v07-source-acl.py" \
+  /usr/local/libexec/polymm-btc-twap-paper-v07-source-acl.py
+install -o root -g root -m 0644 \
   "${INSTALL_ROOT}/deploy/aws/paper_v07/polymm-btc-twap-paper-v07-performance.service" \
   /etc/systemd/system/polymm-btc-twap-paper-v07-performance.service
 install -o root -g root -m 0644 \
