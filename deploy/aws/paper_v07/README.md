@@ -17,6 +17,11 @@ admission but remain counted in the V7 status and health warnings. This avoids
 both permanent monitor deadlock and silent survivorship filtering. Schema,
 integrity, safety, path, and provenance violations remain hard failures.
 
+The bootstrap grants the independent `polybotv07` account read/traverse-only
+ACL access to the exact V6 capture and service-status paths, and asserts it
+cannot write either source. The runtime unit keeps `/var/lib/poly-mm-v06`
+mounted read-only as a second boundary.
+
 Bootstrap validates the frozen release, the preregistration binding, and the
 required same-filesystem V6-to-V7 XFS reflink behavior, but it does not
 auto-start the timers:

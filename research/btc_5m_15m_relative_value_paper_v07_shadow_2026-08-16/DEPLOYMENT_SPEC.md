@@ -34,6 +34,10 @@ Selection policy
 - `minimum_free_bytes = 12884901888`
 - The configured V6 source root and V7 data root must be on the same XFS
   filesystem, proven by device identity and a real cross-root reflink probe.
+- The independent V7 service user receives only read/traverse POSIX ACLs on
+  the exact V6 runs and service-status paths (including inherited ACLs for
+  future files); the systemd unit additionally mounts the source tree
+  read-only.
 
 Source-attempt accounting
 

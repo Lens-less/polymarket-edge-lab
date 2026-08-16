@@ -26,7 +26,7 @@ if [[ ! "${DEPLOY_REF}" =~ ^[0-9a-f]{40}$ ]]; then
   exit 1
 fi
 
-dnf install -y git python3.11 python3.11-pip
+dnf install -y acl git python3.11 python3.11-pip sudo
 if ! getent group "${SERVICE_GROUP}" >/dev/null 2>&1; then
   groupadd --system "${SERVICE_GROUP}"
 fi
@@ -106,6 +106,51 @@ if not resolved.is_relative_to(allowed_root):
 print(resolved)
 PY
 )"
+SOURCE_STATUS_PATH="$(
+  "${INSTALL_ROOT}/.venv/bin/python" - "${CONFIG_PATH}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+document = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+source_status_path = document.get("source_status_path")
+if not isinstance(source_status_path, str) or not source_status_path:
+    raise SystemExit("source_status_path is missing or invalid")
+path = Path(source_status_path).expanduser()
+if not path.is_absolute():
+    raise SystemExit("source_status_path must be absolute")
+resolved = path.resolve(strict=True)
+allowed_root = Path("/var/lib/poly-mm-v06").resolve(strict=True)
+if not resolved.is_relative_to(allowed_root):
+    raise SystemExit("source_status_path must remain under /var/lib/poly-mm-v06")
+print(resolved)
+PY
+)"
+SOURCE_DATA_ROOT="$(dirname "${SOURCE_RUNS_ROOT}")"
+SOURCE_STATUS_DIR="$(dirname "${SOURCE_STATUS_PATH}")"
+if [[ "$(dirname "${SOURCE_STATUS_DIR}")" != "${SOURCE_DATA_ROOT}" ]]; then
+  echo "V0.6 source runs and status must share the frozen data root." >&2
+  exit 1
+fi
+
+setfacl -m "u:${SERVICE_USER}:r-x,d:u:${SERVICE_USER}:r-x" \
+  "${SOURCE_DATA_ROOT}" "${SOURCE_STATUS_DIR}"
+setfacl -m "u:${SERVICE_USER}:r--" "${SOURCE_STATUS_PATH}"
+setfacl -m "u:${SERVICE_USER}:r-x,d:u:${SERVICE_USER}:r-x" \
+  "${SOURCE_RUNS_ROOT}"
+find "${SOURCE_RUNS_ROOT}" -mindepth 1 -type d \
+  -exec setfacl -m \
+  "u:${SERVICE_USER}:r-x,d:u:${SERVICE_USER}:r-x" {} +
+find "${SOURCE_RUNS_ROOT}" -type f \
+  -exec setfacl -m "u:${SERVICE_USER}:r--" {} +
+if ! sudo -u "${SERVICE_USER}" test -r "${SOURCE_STATUS_PATH}"; then
+  echo "V0.7 service user cannot read the V0.6 service status." >&2
+  exit 1
+fi
+if sudo -u "${SERVICE_USER}" test -w "${SOURCE_STATUS_PATH}"; then
+  echo "V0.7 service user must not be able to write the V0.6 service status." >&2
+  exit 1
+fi
 
 for xfs_path in "${DATA_ROOT}" "${SOURCE_RUNS_ROOT}"; do
   if [[ "$(stat -f -c %T "${xfs_path}")" != "xfs" ]]; then
@@ -121,6 +166,8 @@ fi
 
 tmp_probe_dir="$(mktemp -d "${DATA_ROOT}/reflink-probe.XXXXXX")"
 dst_probe="${tmp_probe_dir}/dst.txt"
+chown "${SERVICE_USER}:${SERVICE_GROUP}" "${tmp_probe_dir}"
+chmod 0700 "${tmp_probe_dir}"
 cleanup_reflink_probe() {
   rm -f "${dst_probe}"
   rmdir "${tmp_probe_dir}" 2>/dev/null || true
@@ -133,8 +180,18 @@ if [[ -z "${src_probe}" ]]; then
   echo "A V0.6 capture-config.json is required for the cross-root reflink probe." >&2
   exit 1
 fi
-cp --reflink=always "${src_probe}" "${dst_probe}"
-python3.11 - "${src_probe}" "${dst_probe}" <<'PY'
+if ! sudo -u "${SERVICE_USER}" test -r "${src_probe}"; then
+  echo "V0.7 service user cannot read the V0.6 reflink source." >&2
+  exit 1
+fi
+if sudo -u "${SERVICE_USER}" test -w "${src_probe}"; then
+  echo "V0.7 service user must not be able to write the V0.6 source." >&2
+  exit 1
+fi
+sudo -u "${SERVICE_USER}" cp --reflink=always \
+  "${src_probe}" "${dst_probe}"
+sudo -u "${SERVICE_USER}" python3.11 - \
+  "${src_probe}" "${dst_probe}" <<'PY'
 import sys
 from pathlib import Path
 

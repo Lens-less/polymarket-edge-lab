@@ -218,7 +218,9 @@ def test_v07_bootstrap_uses_release_markers_reflink_probe_and_manual_start() -> 
     assert "merge-base --is-ancestor" in bootstrap_text
     assert "release-marker-only archives are forbidden" in bootstrap_text
     assert 'SOURCE_RUNS_ROOT="$(' in bootstrap_text
+    assert 'SOURCE_STATUS_PATH="$(' in bootstrap_text
     assert 'document.get("source_runs_root")' in bootstrap_text
+    assert 'document.get("source_status_path")' in bootstrap_text
     assert 'stat -c %d "${DATA_ROOT}"' in bootstrap_text
     assert 'stat -c %d "${SOURCE_RUNS_ROOT}"' in bootstrap_text
     assert "must share one filesystem" in bootstrap_text
@@ -226,6 +228,17 @@ def test_v07_bootstrap_uses_release_markers_reflink_probe_and_manual_start() -> 
     assert '!= "xfs"' in bootstrap_text
     assert 'find "${SOURCE_RUNS_ROOT}"' in bootstrap_text
     assert '-name capture-config.json' in bootstrap_text
+    assert '"u:${SERVICE_USER}:r-x,d:u:${SERVICE_USER}:r-x"' in bootstrap_text
+    assert 'setfacl -m "u:${SERVICE_USER}:r--"' in bootstrap_text
+    assert 'sudo -u "${SERVICE_USER}" test -r "${src_probe}"' in bootstrap_text
+    assert 'sudo -u "${SERVICE_USER}" test -w "${src_probe}"' in bootstrap_text
+    assert 'sudo -u "${SERVICE_USER}" test -r "${SOURCE_STATUS_PATH}"' in (
+        bootstrap_text
+    )
+    assert 'sudo -u "${SERVICE_USER}" test -w "${SOURCE_STATUS_PATH}"' in (
+        bootstrap_text
+    )
+    assert 'sudo -u "${SERVICE_USER}" cp --reflink=always' in bootstrap_text
     assert "cp --reflink=always" in bootstrap_text
     assert "distinct inode" in bootstrap_text
     assert "systemctl daemon-reload" in bootstrap_text
