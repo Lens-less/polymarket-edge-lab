@@ -220,7 +220,7 @@ def _bool(value: Any, *, label: str) -> bool:
 
 
 def _decimal(value: Any, *, label: str) -> Decimal:
-    if isinstance(value, bool) or isinstance(value, float):
+    if isinstance(value, (bool, float)):
         raise TypeError(f"{label} must be exact decimal")
     try:
         parsed = value if isinstance(value, Decimal) else Decimal(str(value))
@@ -745,7 +745,15 @@ def _select_source_captures(
                 current.root.as_posix(),
             ):
                 candidates[expiry_ms] = selected
-        except Exception:
+        except (
+            FileNotFoundError,
+            OSError,
+            TypeError,
+            ValueError,
+            KeyError,
+            json.JSONDecodeError,
+            subprocess.SubprocessError,
+        ):
             continue
     return (
         [candidates[key] for key in sorted(candidates)[: config.maximum_cases]],
@@ -1019,7 +1027,7 @@ def _exclusive_lock(data_root: Path) -> Iterable[None]:
                 ) from exc
         handle.seek(0)
         handle.truncate()
-        handle.write(f"{os.getpid()}\n".encode("utf-8"))
+        handle.write(f"{os.getpid()}\n".encode())
         handle.flush()
         yield
     finally:
@@ -1148,7 +1156,7 @@ __all__ = [
     "V07ShadowConfig",
     "build_parser",
     "load_shadow_config",
-    "run_once",
     "main",
+    "run_once",
     "run_shadow_refresh",
 ]
