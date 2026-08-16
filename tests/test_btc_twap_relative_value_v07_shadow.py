@@ -342,7 +342,6 @@ def test_cutoff_and_latest_success_per_expiry_are_selected(
     source_runs_root = config.source_runs_root
     old_expiry = 1_786_892_400_000
     kept_expiry = 1_786_896_000_000
-    third_expiry = 1_786_899_600_000
     _make_source_attempt(
         source_runs_root,
         expiry_ms=old_expiry,
@@ -363,9 +362,9 @@ def test_cutoff_and_latest_success_per_expiry_are_selected(
     )
     _make_source_attempt(
         source_runs_root,
-        expiry_ms=third_expiry,
-        attempt_name="failed",
-        capture_started_at_ms=1_786_899_650_000,
+        expiry_ms=old_expiry,
+        attempt_name="failed-precutoff",
+        capture_started_at_ms=1_786_892_399_998,
         failed=True,
     )
     monkeypatch.setattr(
@@ -382,9 +381,67 @@ def test_cutoff_and_latest_success_per_expiry_are_selected(
     manifest = _load_json(config.research_root / "manifests" / "manifest-latest.json")
     assert len(manifest["cases"]) == 1
     assert manifest["cases"][0]["capture_root"].endswith("latest-good")
-    assert result["source_finalized_count"] == 4
+    assert result["source_summary_file_count"] == 4
+    assert result["source_finalized_count"] == 2
     assert result["source_eligible_count"] == 1
     assert len(fake_copy) >= 2
+
+
+@pytest.mark.parametrize(
+    "failure_kind",
+    (
+        "capture_error",
+        "integrity",
+        "missing_config",
+        "malformed_config",
+        "malformed_summary",
+        "config_schema",
+        "summary_schema",
+    ),
+)
+def test_post_cutoff_source_failures_fail_the_refresh(
+    tmp_path: Path,
+    fake_copy: list[tuple[Path, Path]],
+    failure_kind: str,
+) -> None:
+    config_path = _service_config_path(tmp_path)
+    config = shadow_module.load_shadow_config(config_path)
+    source_root = _make_source_attempt(
+        config.source_runs_root,
+        expiry_ms=1_786_896_000_000,
+        attempt_name=f"bad-{failure_kind}",
+        capture_started_at_ms=1_786_895_000_000,
+        failed=failure_kind == "capture_error",
+        integrity_issue=failure_kind == "integrity",
+    )
+    capture_config_path = source_root / "capture-config.json"
+    summary_path = source_root / "capture-summary.json"
+    if failure_kind == "missing_config":
+        capture_config_path.unlink()
+    elif failure_kind == "malformed_config":
+        capture_config_path.write_text("{", encoding="utf-8")
+    elif failure_kind == "malformed_summary":
+        summary_path.write_text("{", encoding="utf-8")
+    elif failure_kind == "config_schema":
+        document = _load_json(capture_config_path)
+        document["schema_version"] = "unexpected"
+        _write_json(capture_config_path, document)
+    elif failure_kind == "summary_schema":
+        document = _load_json(summary_path)
+        document["schema_version"] = "unexpected"
+        _write_json(summary_path, document)
+
+    exit_code = shadow_module.main(["--config", str(config_path)])
+
+    assert exit_code == 1
+    status = _load_json(config.status_path)
+    assert status["phase"] == "failed"
+    assert status["evaluation_status"] == "failed"
+    assert status["source_finalized_count"] == 0
+    assert status["last_error"] == {
+        "error_type": "ValueError",
+        "error_code": "v07_shadow_refresh_failed",
+    }
 
 
 def test_projection_creates_independent_snapshot_and_preserves_source(

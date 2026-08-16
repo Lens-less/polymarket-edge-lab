@@ -635,6 +635,14 @@ def _source_expiry_matches(root: Path, expiry_ms: int) -> bool:
     return directory_expiry in {expiry_ms, expiry_ms // 1_000}
 
 
+def _source_directory_expiry_ms(root: Path) -> int | None:
+    try:
+        value = int(root.parent.name)
+    except (TypeError, ValueError):
+        return None
+    return value if value >= 1_000_000_000_000 else value * 1_000
+
+
 def _projected_capture_config(source: Mapping[str, Any]) -> dict[str, Any]:
     projected = dict(source)
     projected["schema_version"] = PROJECTED_CAPTURE_CONFIG_SCHEMA
@@ -670,93 +678,119 @@ def _source_marker(
 
 def _select_source_captures(
     config: V07ShadowConfig,
-) -> tuple[list[_SelectedCapture], int]:
+) -> tuple[list[_SelectedCapture], int, int]:
     candidates: dict[int, _SelectedCapture] = {}
+    summary_file_count = 0
     finalized_count = 0
     for summary_path in sorted(
         config.source_runs_root.glob("*/*/capture-summary.json")
     ):
-        finalized_count += 1
+        summary_file_count += 1
         root = summary_path.parent
         capture_config_path = root / "capture-config.json"
+        inferred_expiry_ms = _source_directory_expiry_ms(root)
         if (
             root.is_symlink()
             or summary_path.is_symlink()
             or capture_config_path.is_symlink()
         ):
+            if (
+                inferred_expiry_ms is None
+                or inferred_expiry_ms >= config.prospective_cutoff_ms
+            ):
+                raise ValueError("post-cutoff source capture contains a symlink")
             continue
         if not capture_config_path.is_file():
+            if (
+                inferred_expiry_ms is None
+                or inferred_expiry_ms >= config.prospective_cutoff_ms
+            ):
+                raise ValueError(
+                    "post-cutoff source capture is missing capture-config.json"
+                )
             continue
         try:
             source_config = _load_json(
                 capture_config_path, label="source capture config"
             )
-            summary = _load_json(summary_path, label="source capture summary")
-            _reject_unsafe_document(source_config, label="source capture config")
-            if source_config.get("schema_version") != SOURCE_CAPTURE_CONFIG_SCHEMA:
-                continue
-            if source_config.get("settlement_regime_id") != EXPECTED_SETTLEMENT_REGIME:
-                continue
-            if summary.get("schema_version") != SOURCE_SUMMARY_SCHEMA_VERSION:
-                continue
             capture_started_at_ms = _int(
                 source_config.get("capture_started_at_ms"),
                 label="capture_started_at_ms",
             )
-            if capture_started_at_ms < config.prospective_cutoff_ms:
-                continue
-            if summary.get("capture_error") is not None:
-                continue
-            if not _clean_integrity(summary):
-                continue
-            parsed_targets = _pair_from_source_targets(source_config.get("targets"))
-            if parsed_targets is None:
-                continue
-            pair, _ = parsed_targets
-            if not _source_expiry_matches(root, pair.expires_at_ms):
-                continue
-            expiry_ms = pair.expires_at_ms
-            canonical_cluster_id = canonical_event_cluster_id(pair)
-            marker = _source_marker(
-                root=root,
-                capture_config_path=capture_config_path,
-                summary_path=summary_path,
-                capture_started_at_ms=capture_started_at_ms,
-                expiry_ms=expiry_ms,
-                canonical_cluster_id=canonical_cluster_id,
-            )
-            selected = _SelectedCapture(
-                expiry_ms=expiry_ms,
-                alias=f"expiry-{expiry_ms}",
-                root=root.resolve(),
-                capture_config_path=capture_config_path.resolve(),
-                summary_path=summary_path.resolve(),
-                capture_started_at_ms=capture_started_at_ms,
-                canonical_event_cluster_id=canonical_cluster_id,
-                projected_capture_config=_projected_capture_config(source_config),
-                source_marker=marker,
-            )
-            current = candidates.get(expiry_ms)
-            if current is None or (
-                selected.capture_started_at_ms,
-                selected.root.as_posix(),
-            ) > (
-                current.capture_started_at_ms,
-                current.root.as_posix(),
-            ):
-                candidates[expiry_ms] = selected
         except (
             FileNotFoundError,
             OSError,
+            UnicodeError,
             TypeError,
             ValueError,
             KeyError,
             json.JSONDecodeError,
-            subprocess.SubprocessError,
-        ):
+        ) as exc:
+            if (
+                inferred_expiry_ms is None
+                or inferred_expiry_ms >= config.prospective_cutoff_ms
+            ):
+                raise ValueError(
+                    "post-cutoff source capture config is invalid"
+                ) from exc
             continue
+        if capture_started_at_ms < config.prospective_cutoff_ms:
+            continue
+        try:
+            summary = _load_json(summary_path, label="source capture summary")
+        except (OSError, UnicodeError, TypeError, ValueError) as exc:
+            raise ValueError("post-cutoff source capture summary is invalid") from exc
+        _reject_unsafe_document(source_config, label="source capture config")
+        if source_config.get("schema_version") != SOURCE_CAPTURE_CONFIG_SCHEMA:
+            raise ValueError("post-cutoff source capture config schema drift")
+        if source_config.get("settlement_regime_id") != EXPECTED_SETTLEMENT_REGIME:
+            raise ValueError("post-cutoff source settlement regime drift")
+        if summary.get("schema_version") != SOURCE_SUMMARY_SCHEMA_VERSION:
+            raise ValueError("post-cutoff source capture summary schema drift")
+        if summary.get("capture_error") is not None:
+            raise ValueError("post-cutoff source capture reported failure")
+        if not _clean_integrity(summary):
+            raise ValueError("post-cutoff source capture integrity is not clean")
+        parsed_targets = _pair_from_source_targets(source_config.get("targets"))
+        if parsed_targets is None:
+            raise ValueError("post-cutoff source target contract is invalid")
+        pair, _ = parsed_targets
+        if not _source_expiry_matches(root, pair.expires_at_ms):
+            raise ValueError("post-cutoff source expiry directory mismatch")
+        finalized_count += 1
+        expiry_ms = pair.expires_at_ms
+        canonical_cluster_id = canonical_event_cluster_id(pair)
+        marker = _source_marker(
+            root=root,
+            capture_config_path=capture_config_path,
+            summary_path=summary_path,
+            capture_started_at_ms=capture_started_at_ms,
+            expiry_ms=expiry_ms,
+            canonical_cluster_id=canonical_cluster_id,
+        )
+        selected = _SelectedCapture(
+            expiry_ms=expiry_ms,
+            alias=f"expiry-{expiry_ms}",
+            root=root.resolve(),
+            capture_config_path=capture_config_path.resolve(),
+            summary_path=summary_path.resolve(),
+            capture_started_at_ms=capture_started_at_ms,
+            canonical_event_cluster_id=canonical_cluster_id,
+            projected_capture_config=_projected_capture_config(source_config),
+            source_marker=marker,
+        )
+        current = candidates.get(expiry_ms)
+        if current is None or (
+            selected.capture_started_at_ms,
+            selected.root.as_posix(),
+        ) > (
+            current.capture_started_at_ms,
+            current.root.as_posix(),
+        ):
+            candidates[expiry_ms] = selected
     return (
         [candidates[key] for key in sorted(candidates)[: config.maximum_cases]],
+        summary_file_count,
         finalized_count,
     )
 
@@ -849,6 +883,7 @@ def _report_summary(
     *,
     selected: Sequence[_SelectedCapture],
     projected: Sequence[tuple[_SelectedCapture, Path]],
+    summary_file_count: int,
     finalized_count: int,
     report: Mapping[str, Any] | None,
     report_status: str,
@@ -935,6 +970,7 @@ def _report_summary(
         "prospective_cutoff_iso": config.prospective_cutoff_iso,
         "prospective_cutoff_ms": config.prospective_cutoff_ms,
         "source_count": finalized_count,
+        "source_summary_file_count": summary_file_count,
         "source_finalized_count": finalized_count,
         "source_eligible_count": len(selected),
         "projected_count": len(projected),
@@ -1046,7 +1082,7 @@ def run_shadow_refresh(config: V07ShadowConfig) -> dict[str, Any]:
     config.data_root.mkdir(parents=True, exist_ok=True)
     config.research_root.mkdir(parents=True, exist_ok=True)
     with _exclusive_lock(config.data_root):
-        selected, finalized_count = _select_source_captures(config)
+        selected, summary_file_count, finalized_count = _select_source_captures(config)
         projected = [
             (selection, _project_capture(config, selection)) for selection in selected
         ]
@@ -1070,6 +1106,7 @@ def run_shadow_refresh(config: V07ShadowConfig) -> dict[str, Any]:
             config,
             selected=selected,
             projected=projected,
+            summary_file_count=summary_file_count,
             finalized_count=finalized_count,
             report=report,
             report_status=report_status,
@@ -1118,6 +1155,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             "phase": "failed",
             "track_id": config.track_id,
             "source_count": 0,
+            "source_summary_file_count": 0,
+            "source_finalized_count": 0,
             "projected_count": 0,
             "train_case_count": 0,
             "validation_case_count": 0,
