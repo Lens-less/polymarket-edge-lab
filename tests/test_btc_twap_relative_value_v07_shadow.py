@@ -729,6 +729,23 @@ def test_source_status_unhealthy_phase_fails_closed(
         shadow_module._validate_runtime_inputs(config, validate_only=True)
 
 
+def test_unknown_source_status_phase_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = shadow_module.load_shadow_config(_service_config_path(tmp_path))
+    status = _load_json(config.source_status_path)
+    status["phase"] = "future_unknown_phase"
+    status.pop("status_sha256")
+    status["status_sha256"] = hashlib.sha256(
+        canonical_json_bytes(status)
+    ).hexdigest()
+    _write_json(config.source_status_path, status)
+    monkeypatch.setattr(shadow_module, "_ensure_reflink_available", lambda: None)
+
+    with pytest.raises(ValueError, match="phase is unhealthy"):
+        shadow_module._validate_runtime_inputs(config, validate_only=True)
+
+
 def test_claimed_clean_summary_cannot_hide_missing_raw_manifest(
     tmp_path: Path,
     fake_copy: list[tuple[Path, Path]],

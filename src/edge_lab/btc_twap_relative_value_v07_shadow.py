@@ -89,6 +89,16 @@ EXPECTED_MAXIMUM_STATUS_AGE_SECONDS = 2_700
 EXPECTED_SETTLEMENT_REGIME = "chainlink_twap_60s_5m_and_60s_15m.v1"
 EXPECTED_SOURCE_EVIDENCE_TRACK_ID = "btc-paper-v06-20260814"
 SOURCE_STATUS_SCHEMA_VERSION = "btc-twap-relative-value-service-status.v1"
+HEALTHY_SOURCE_PHASES = frozenset(
+    {
+        "starting",
+        "measuring_clock",
+        "discovering",
+        "capturing",
+        "building_report",
+        "cycle_complete",
+    }
+)
 SOURCE_INTEGRITY_KEYS = frozenset(
     {
         "orphan_partials",
@@ -518,7 +528,7 @@ def _validate_source_status(config: V07ShadowConfig) -> str:
     if claimed_hash != expected_hash:
         raise ValueError("source service status hash is invalid")
     phase = status.get("phase")
-    if not isinstance(phase, str) or phase in {"error_wait", "stopped"}:
+    if phase not in HEALTHY_SOURCE_PHASES:
         raise ValueError("source service phase is unhealthy")
     required = {
         "paper_only": True,
