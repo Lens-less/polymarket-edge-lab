@@ -80,6 +80,7 @@ shadow_validation = subprocess.run(
     text=True,
 )
 failures: list[str] = []
+warnings: list[str] = []
 
 if shadow_validation.returncode != 0:
     failures.append("shadow_validate_failed")
@@ -106,6 +107,48 @@ else:
         failures.append("authenticated_endpoints_used_nonzero")
     if status.get("phase") not in {"warming_up", "ok"}:
         failures.append("status_phase_unhealthy")
+    source_accounting = {
+        key: status.get(key)
+        for key in (
+            "source_post_cutoff_attempt_count",
+            "source_finalized_clean_count",
+            "source_rejected_count",
+            "source_rejected_capture_error_count",
+            "selection_denominator_count",
+            "cohort_admission_count",
+            "case_count",
+        )
+    }
+    if any(
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or value < 0
+        for value in source_accounting.values()
+    ):
+        failures.append("source_accounting_invalid")
+    elif (
+        source_accounting["source_post_cutoff_attempt_count"]
+        != source_accounting["source_finalized_clean_count"]
+        + source_accounting["source_rejected_count"]
+        or source_accounting["source_rejected_count"]
+        != source_accounting["source_rejected_capture_error_count"]
+        or source_accounting["selection_denominator_count"]
+        != source_accounting["source_finalized_clean_count"]
+        or source_accounting["cohort_admission_count"]
+        != source_accounting["case_count"]
+        or status.get("data_quality_complete")
+        is not (source_accounting["source_rejected_count"] == 0)
+        or not isinstance(status.get("latest_rejected_attempts"), list)
+    ):
+        failures.append("source_accounting_inconsistent")
+    else:
+        if source_accounting["source_rejected_capture_error_count"] > 0:
+            warnings.append("source_attempt_capture_error_present")
+        if (
+            source_accounting["source_post_cutoff_attempt_count"] > 0
+            and source_accounting["source_finalized_clean_count"] == 0
+        ):
+            warnings.append("no_clean_post_cutoff_source_attempts_yet")
     if status.get("qualified_net_pnl") is not None:
         failures.append("qualified_pnl_must_be_null")
     if (
@@ -139,6 +182,7 @@ payload = {
     "checked_at": now.isoformat().replace("+00:00", "Z"),
     "healthy": not failures,
     "failures": failures,
+    "warnings": warnings,
     "config_path": str(Path("/opt/poly-mm-v07/research/btc_5m_15m_relative_value_paper_v07_shadow_2026-08-16/SERVICE_CONFIG.json")),
     "status_path": str(status_path),
     "mode": config["mode"],
@@ -150,6 +194,23 @@ payload = {
     "free_bytes": free_bytes,
     "minimum_free_bytes": config["minimum_free_bytes"],
     "shadow_validation_returncode": shadow_validation.returncode,
+    "source_post_cutoff_attempt_count": (
+        None if status is None else status.get("source_post_cutoff_attempt_count")
+    ),
+    "source_finalized_clean_count": (
+        None if status is None else status.get("source_finalized_clean_count")
+    ),
+    "source_rejected_capture_error_count": (
+        None
+        if status is None
+        else status.get("source_rejected_capture_error_count")
+    ),
+    "selection_denominator_count": (
+        None if status is None else status.get("selection_denominator_count")
+    ),
+    "cohort_admission_count": (
+        None if status is None else status.get("cohort_admission_count")
+    ),
 }
 print(json.dumps(payload, indent=2, sort_keys=True))
 PY

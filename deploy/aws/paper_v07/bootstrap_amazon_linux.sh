@@ -86,29 +86,67 @@ install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0755 \
   "${DATA_ROOT}/monitor" \
   "${DATA_ROOT}/monitor/history"
 
-for xfs_path in "${DATA_ROOT}" /var/lib/poly-mm-v06; do
+SOURCE_RUNS_ROOT="$(
+  "${INSTALL_ROOT}/.venv/bin/python" - "${CONFIG_PATH}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+document = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+source_runs_root = document.get("source_runs_root")
+if not isinstance(source_runs_root, str) or not source_runs_root:
+    raise SystemExit("source_runs_root is missing or invalid")
+path = Path(source_runs_root).expanduser()
+if not path.is_absolute():
+    raise SystemExit("source_runs_root must be absolute")
+resolved = path.resolve(strict=True)
+allowed_root = Path("/var/lib/poly-mm-v06").resolve(strict=True)
+if not resolved.is_relative_to(allowed_root):
+    raise SystemExit("source_runs_root must remain under /var/lib/poly-mm-v06")
+print(resolved)
+PY
+)"
+
+for xfs_path in "${DATA_ROOT}" "${SOURCE_RUNS_ROOT}"; do
   if [[ "$(stat -f -c %T "${xfs_path}")" != "xfs" ]]; then
     echo "XFS is mandatory for V0.7 reflink snapshots: ${xfs_path}" >&2
     exit 1
   fi
 done
+if [[ "$(stat -c %d "${DATA_ROOT}")" != \
+  "$(stat -c %d "${SOURCE_RUNS_ROOT}")" ]]; then
+  echo "V0.6 source and V0.7 data root must share one filesystem for reflink snapshots." >&2
+  exit 1
+fi
 
 tmp_probe_dir="$(mktemp -d "${DATA_ROOT}/reflink-probe.XXXXXX")"
-src_probe="${tmp_probe_dir}/src.txt"
 dst_probe="${tmp_probe_dir}/dst.txt"
-printf '%s\n' "reflink probe" >"${src_probe}"
+cleanup_reflink_probe() {
+  rm -f "${dst_probe}"
+  rmdir "${tmp_probe_dir}" 2>/dev/null || true
+}
+trap cleanup_reflink_probe EXIT
+src_probe="$(
+  find "${SOURCE_RUNS_ROOT}" -type f -name capture-config.json -print -quit
+)"
+if [[ -z "${src_probe}" ]]; then
+  echo "A V0.6 capture-config.json is required for the cross-root reflink probe." >&2
+  exit 1
+fi
 cp --reflink=always "${src_probe}" "${dst_probe}"
-python3.11 - <<PY
+python3.11 - "${src_probe}" "${dst_probe}" <<'PY'
+import sys
 from pathlib import Path
 
-src = Path("${src_probe}")
-dst = Path("${dst_probe}")
+src = Path(sys.argv[1])
+dst = Path(sys.argv[2])
 if src.read_bytes() != dst.read_bytes():
     raise SystemExit("reflink probe payload mismatch")
 if src.stat().st_ino == dst.stat().st_ino:
     raise SystemExit("reflink probe must create a distinct inode")
 PY
-rm -rf "${tmp_probe_dir}"
+cleanup_reflink_probe
+trap - EXIT
 
 install -o root -g root -m 0644 \
   "${INSTALL_ROOT}/deploy/aws/paper_v07/polymm-btc-twap-paper-v07-performance.service" \

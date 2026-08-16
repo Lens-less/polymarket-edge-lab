@@ -173,6 +173,11 @@ def test_v07_health_service_timer_and_script_are_read_only() -> None:
     assert "authenticated_endpoints_used_nonzero" in script_text
     assert "shadow_validate_failed" in script_text
     assert "status_phase_unhealthy" in script_text
+    assert "source_accounting_invalid" in script_text
+    assert "source_accounting_inconsistent" in script_text
+    assert "source_attempt_capture_error_present" in script_text
+    assert "no_clean_post_cutoff_source_attempts_yet" in script_text
+    assert '"warnings": warnings' in script_text
     assert "qualified_pnl_must_be_null" in script_text
     assert "true_edge_guard_invalid" in script_text
     assert "positive_100_trade_guard_invalid" in script_text
@@ -212,8 +217,15 @@ def test_v07_bootstrap_uses_release_markers_reflink_probe_and_manual_start() -> 
     )
     assert "merge-base --is-ancestor" in bootstrap_text
     assert "release-marker-only archives are forbidden" in bootstrap_text
+    assert 'SOURCE_RUNS_ROOT="$(' in bootstrap_text
+    assert 'document.get("source_runs_root")' in bootstrap_text
+    assert 'stat -c %d "${DATA_ROOT}"' in bootstrap_text
+    assert 'stat -c %d "${SOURCE_RUNS_ROOT}"' in bootstrap_text
+    assert "must share one filesystem" in bootstrap_text
     assert 'stat -f -c %T "${xfs_path}"' in bootstrap_text
     assert '!= "xfs"' in bootstrap_text
+    assert 'find "${SOURCE_RUNS_ROOT}"' in bootstrap_text
+    assert '-name capture-config.json' in bootstrap_text
     assert "cp --reflink=always" in bootstrap_text
     assert "distinct inode" in bootstrap_text
     assert "systemctl daemon-reload" in bootstrap_text

@@ -618,6 +618,16 @@ class _SelectedCapture:
     source_marker: Mapping[str, Any]
 
 
+@dataclass(frozen=True)
+class _SourceScanResult:
+    selected: tuple[_SelectedCapture, ...]
+    summary_file_count: int
+    post_cutoff_attempt_count: int
+    finalized_clean_count: int
+    rejected_capture_error_count: int
+    latest_rejected_attempts: tuple[Mapping[str, Any], ...]
+
+
 def _clean_integrity(summary: Mapping[str, Any], *, root: Path) -> bool:
     integrity = summary.get("integrity")
     if not isinstance(integrity, Mapping) or set(integrity) != SOURCE_INTEGRITY_KEYS:
@@ -629,7 +639,9 @@ def _clean_integrity(summary: Mapping[str, Any], *, root: Path) -> bool:
         for value in integrity.values()
     ):
         return False
-    required_directories = tuple(root / name for name in ("raw", "derived", "checkpoints"))
+    required_directories = tuple(
+        root / name for name in ("raw", "derived", "checkpoints")
+    )
     if any(not path.is_dir() or path.is_symlink() for path in required_directories):
         return False
     actual = CaptureStore(root).audit_integrity()
@@ -720,10 +732,13 @@ def _source_marker(
 
 def _select_source_captures(
     config: V07ShadowConfig,
-) -> tuple[list[_SelectedCapture], int, int]:
+) -> _SourceScanResult:
     candidates: dict[int, _SelectedCapture] = {}
     summary_file_count = 0
+    post_cutoff_attempt_count = 0
     finalized_count = 0
+    rejected_capture_error_count = 0
+    rejected_attempts: list[Mapping[str, Any]] = []
     resolved_source_root = config.source_runs_root.resolve()
     for summary_path in sorted(
         config.source_runs_root.glob("*/*/capture-summary.json")
@@ -799,7 +814,9 @@ def _select_source_captures(
                 data_root_override=resolved_root,
             )
         except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
-            raise ValueError("post-cutoff source capture config contract is invalid") from exc
+            raise ValueError(
+                "post-cutoff source capture config contract is invalid"
+            ) from exc
         source_data_root = source_config.get("data_root")
         if (
             not isinstance(source_data_root, str)
@@ -825,7 +842,9 @@ def _select_source_captures(
             "orders_submitted": 0,
         }.items():
             if summary.get(key) != expected:
-                raise ValueError(f"post-cutoff source capture safety guard failed: {key}")
+                raise ValueError(
+                    f"post-cutoff source capture safety guard failed: {key}"
+                )
         generated_at = summary.get("generated_at")
         if not isinstance(generated_at, str) or not generated_at.endswith("Z"):
             raise ValueError("post-cutoff source capture generated_at is invalid")
@@ -841,8 +860,6 @@ def _select_source_captures(
             ) from exc
         if generated_at_ms < capture_started_at_ms:
             raise ValueError("post-cutoff source capture predates its start")
-        if summary.get("capture_error") is not None:
-            raise ValueError("post-cutoff source capture reported failure")
         if not _clean_integrity(summary, root=resolved_root):
             raise ValueError("post-cutoff source capture integrity is not clean")
         parsed_targets = _pair_from_source_targets(source_config.get("targets"))
@@ -856,6 +873,19 @@ def _select_source_captures(
         )
         if capture_started_at_ms > earliest_decision_at_ms:
             raise ValueError("post-cutoff source capture misses earliest decision")
+        post_cutoff_attempt_count += 1
+        if summary.get("capture_error") is not None:
+            rejected_capture_error_count += 1
+            rejected_attempts.append(
+                {
+                    "capture_started_at_ms": capture_started_at_ms,
+                    "expiry_ms": pair.expires_at_ms,
+                    "rejection_code": "source_capture_error",
+                    "source_capture_root": str(resolved_root),
+                    "source_capture_summary_sha256": _sha256(resolved_summary_path),
+                }
+            )
+            continue
         finalized_count += 1
         expiry_ms = pair.expires_at_ms
         canonical_cluster_id = canonical_event_cluster_id(pair)
@@ -887,10 +917,16 @@ def _select_source_captures(
             current.root.as_posix(),
         ):
             candidates[expiry_ms] = selected
-    return (
-        [candidates[key] for key in sorted(candidates)[: config.maximum_cases + 1]],
-        summary_file_count,
-        finalized_count,
+    return _SourceScanResult(
+        selected=tuple(
+            candidates[key]
+            for key in sorted(candidates)[: config.maximum_cases + 1]
+        ),
+        summary_file_count=summary_file_count,
+        post_cutoff_attempt_count=post_cutoff_attempt_count,
+        finalized_clean_count=finalized_count,
+        rejected_capture_error_count=rejected_capture_error_count,
+        latest_rejected_attempts=tuple(rejected_attempts[-5:]),
     )
 
 
@@ -987,11 +1023,10 @@ def _build_manifest(
 def _report_summary(
     config: V07ShadowConfig,
     *,
+    source_scan: _SourceScanResult,
     selected: Sequence[_SelectedCapture],
     projected: Sequence[tuple[_SelectedCapture, Path]],
     history_seed_count: int,
-    summary_file_count: int,
-    finalized_count: int,
     report: Mapping[str, Any] | None,
     report_status: str,
     manifest_path: Path,
@@ -1079,9 +1114,23 @@ def _report_summary(
         "track_id": config.track_id,
         "prospective_cutoff_iso": config.prospective_cutoff_iso,
         "prospective_cutoff_ms": config.prospective_cutoff_ms,
-        "source_count": finalized_count,
-        "source_summary_file_count": summary_file_count,
-        "source_finalized_count": finalized_count,
+        "source_count": source_scan.finalized_clean_count,
+        "source_summary_file_count": source_scan.summary_file_count,
+        "source_post_cutoff_attempt_count": (
+            source_scan.post_cutoff_attempt_count
+        ),
+        "source_finalized_count": source_scan.finalized_clean_count,
+        "source_finalized_clean_count": source_scan.finalized_clean_count,
+        "source_rejected_count": source_scan.rejected_capture_error_count,
+        "source_rejected_capture_error_count": (
+            source_scan.rejected_capture_error_count
+        ),
+        "latest_rejected_attempts": [
+            dict(attempt) for attempt in source_scan.latest_rejected_attempts
+        ],
+        "selection_denominator_count": source_scan.finalized_clean_count,
+        "cohort_admission_count": len(projected),
+        "data_quality_complete": source_scan.rejected_capture_error_count == 0,
         "source_eligible_count": len(selected),
         "history_seed_count": history_seed_count,
         "projected_count": len(projected) + history_seed_count,
@@ -1195,12 +1244,10 @@ def run_shadow_refresh(config: V07ShadowConfig) -> dict[str, Any]:
     config.data_root.mkdir(parents=True, exist_ok=True)
     config.research_root.mkdir(parents=True, exist_ok=True)
     with _exclusive_lock(config.data_root):
-        selected_candidates, summary_file_count, finalized_count = (
-            _select_source_captures(config)
-        )
+        source_scan = _select_source_captures(config)
         projected_candidates = [
             (selection, _project_capture(config, selection))
-            for selection in selected_candidates
+            for selection in source_scan.selected
         ]
         history_seed: tuple[tuple[_SelectedCapture, Path], ...] = ()
         projected = projected_candidates
@@ -1235,11 +1282,10 @@ def run_shadow_refresh(config: V07ShadowConfig) -> dict[str, Any]:
             report_status = "report_built"
         document = _report_summary(
             config,
+            source_scan=source_scan,
             selected=selected,
             projected=projected,
             history_seed_count=len(history_seed),
-            summary_file_count=summary_file_count,
-            finalized_count=finalized_count,
             report=report,
             report_status=report_status,
             manifest_path=manifest_path,
@@ -1288,7 +1334,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             "track_id": config.track_id,
             "source_count": 0,
             "source_summary_file_count": 0,
+            "source_post_cutoff_attempt_count": 0,
             "source_finalized_count": 0,
+            "source_finalized_clean_count": 0,
+            "source_rejected_count": 0,
+            "source_rejected_capture_error_count": 0,
+            "latest_rejected_attempts": [],
+            "selection_denominator_count": 0,
+            "cohort_admission_count": 0,
+            "data_quality_complete": False,
             "projected_count": 0,
             "train_case_count": 0,
             "validation_case_count": 0,

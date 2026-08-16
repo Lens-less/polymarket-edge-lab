@@ -435,7 +435,6 @@ def test_cutoff_and_latest_success_per_expiry_are_selected(
 @pytest.mark.parametrize(
     "failure_kind",
     (
-        "capture_error",
         "integrity",
         "missing_config",
         "malformed_config",
@@ -487,6 +486,61 @@ def test_post_cutoff_source_failures_fail_the_refresh(
         "error_type": "ValueError",
         "error_code": "v07_shadow_refresh_failed",
     }
+
+
+def test_post_cutoff_capture_error_is_visibly_rejected_without_blocking_clean_data(
+    tmp_path: Path,
+    fake_copy: list[tuple[Path, Path]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = _service_config_path(tmp_path)
+    config = shadow_module.load_shadow_config(config_path)
+    failed_root = _make_source_attempt(
+        config.source_runs_root,
+        expiry_ms=1_786_896_000_000,
+        attempt_name="failed-attempt",
+        capture_started_at_ms=1_786_895_000_000,
+        failed=True,
+    )
+    clean_root = _make_source_attempt(
+        config.source_runs_root,
+        expiry_ms=1_786_896_900_000,
+        attempt_name="clean-attempt",
+        capture_started_at_ms=1_786_895_940_000,
+    )
+    monkeypatch.setattr(
+        shadow_module,
+        "build_counterfactual_report",
+        lambda *, manifest_path: (_ for _ in ()).throw(
+            AssertionError("builder should not run")
+        ),
+    )
+
+    result = shadow_module.run_shadow_refresh(config)
+
+    assert result["phase"] == "warming_up"
+    assert result["source_post_cutoff_attempt_count"] == 2
+    assert result["source_finalized_clean_count"] == 1
+    assert result["source_rejected_count"] == 1
+    assert result["source_rejected_capture_error_count"] == 1
+    assert result["selection_denominator_count"] == 1
+    assert result["cohort_admission_count"] == 1
+    assert result["data_quality_complete"] is False
+    assert result["latest_rejected_attempts"] == [
+        {
+            "capture_started_at_ms": 1_786_895_000_000,
+            "expiry_ms": 1_786_896_000_000,
+            "rejection_code": "source_capture_error",
+            "source_capture_root": str(failed_root.resolve()),
+            "source_capture_summary_sha256": hashlib.sha256(
+                (failed_root / "capture-summary.json").read_bytes()
+            ).hexdigest(),
+        }
+    ]
+    assert not (config.data_root / "captures" / "1786896000000").exists()
+    assert (
+        config.data_root / "captures" / "1786896900000" / clean_root.name
+    ).is_dir()
 
 
 def test_projection_creates_independent_snapshot_and_preserves_source(

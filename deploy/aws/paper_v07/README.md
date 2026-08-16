@@ -12,8 +12,14 @@ This deployment is deliberately limited:
 - it does not prove true edge or real trading profitability
 - it cannot produce qualified PnL because no prelabel lock journal is supplied
 
+Explicit V6 `capture_error` attempts are rejected from projection and cohort
+admission but remain counted in the V7 status and health warnings. This avoids
+both permanent monitor deadlock and silent survivorship filtering. Schema,
+integrity, safety, path, and provenance violations remain hard failures.
+
 Bootstrap validates the frozen release, the preregistration binding, and the
-required XFS reflink behavior, but it does not auto-start the timers:
+required same-filesystem V6-to-V7 XFS reflink behavior, but it does not
+auto-start the timers:
 
 ```bash
 sudo DEPLOY_REF=<40-character-release-commit-sha> \

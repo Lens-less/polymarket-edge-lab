@@ -32,6 +32,21 @@ Selection policy
 - `maximum_cases = 102`
 - `snapshot_mode = reflink_required`
 - `minimum_free_bytes = 12884901888`
+- The configured V6 source root and V7 data root must be on the same XFS
+  filesystem, proven by device identity and a real cross-root reflink probe.
+
+Source-attempt accounting
+
+- A finalized source attempt whose own `capture_error` is non-null is never
+  projected, never admitted to a cohort, and never included in PnL or trade
+  counts.
+- Such attempts remain visible in the status denominator, rejection counts,
+  and recent rejection evidence. They are a health warning, not permission to
+  select only favorable outcomes.
+- Schema, integrity, safety, settlement-regime, path, or provenance violations
+  still fail the entire refresh closed.
+- Any source rejection keeps qualified PnL null, true edge false, and the
+  authoritative 100-trade gate false on this no-journal track.
 
 What this track can and cannot say
 
