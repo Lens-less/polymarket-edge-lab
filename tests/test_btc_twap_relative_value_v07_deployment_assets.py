@@ -203,6 +203,8 @@ def test_v07_bootstrap_uses_release_markers_reflink_probe_and_manual_start() -> 
     assert "checkout -f --detach" in bootstrap_text
     assert 'git -C "${INSTALL_ROOT}" clean -ffdx' in bootstrap_text
     assert "status --porcelain=v1 --untracked-files=all" in bootstrap_text
+    assert 'release_marker in "/.deployment-revision"' in bootstrap_text
+    assert '"${INSTALL_ROOT}/.git/info/exclude"' in bootstrap_text
     assert "--shell /sbin/nologin" in bootstrap_text
     assert (
         "preregistration source_baseline must be a 40-character commit"

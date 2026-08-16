@@ -46,6 +46,10 @@ if [[ ! -d "${INSTALL_ROOT}/.git" ]]; then
   echo "${INSTALL_ROOT} must be a Git checkout; release-marker-only archives are forbidden." >&2
   exit 1
 fi
+for release_marker in "/.deployment-revision" "/.implementation-revision"; do
+  grep -qxF "${release_marker}" "${INSTALL_ROOT}/.git/info/exclude" ||
+    printf '%s\n' "${release_marker}" >>"${INSTALL_ROOT}/.git/info/exclude"
+done
 git -C "${INSTALL_ROOT}" fetch --tags --prune origin
 git -C "${INSTALL_ROOT}" checkout -f --detach "${DEPLOY_REF}"
 git -C "${INSTALL_ROOT}" clean -ffdx
@@ -68,6 +72,7 @@ git -C "${INSTALL_ROOT}" merge-base --is-ancestor \
   "${FROZEN_IMPLEMENTATION_REVISION}" "${DEPLOY_REF}"
 printf '%s\n' "${FROZEN_IMPLEMENTATION_REVISION}" \
   >"${IMPLEMENTATION_REVISION_PATH}"
+test -z "$(git -C "${INSTALL_ROOT}" status --porcelain=v1 --untracked-files=all)"
 
 python3.11 -m venv "${INSTALL_ROOT}/.venv"
 "${INSTALL_ROOT}/.venv/bin/pip" install --upgrade pip
