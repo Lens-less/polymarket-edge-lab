@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_URL="${REPO_URL:-https://github.com/Lens-less/poly-mm.git}"
+DEPLOY_REF="${DEPLOY_REF:?DEPLOY_REF must be the immutable commit to deploy}"
+INSTALL_ROOT="${INSTALL_ROOT:-/opt/poly-mm-v07}"
+DATA_ROOT="${DATA_ROOT:-/var/lib/poly-mm-v07}"
+SERVICE_USER="${SERVICE_USER:-polybotv07}"
+SERVICE_GROUP="${SERVICE_GROUP:-polybotv07}"
+RESEARCH_DIR="btc_5m_15m_relative_value_paper_v07_shadow_2026-08-16"
+CONFIG_PATH="${INSTALL_ROOT}/research/${RESEARCH_DIR}/SERVICE_CONFIG.json"
+PREREG_PATH="${INSTALL_ROOT}/research/btc_5m_15m_relative_value_counterfactual_v07_2026-08-15/PREREGISTRATION.json"
+DEPLOYMENT_REVISION_PATH="${INSTALL_ROOT}/.deployment-revision"
+IMPLEMENTATION_REVISION_PATH="${INSTALL_ROOT}/.implementation-revision"
+
+if [[ "$(id -u)" -ne 0 ]]; then
+  echo "Run as root." >&2
+  exit 1
+fi
+if ! grep -q '^ID="\?amzn"\?$' /etc/os-release; then
+  echo "This bootstrap is frozen for Amazon Linux only." >&2
+  exit 1
+fi
+if [[ ! "${DEPLOY_REF}" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "DEPLOY_REF must be a 40-character lowercase commit." >&2
+  exit 1
+fi
+
+dnf install -y git python3.11 python3.11-pip
+if ! getent group "${SERVICE_GROUP}" >/dev/null 2>&1; then
+  groupadd --system "${SERVICE_GROUP}"
+fi
+if ! id -u "${SERVICE_USER}" >/dev/null 2>&1; then
+  useradd --system --gid "${SERVICE_GROUP}" --create-home \
+    --home-dir "/home/${SERVICE_USER}" --shell /sbin/nologin "${SERVICE_USER}"
+fi
+getent group polybotv06 >/dev/null 2>&1 || {
+  echo "Required source group polybotv06 is missing." >&2
+  exit 1
+}
+
+if [[ ! -e "${INSTALL_ROOT}" ]]; then
+  git clone "${REPO_URL}" "${INSTALL_ROOT}"
+fi
+if [[ -d "${INSTALL_ROOT}/.git" ]]; then
+  git -C "${INSTALL_ROOT}" fetch --tags --prune origin
+  git -C "${INSTALL_ROOT}" checkout --detach "${DEPLOY_REF}"
+  test "$(git -C "${INSTALL_ROOT}" rev-parse HEAD)" = "${DEPLOY_REF}"
+  printf '%s\n' "${DEPLOY_REF}" >"${DEPLOYMENT_REVISION_PATH}"
+elif [[ -f "${DEPLOYMENT_REVISION_PATH}" ]]; then
+  test "$(tr -d '\r\n' <"${DEPLOYMENT_REVISION_PATH}")" = "${DEPLOY_REF}"
+else
+  echo "${INSTALL_ROOT} is neither a Git checkout nor a verified source archive." >&2
+  exit 1
+fi
+
+FROZEN_IMPLEMENTATION_REVISION="$(python3.11 - <<PY
+import json
+from pathlib import Path
+
+document = json.loads(Path("${PREREG_PATH}").read_text(encoding="utf-8"))
+revision = document.get("source_baseline")
+if not isinstance(revision, str) or len(revision) != 40:
+    raise SystemExit("preregistration source_baseline must be a 40-character commit")
+print(revision)
+PY
+)"
+if [[ -d "${INSTALL_ROOT}/.git" ]]; then
+  git -C "${INSTALL_ROOT}" merge-base --is-ancestor \
+    "${FROZEN_IMPLEMENTATION_REVISION}" "${DEPLOY_REF}"
+  printf '%s\n' "${FROZEN_IMPLEMENTATION_REVISION}" \
+    >"${IMPLEMENTATION_REVISION_PATH}"
+else
+  test "$(tr -d '\r\n' <"${IMPLEMENTATION_REVISION_PATH}")" = \
+    "${FROZEN_IMPLEMENTATION_REVISION}"
+fi
+
+python3.11 -m venv "${INSTALL_ROOT}/.venv"
+"${INSTALL_ROOT}/.venv/bin/pip" install --upgrade pip
+"${INSTALL_ROOT}/.venv/bin/pip" install -e "${INSTALL_ROOT}"
+
+install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0755 \
+  "${DATA_ROOT}" \
+  "${DATA_ROOT}/data" \
+  "${DATA_ROOT}/research" \
+  "${DATA_ROOT}/status" \
+  "${DATA_ROOT}/monitor" \
+  "${DATA_ROOT}/monitor/history"
+
+tmp_probe_dir="$(mktemp -d "${DATA_ROOT}/reflink-probe.XXXXXX")"
+src_probe="${tmp_probe_dir}/src.txt"
+dst_probe="${tmp_probe_dir}/dst.txt"
+printf '%s\n' "reflink probe" >"${src_probe}"
+cp --reflink=always "${src_probe}" "${dst_probe}"
+python3.11 - <<PY
+from pathlib import Path
+
+src = Path("${src_probe}")
+dst = Path("${dst_probe}")
+if src.read_bytes() != dst.read_bytes():
+    raise SystemExit("reflink probe payload mismatch")
+if src.stat().st_ino == dst.stat().st_ino:
+    raise SystemExit("reflink probe must create a distinct inode")
+PY
+rm -rf "${tmp_probe_dir}"
+
+install -o root -g root -m 0644 \
+  "${INSTALL_ROOT}/deploy/aws/paper_v07/polymm-btc-twap-paper-v07-performance.service" \
+  /etc/systemd/system/polymm-btc-twap-paper-v07-performance.service
+install -o root -g root -m 0644 \
+  "${INSTALL_ROOT}/deploy/aws/paper_v07/polymm-btc-twap-paper-v07-performance.timer" \
+  /etc/systemd/system/polymm-btc-twap-paper-v07-performance.timer
+install -o root -g root -m 0644 \
+  "${INSTALL_ROOT}/deploy/aws/paper_v07/polymm-btc-twap-paper-v07-health.service" \
+  /etc/systemd/system/polymm-btc-twap-paper-v07-health.service
+install -o root -g root -m 0644 \
+  "${INSTALL_ROOT}/deploy/aws/paper_v07/polymm-btc-twap-paper-v07-health.timer" \
+  /etc/systemd/system/polymm-btc-twap-paper-v07-health.timer
+install -o root -g root -m 0755 \
+  "${INSTALL_ROOT}/deploy/aws/paper_v07/polymm-btc-twap-paper-v07-healthcheck.sh" \
+  /usr/local/bin/polymm-btc-twap-paper-v07-healthcheck
+
+chown -R root:root "${INSTALL_ROOT}"
+chmod -R a+rX "${INSTALL_ROOT}"
+"${INSTALL_ROOT}/.venv/bin/python" \
+  "${INSTALL_ROOT}/scripts/run_btc_twap_relative_value_v07_shadow.py" \
+  --config "${CONFIG_PATH}" --validate-only
+systemctl daemon-reload
+
+printf '%s\n' \
+  "Validated only. Start manually when ready:" \
+  "  systemctl enable polymm-btc-twap-paper-v07-performance.timer" \
+  "  systemctl start polymm-btc-twap-paper-v07-performance.timer" \
+  "  systemctl enable polymm-btc-twap-paper-v07-health.timer" \
+  "  systemctl start polymm-btc-twap-paper-v07-health.timer"
