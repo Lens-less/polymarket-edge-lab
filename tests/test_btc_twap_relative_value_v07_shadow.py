@@ -137,7 +137,14 @@ def _summary(
         "new_orders_disabled": True,
         "authenticated_endpoints_used": 0,
         "orders_submitted": 0,
-        "capture_error": None if not failed else {"error_code": "capture_failed"},
+        "capture_error": (
+            None
+            if not failed
+            else {
+                "error_type": "RuntimeError",
+                "error_code": "capture_failed",
+            }
+        ),
     }
 
 
@@ -541,6 +548,86 @@ def test_post_cutoff_capture_error_is_visibly_rejected_without_blocking_clean_da
     assert (
         config.data_root / "captures" / "1786896900000" / clean_root.name
     ).is_dir()
+
+
+@pytest.mark.parametrize(
+    "capture_error",
+    (
+        "capture_failed",
+        {"error_code": "capture_failed"},
+        {"error_type": "RuntimeError", "error_code": "wrong_code"},
+        {
+            "error_type": "RuntimeError",
+            "error_code": "capture_failed",
+            "detail": "unexpected",
+        },
+        {"error_type": "", "error_code": "capture_failed"},
+    ),
+    ids=(
+        "scalar",
+        "missing-error-type",
+        "wrong-error-code",
+        "unexpected-key",
+        "blank-error-type",
+    ),
+)
+def test_malformed_post_cutoff_capture_error_fails_closed(
+    tmp_path: Path,
+    fake_copy: list[tuple[Path, Path]],
+    capture_error: object,
+) -> None:
+    config_path = _service_config_path(tmp_path)
+    config = shadow_module.load_shadow_config(config_path)
+    source_root = _make_source_attempt(
+        config.source_runs_root,
+        expiry_ms=1_786_896_000_000,
+        attempt_name="malformed-capture-error",
+        capture_started_at_ms=1_786_895_000_000,
+        failed=True,
+    )
+    summary_path = source_root / "capture-summary.json"
+    summary = _load_json(summary_path)
+    summary["capture_error"] = capture_error
+    _write_json(summary_path, summary)
+
+    exit_code = shadow_module.main(["--config", str(config_path)])
+
+    assert exit_code == 1
+    status = _load_json(config.status_path)
+    assert status["phase"] == "failed"
+    assert status["source_rejected_capture_error_count"] == 0
+    assert status["last_error"] == {
+        "error_type": "ValueError",
+        "error_code": "v07_shadow_refresh_failed",
+    }
+
+
+def test_failed_source_hardlink_cannot_be_soft_rejected(
+    tmp_path: Path,
+    fake_copy: list[tuple[Path, Path]],
+) -> None:
+    config_path = _service_config_path(tmp_path)
+    config = shadow_module.load_shadow_config(config_path)
+    source_root = _make_source_attempt(
+        config.source_runs_root,
+        expiry_ms=1_786_896_000_000,
+        attempt_name="failed-hardlink",
+        capture_started_at_ms=1_786_895_000_000,
+        failed=True,
+    )
+    outside = tmp_path / "outside-hardlink.txt"
+    outside.hardlink_to(source_root / "notes.txt")
+
+    exit_code = shadow_module.main(["--config", str(config_path)])
+
+    assert exit_code == 1
+    status = _load_json(config.status_path)
+    assert status["phase"] == "failed"
+    assert status["source_rejected_capture_error_count"] == 0
+    assert status["last_error"] == {
+        "error_type": "ValueError",
+        "error_code": "v07_shadow_refresh_failed",
+    }
 
 
 def test_projection_creates_independent_snapshot_and_preserves_source(

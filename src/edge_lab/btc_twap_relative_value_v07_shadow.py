@@ -361,6 +361,20 @@ def _tree_identity(root: Path) -> dict[str, Any]:
     }
 
 
+def _validated_source_capture_error(value: Any) -> Mapping[str, str] | None:
+    if value is None:
+        return None
+    required_keys = {"error_type", "error_code"}
+    if not isinstance(value, Mapping) or set(value) != required_keys:
+        raise ValueError("post-cutoff source capture_error contract is invalid")
+    error_type = value.get("error_type")
+    if not isinstance(error_type, str) or not error_type.strip():
+        raise ValueError("post-cutoff source capture_error contract is invalid")
+    if value.get("error_code") != "capture_failed":
+        raise ValueError("post-cutoff source capture_error contract is invalid")
+    return {"error_type": error_type, "error_code": "capture_failed"}
+
+
 def _atomic_write_json(path: Path, document: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     encoded = canonical_json_bytes(document) + b"\n"
@@ -874,7 +888,12 @@ def _select_source_captures(
         if capture_started_at_ms > earliest_decision_at_ms:
             raise ValueError("post-cutoff source capture misses earliest decision")
         post_cutoff_attempt_count += 1
-        if summary.get("capture_error") is not None:
+        capture_error = _validated_source_capture_error(summary.get("capture_error"))
+        if capture_error is not None:
+            # A failed attempt is still untrusted source input. Traverse and hash
+            # the entire tree before taking the non-fatal rejection path so a
+            # symlink, hard link, or non-regular file cannot bypass the boundary.
+            _tree_identity(resolved_root)
             rejected_capture_error_count += 1
             rejected_attempts.append(
                 {
