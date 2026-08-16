@@ -1,66 +1,137 @@
 # BTC 5m/15m relative-value paper v0.7 shadow deployment report
 
-Updated on 2026-08-16 after external review, independent correction, and an
-Amazon Linux 2023/XFS canary on the EC2 host that already runs the frozen v0.6
-public-paper capture service.
+Updated on 2026-08-16 UTC after external review, independent correction,
+deployment, scheduled-run observation, and Amazon Linux/XFS validation.
 
-## Final release and artifacts
+## Outcome
 
-- GitHub `main` code/deployment commit: `4061913f13279721af0a48ce063ea5caa5310517`
-- Frozen v0.7 implementation baseline: `c557160d0c98e195a988f4353bbe19a3b00b3576`
-- Final deployment artifact:
-  `s3://poly-quant-artifacts-998948477566-eu-west-1/deploy/poly-mm-v07/2026-08-16/poly-mm-v07-git-release-4061913f13279721af0a48ce063ea5caa5310517-lf.tar.gz`
-- Artifact format: sparse, shallow Git checkout with the required runtime,
-  research, deployment, and test paths; the installed tree retains `.git`.
-- Artifact size: `3,087,212` bytes
-- Artifact SHA-256:
-  `096a46b6c5f09eb103fd7acb71de445e925ec963012c06b4dacff0931d394703`
-- S3 server-side encryption: `AES256`
-- Release-diff high-confidence secret findings: `0`
-- Workspace credential-regex finding files: `0`
+V0.7 is deployed as a read-only prospective public-data
+counterfactual/shadow monitor. It does not submit orders, use credentials, call
+authenticated endpoints, or modify the frozen V0.6 evidence tree. A performance
+job runs every 30 minutes and a health job every 5 minutes.
 
-The source bundle supplied to ChatGPT Pro was:
+Codex heartbeat automation `v7-30` also performs a read-only check every 30
+minutes and reports state changes or failures back to the current task. Its
+prompt forbids server, repository, cloud-configuration, service, and order
+mutations; server-side systemd remains the authoritative scheduler.
+
+This is **not** evidence that the strategy makes money. There is no pre-label
+lock journal, no qualified V0.7 trade, and no qualified PnL. The enforced state
+remains:
+
+- `qualified_net_pnl = null`
+- `true_edge = false`
+- `true_edge_gate = false`
+- `positive_100_trade_check = false`
+- `orders_submitted = 0`
+- `authenticated_endpoints_used = 0`
+
+The user's two economic acceptance criteria are therefore not met yet.
+
+## Source and release identities
+
+- GitHub `main` code/deployment commit:
+  `5b6708a2ce30b74b5d164fc33f8f195ae65e9689`
+- Frozen V0.7 implementation baseline:
+  `c557160d0c98e195a988f4353bbe19a3b00b3576`
+- Installed server commit at the time of this update:
+  `5b6708a2ce30b74b5d164fc33f8f195ae65e9689`
+- Installed Git status: clean
+
+The initial source bundle supplied to ChatGPT Pro was:
 
 - baseline: `36a09c4d9c49b540ea3a61b181fae50bcfa3a32b`
-- file: `poly-mm-v07-deployment-36a09c4-20260816T1228Z.zip`
 - size: `1,329,957` bytes
 - SHA-256:
   `f61437c485652ab7a1936c11ad5d282167750d7497ee6a6f0a21c36f44bd3ffa`
-- high-confidence secret findings before upload: `0`
+- high-confidence secret findings: `0`
 
-## External review and corrections
+The final ACL-review source bundle was:
 
-ChatGPT Pro deployment review:
+- baseline: `5b6708a2ce30b74b5d164fc33f8f195ae65e9689`
+- file: `poly-mm-v07-final-review-5b6708a-20260817-source.zip`
+- size: `1,096,531` bytes
+- entries: `211`
+- SHA-256:
+  `34a06bdae36a1dae20b1933d9dbef2dbf1ea93292b4328da236c4bb3ec351c56`
+- high-confidence secret findings: `0`
+- forbidden archive entries: `0`
+
+The original Git release archive remains preserved in encrypted S3:
+
+- size: `3,087,212` bytes
+- SHA-256:
+  `096a46b6c5f09eb103fd7acb71de445e925ec963012c06b4dacff0931d394703`
+- server-side encryption: `AES256`
+
+Immutable incremental bundles used for later corrections were also uploaded
+with `AES256` and verified before use. The final ACL increment was `6,482`
+bytes with SHA-256
+`6aa87f43e42ef36fc1bef1379bd5dd623eb6541372f5e2ee0cef8743c0b248a4`.
+The final Linux test found that the sparse release omitted the three frozen
+V0.5 research files asserted by the V0.7 asset test. Their exact Git blobs were
+packaged as a `4,619` byte, zero-high-confidence-secret archive with SHA-256
+`e421eee6b84e7257e2c98932f457141630385da3296c7bd78b70a12e9bc2c77c`,
+uploaded with `AES256`, verified on the host, written to the local object store,
+and added to the sparse checkout without changing the deployed commit or Git
+status.
+
+## External review and independent corrections
+
+ChatGPT Pro review conversation:
 <https://chatgpt.com/c/6a81b3fd-3a3c-83ec-bdda-d7056e03d5c3>
 
-The reviewer returned `NO-GO` for the submitted adapter and supplied a
-`44,232` byte patch with SHA-256
+Implementation conversation:
+<https://chatgpt.com/c/6a7fe211-89a8-83ec-88dc-083193386308>
+
+Earlier quantitative audit:
+<https://chatgpt.com/c/6a7fe366-7ce4-83ec-9afa-f193454d6eb7>
+
+The external reviewer initially returned `NO-GO` and supplied a `44,232` byte
+patch with SHA-256
 `1c14a5f6b5ec5462402084e339f86c42c411be5359e2a8904bd9cb894a134aa8`.
-The important findings were independently reproduced and corrected:
+The patch was not applied blindly. Findings were reproduced and corrected while
+keeping stricter fail-closed behavior where appropriate. Important corrections
+included:
 
-- the first normal post-cutoff capture may lack the exact 15-minute opening
-  boundary, so it becomes a history seed rather than a train case
-- V6 summary claims are no longer trusted as the integrity proof;
-  `CaptureStore.audit_integrity()` rechecks manifests and raw checksums
-- V6 service status SHA-256, phase, evidence-track ID, safety flags, config
-  schema, settlement regime, and generated time are revalidated
-- complete source-tree identities are checked before and after reflink
-  projection; symlinks, hard links, path escape, and source mutation fail closed
-- only the immediately preceding capture is used as history, avoiding quadratic
-  history amplification
-- impossible builder authority claims are suppressed on the no-journal track
-- health now fails for failed status, invalid source validation, non-null
-  qualified PnL, true-edge/100-trade/prelabel guard drift, future heartbeat, or
-  authenticated endpoint use
-- bootstrap now requires a real clean Git checkout and XFS on both V6 and V7
-  roots; marker-only source archives are rejected
+- using the first normal post-cutoff capture as a history seed when it lacks
+  the exact 15-minute opening boundary
+- independently auditing manifests and raw checksums instead of trusting a V6
+  summary claim
+- binding V6 status, configuration, evidence track, settlement regime, timing,
+  target identity, and safety flags
+- checking complete source-tree identity before and after reflink projection
+- rejecting symlinks, hard links, non-regular files, path escape, and mutation
+- using only the immediately preceding capture as history
+- suppressing builder authority on the no-journal track
+- verifying that V6 and V7 share one XFS device and that a real cross-root
+  reflink works
+- keeping explicit capture failures visible in the attempt denominator without
+  projecting them into a cohort
+- requiring `capture_error` to contain exactly `error_type` and `error_code`,
+  with `error_code = capture_failed`
+- running full tree identity checks before a failed attempt can take the visible
+  non-fatal rejection path
 
-The external patch was not applied blindly. Its silent skipping of bad
-post-cutoff captures conflicted with the stricter current contract, so the
-integrated implementation keeps all post-cutoff schema, integrity, failure, and
-provenance violations fail-closed. A scoped independent re-review ended `GO`.
+ChatGPT Pro verified the completed V0.7 source package as `140/140` tests and
+returned `GO for read-only 30-minute prospective shadow monitoring`. That GO
+explicitly does not assert profitability or true edge.
 
-## Host and activation result
+Two independent Codex reviews subsequently challenged the privileged ACL
+repair design. They first found a pathname TOCTOU and then a missing
+same-filesystem constraint. The final helper uses no-follow `openat`, stable
+inherited file descriptors, pre/post device-inode-type-link checks, root-device
+confinement at every directory and file boundary, and same-FD ACL rollback on
+failure. Both independent final reviews returned `GO`.
+
+The final ACL build was returned to ChatGPT Pro for one more narrow review. It
+verified the `1,096,531` byte package and SHA-256, ran all `142/142` V0.7 tests
+on Linux, ran helper probes for symlink, hardlink, and wrong-device rejection,
+and returned `GO for this ACL deployment fix`. Its container lacked real ACL
+xattr tools, which it disclosed; the actual grant/read/no-write canary was run
+independently on the Amazon Linux host.
+
+## Host and systemd boundaries
 
 - Region: `eu-west-1`
 - Instance: `i-045bb69f9cba2dadd`
@@ -68,89 +139,179 @@ provenance violations fail-closed. A scoped independent re-review ended `GO`.
 - CPU credit mode: `standard`
 - Install root: `/opt/poly-mm-v07`
 - Runtime root: `/var/lib/poly-mm-v07`
-- V6 source root: `/var/lib/poly-mm-v06` (read-only to V7 units)
+- V6 source root: `/var/lib/poly-mm-v06` (read-only to V7 runtime units)
+- Runtime user: `polybotv07` with supplementary public-source group
+  `polybotv06`
 
-An earlier automation briefly changed CPU credits to `unlimited` without the
-required cost authorization. The responsible agent corrected this immediately;
-the final and verified mode is `standard`. The low-credit resource risk remains.
+An earlier deployment automation briefly changed CPU credits to `unlimited`
+without the required cost authorization. It was immediately restored to
+`standard`; the final verified mode is `standard`. The near-zero-credit
+capacity risk remains.
 
-Final activation completed before the frozen prospective cutoff:
+The performance service has no network address family beyond `AF_UNIX`, denies
+all IP traffic, loads no environment file, retains no capabilities, and has
+`ReadOnlyPaths=/var/lib/poly-mm-v06`. It writes only under
+`/var/lib/poly-mm-v07`.
 
-- deployment revision:
-  `4061913f13279721af0a48ce063ea5caa5310517`
-- implementation revision:
-  `c557160d0c98e195a988f4353bbe19a3b00b3576`
-- installed Git worktree: clean after the two known release markers were written
-- V6 static config/unit combined SHA-256 before and after:
-  `eb61f901c4fffebca8eed07e8e1bfcc8b4a2a9d42b1d45dde4dd26e850e7486a`
-- V6 PID before and after: `148862`
-- XFS and `cp --reflink=always` positive-path probe: passed
-- `systemd-analyze verify`: no V7 unit error
-- performance timer: `enabled/active`
-- health timer: `enabled/active`
-- manual performance canary: `success`
-- manual health canary: `success`
+Two pre-activation install attempts failed closed before changing the active
+install: the instance role could not directly read the new S3 object, and a
+Windows-created Git index required a Linux checkout refresh. The final transfer
+used a short-lived presigned URL and was verified by SHA-256 before activation.
 
-Two pre-activation attempts were rejected without touching the active install:
-the instance role could not read a new S3 object directly, and a Windows-created
-Git index required a Linux checkout refresh. The active old V7 timers remained
-running during both preflight failures. The final artifact was transferred via a
-short-lived presigned URL and verified by SHA-256 before activation.
+V6 checkpoints are atomically replaced with mode `0600`. A separate root
+oneshot repairs only read ACL metadata on single-link JSON checkpoints in
+finalized post-cutoff attempts before each performance refresh. It retains only
+`CAP_DAC_READ_SEARCH` and `CAP_FOWNER`, has no network access, is confined to
+the exact V6 runs path, and never changes capture content. The V7 runtime user
+was verified to read but not write a repaired checkpoint.
+
+At `2026-08-16T19:04Z`, after the first unattended post-fix refresh:
+
+- source ACL unit: `Result=success`, `ExecMainStatus=0`
+- performance service: `Result=success`, `ExecMainStatus=0`
+- health: `healthy=true`, `failures=[]`
+- performance timer: enabled and active
+- health timer: enabled and active
+- V6 source service: active; its PID was not restarted by this deployment
+- installed Git tree: clean
+- most recent unattended refresh: started at `19:00:32Z`, completed at
+  `19:02:18Z`, `Result=success`, `ExecMainStatus=0`
+- next performance timer: `19:30:08Z`
+- free bytes at the final manual canary: `18,775,560,192`
+- required minimum: `12,884,901,888`
+
+## Scheduled-run incident record
+
+The monitoring path was observed rather than accepted from manual canaries
+alone.
+
+- The initial 15:00 scheduled run completed successfully with no post-cutoff
+  finalized capture yet.
+- The first failed post-cutoff capture showed that hard-failing every explicit
+  `capture_error` would permanently stop monitoring. The corrected status keeps
+  failed attempts visible while excluding them from projection, cohort, PnL,
+  cluster, and 100-trade counts.
+- A later unattended run completed successfully on the visible-rejection build.
+- The 18:00 scheduled run failed closed with `PermissionError`. Health became
+  unhealthy with `status_phase_unhealthy` and `source_accounting_invalid`; it
+  did not retain an old success or generate economic claims.
+- Root cause was directly reproduced: atomic V6 checkpoint replacement left
+  `user:polybotv07:r-x` present but with `mask::---`, making the named entry
+  ineffective.
+- The final ACL helper was deployed and its manual performance and health
+  canaries succeeded. A formerly unreadable checkpoint now has
+  `user:polybotv07:r--`; an explicit V7-user write test still fails.
+
+- The first unattended post-fix performance timer fired at `19:00:32Z` and
+  completed at `19:02:18Z` with `Result=success` and `ExecMainStatus=0`.
+  Its dependent ACL unit also returned success, the following health snapshot
+  was healthy with no failures, and the next performance run remained queued
+  for `19:30:08Z`.
 
 ## Verification
 
-Local acceptance on the integrated release:
+Local final code acceptance:
 
-- all V7 tests: `133 passed`
-- focused shadow/deployment tests after the final phase allowlist fix:
-  `45 passed`
+- V7 model/evaluation/replay/assets/counterfactual/shadow/deployment suite:
+  `142` collected, `141 passed`, `1 skipped`
+- the skip is the deliberately Linux-only FD/device/path-swap ACL test
 - Ruff `E`, `F`, and `I`: passed
-- Python compileall: passed
+- Python compilation: passed
 - Bash syntax: passed
-- systemd calendar parsing for `*:0/30` and `*:0/5`: passed
 - `git diff --check`: passed
+- independent spec review: `GO`
+- independent security/standards review: `GO` after two evidenced corrections
 
-The full Windows repository suite was also attempted earlier, but collection is
-not a valid cross-platform gate for POSIX-only modules (`fcntl`) and legacy tests
-whose optional `py_clob_client` dependency was absent. That attempt is not
-reported as a product pass. The focused Linux/systemd canary above is the
-deployment evidence.
+Server Linux acceptance:
 
-## State immediately before the prospective cutoff
+- pre-ACL final V7 suite: `140 passed` in `498.56s`
+- final Linux deployment suite, including FD path-swap, wrong-device, and ACL
+  rollback behavior: `9 passed` in `2.24s`
+- the first complete `142`-test run exposed the sparse-release omission above:
+  `141 passed`, `1` asset-file failure; the failure was retained rather than
+  misreported as a pass
+- after restoring those exact frozen Git blobs, the complete suite passed:
+  `142 passed` in `340.79s`; the installed Git tree remained clean and both V7
+  timers plus the V6 source service remained active
+- `systemd-analyze verify`: no V7 unit error; the only output was an unrelated
+  legacy `acpid.socket` `/var/run` warning
+- optional pytest asyncio/timeout plugins are absent on the host, producing two
+  configuration warnings and one unknown-timeout-mark warning; local tests did
+  have timeout enforcement
 
-At `2026-08-16T14:54:28Z`:
+ChatGPT Pro acceptance:
+
+- final complete pre-ACL V0.7 source bundle: `140/140 passed`
+- final ACL V0.7 source bundle: `142/142 passed`
+- final ACL deployment verdict: `GO`
+- package size, SHA-256, entry count, and CRC: matched
+- its environment lacked pytest-timeout, which it disclosed rather than
+  claiming timeout-enforced tests
+
+## Current prospective state and data-quality blocker
+
+At the unattended `2026-08-16T19:02:17Z` heartbeat:
 
 - `phase`: `warming_up`
-- `source_summary_file_count`: `175`
-- `source_finalized_count`: `0`
-- `history_seed_count`: `0`
+- `source_summary_file_count`: `191`
+- `source_post_cutoff_attempt_count`: `15`
+- `source_finalized_clean_count`: `1`
+- `source_rejected_capture_error_count`: `14`
+- `history_seed_count`: `1`
+- `projected_count`: `1`
 - `case_count`: `0`
-- `orders_submitted`: `0`
-- `authenticated_endpoints_used`: `0`
-- `live`: `false`
+- `cohort_admission_count`: `0`
 - `qualified_net_pnl`: `null`
 - `true_edge`: `false`
 - `positive_100_trade_check`: `false`
+- `orders_submitted`: `0`
+- `authenticated_endpoints_used`: `0`
+- `data_quality_complete`: `false`
 
-At `2026-08-16T14:54:30.327824Z`, health was `healthy=true`, source V6
-was active, shadow validate-only returned `0`, and free space was
-`20,653,350,912` bytes versus a `12,884,901,888` byte minimum.
+The source capture failure rate is therefore `14/15 = 93.3%`. The five most
+recent inspected failures all had two `RecorderWorkerError` legs while their
+manifest/raw integrity arrays were clean. The summaries deliberately sanitize
+the underlying recorder error code, so this report does not claim a uniquely
+proved software root cause.
 
-The first scheduled performance firing on the final release started at
-`2026-08-16T15:00:49Z` and completed successfully at `15:00:54Z`. It
-correctly remained at zero cases because no capture that started at or after
-the `15:00:00Z` cutoff had finalized yet. The next scheduled performance
-firing was `2026-08-16T15:30:06Z`.
+Host telemetry is a severe correlated risk. CloudWatch showed CPU credit
+balance near zero (latest observed five-minute average `~0.000068`) and CPU
+utilization pinned near the T3 baseline (`~20%`) while credit mode remained
+`standard`. Enabling `unlimited`, resizing the instance, or stopping another
+track would affect cost or existing services and was not inferred from the V7
+deployment authorization.
 
-## Evidence boundary
+No V0.7 economic case can be admitted until enough clean finalized captures
+exist. The data recorder and host-capacity issue is therefore the immediate
+blocker, ahead of model tuning.
 
-This is a prospective public-data counterfactual/shadow track. It cannot place
-orders, read credentials, or prove realized trading PnL. Because this track has
-no prelabel lock journal, `true_edge` must remain `false`, qualified PnL must
-remain `null`, and the authoritative 100-trade gate must remain `false` even if
-diagnostic counterfactual PnL becomes positive.
+For comparison, the latest V0.6 validation summary generated at
+`2026-08-16T15:36:14Z` reports `126` development-shadow trades, `122` settled,
+and `+179.16470800` net shadow PnL. That attractive headline is not qualified
+evidence: there were only `2` qualified economic attempts, their observed net
+PnL was `-10.01115600`, the 95% bootstrap lower value was `-10.01115600`, the
+maximum single-event PnL share was `1`, and `qualified_net_pnl` remained null.
+Thus even the old track's positive result after more than 100 shadow trades does
+not satisfy the user's 100-trade acceptance criterion.
 
-The first ordinary post-cutoff V6 capture is expected to be history-only when it
-started after its own 15-minute opening. The next builder-eligible expiry becomes
-train, followed by validation and test. No pre-cutoff capture may be used to make
-that first case appear eligible.
+## Evidence boundary and next work
+
+This track can prove that a fixed, paper-only V0.7 implementation processed
+prospective public captures under explicit safety and provenance checks. It
+cannot prove actual fills, market impact, live slippage, realized trading PnL,
+or true edge.
+
+Required next work, in order:
+
+1. restore reliable source capture and retain the underlying safe recorder
+   error code for diagnosis
+2. establish a prospective pre-label lock/journal protocol before test actions
+3. collect at least 100 independent settled expiry clusters and 100 explainable
+   economic attempts on one frozen track
+4. require positive qualified PnL, a positive cluster-bootstrap lower bound,
+   acceptable concentration, and model-vs-market calibration
+5. quantify two-leg execution, partial-fill, unwind, and latency loss before any
+   separately authorized tiny live experiment
+
+Until those gates pass, the correct claim is: **the V0.7 monitoring
+infrastructure is deployed, but profitable edge is not established**.
