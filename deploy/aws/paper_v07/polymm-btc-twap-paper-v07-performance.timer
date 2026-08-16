@@ -1,0 +1,11 @@
+[Unit]
+Description=Every-30-minute BTC 5m/15m relative-value paper v0.7 shadow refresh
+
+[Timer]
+OnCalendar=*:0/30
+Unit=polymm-btc-twap-paper-v07-performance.service
+Persistent=true
+RandomizedDelaySec=30
+
+[Install]
+WantedBy=timers.target

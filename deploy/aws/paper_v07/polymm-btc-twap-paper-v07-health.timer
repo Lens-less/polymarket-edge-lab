@@ -1,0 +1,10 @@
+[Unit]
+Description=Every-5-minute BTC 5m/15m paper v0.7 shadow health snapshot
+
+[Timer]
+OnCalendar=*:0/5
+Unit=polymm-btc-twap-paper-v07-health.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

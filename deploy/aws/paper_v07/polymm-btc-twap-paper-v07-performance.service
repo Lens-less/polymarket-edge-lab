@@ -1,0 +1,42 @@
+[Unit]
+Description=BTC 5m/15m relative-value paper v0.7 prospective shadow refresh
+After=local-fs.target polymm-btc-twap-paper-v06.service
+
+[Service]
+Type=oneshot
+User=polybotv07
+Group=polybotv07
+SupplementaryGroups=polybotv06
+WorkingDirectory=/opt/poly-mm-v07
+Environment=PYTHONUNBUFFERED=1
+Environment=AWS_EC2_METADATA_DISABLED=true
+ExecStartPre=/opt/poly-mm-v07/.venv/bin/python /opt/poly-mm-v07/scripts/run_btc_twap_relative_value_v07_shadow.py --config /opt/poly-mm-v07/research/btc_5m_15m_relative_value_paper_v07_shadow_2026-08-16/SERVICE_CONFIG.json --validate-only
+ExecStart=/opt/poly-mm-v07/.venv/bin/python /opt/poly-mm-v07/scripts/run_btc_twap_relative_value_v07_shadow.py --config /opt/poly-mm-v07/research/btc_5m_15m_relative_value_paper_v07_shadow_2026-08-16/SERVICE_CONFIG.json
+TimeoutStartSec=25min
+Nice=19
+IOSchedulingClass=idle
+CPUQuota=15%
+MemoryMax=500M
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ReadOnlyPaths=/opt/poly-mm-v07
+ReadOnlyPaths=/var/lib/poly-mm-v06
+ReadWritePaths=/var/lib/poly-mm-v07
+IPAddressDeny=any
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+UMask=0027
