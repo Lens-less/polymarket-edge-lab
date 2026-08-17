@@ -1,7 +1,8 @@
 # BTC 5m/15m relative-value paper v0.7 shadow deployment report
 
-Updated on 2026-08-16 UTC after external review, independent correction,
-deployment, scheduled-run observation, and Amazon Linux/XFS validation.
+Updated on 2026-08-17 UTC after external review, independent correction,
+deployment, scheduled-run observation, Amazon Linux/XFS validation, and the
+capture-capacity incident correction described below.
 
 ## Outcome
 
@@ -10,10 +11,44 @@ counterfactual/shadow monitor. It does not submit orders, use credentials, call
 authenticated endpoints, or modify the frozen V0.6 evidence tree. A performance
 job runs every 30 minutes and a health job every 5 minutes.
 
-Codex heartbeat automation `v7-30` also performs a read-only check every 30
+Codex heartbeat automation `v7-30` performs a read-only safety check every 10
 minutes and reports state changes or failures back to the current task. Its
 prompt forbids server, repository, cloud-configuration, service, and order
 mutations; server-side systemd remains the authoritative scheduler.
+
+## 2026-08-17 capture-capacity correction
+
+The repeated V0.6 capture failures were reproduced as shared persistence
+backpressure while the `t3.small` CPU credit balance was effectively zero.
+V0.7 also re-read and re-hashed every rejected source tree on every refresh,
+which made the cost grow with the failure count. The corrective deployment:
+
+- stopped and disabled the redundant rawcap producer while retaining its
+  non-destructive 15-minute maintenance timer
+- moved rawcap compression forward to 10 minutes after finalization
+- cached fully audited rejected-source identities under the V0.7 runtime root;
+  any source inventory change invalidates the cache and forces a full re-audit
+- separated expected per-case evidence gaps from safety/contract failures,
+  cached them by the complete manifest-case commitment, and prevented excluded
+  cases from entering later case history chains
+- retained the 30-minute V0.7 server timer after cache-hit refreshes fell to
+  17 seconds, keeping status inside its frozen 45-minute freshness contract
+- raised the V0.6 new-cycle disk guard from 12 GiB to a 15 GiB soft stop while
+  retaining the 12 GiB global hard floor
+- preserved each `RecorderWorkerError` type and code in future capture summaries
+- quarantined the obsolete V1 `deploy/aws/v07_shadow` asset set outside active
+  deployment paths
+
+The isolated V0.6 acceptance cycle completed at `2026-08-17T02:21:01Z` with
+`capture_error = null`, no recorder-leg failures, clean integrity, 98 manifests,
+and 27,955 records. CPU credits recovered from approximately zero to above 10.
+The first V0.7 rejected-tree cache build took 150 seconds and its immediate hit
+took 17 seconds. After the case-data-quality cache was added, its build took 41
+seconds and the dual-cache hit took 20 seconds. The first unattended timer run
+then completed successfully in 22 seconds. At that canary, 46 post-cutoff
+attempts contained 7 clean captures, 39 historical capture errors, 4 explicit
+case-level boundary gaps, and `case_count = cohort_admission_count = 2`. Orders
+and authenticated calls remained zero throughout.
 
 This is **not** evidence that the strategy makes money. There is no pre-label
 lock journal, no qualified V0.7 trade, and no qualified PnL. The enforced state

@@ -277,6 +277,14 @@ def _load_json(path: Path) -> dict[str, Any]:
     return value
 
 
+def _rejected_cache_path(config: shadow_module.V07ShadowConfig) -> Path:
+    return config.data_root / "monitor" / "rejected-source-cache.json"
+
+
+def _case_data_quality_cache_path(config: shadow_module.V07ShadowConfig) -> Path:
+    return config.data_root / "monitor" / "case-data-quality-cache.json"
+
+
 @pytest.fixture
 def fake_copy(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Path, Path]]:
     copied: list[tuple[Path, Path]] = []
@@ -509,6 +517,19 @@ def test_post_cutoff_capture_error_is_visibly_rejected_without_blocking_clean_da
         capture_started_at_ms=1_786_895_000_000,
         failed=True,
     )
+    failed_summary_path = failed_root / "capture-summary.json"
+    failed_summary = _load_json(failed_summary_path)
+    failed_summary["recorder_leg_failures"] = [
+        {
+            "error_type": "TimeoutError",
+            "error_code": "persistence_sink_timeout",
+        },
+        {
+            "error_type": "CancelledError",
+            "error_code": "persistence_sink_cancelled",
+        },
+    ]
+    _write_json(failed_summary_path, failed_summary)
     clean_root = _make_source_attempt(
         config.source_runs_root,
         expiry_ms=1_786_896_900_000,
@@ -538,6 +559,16 @@ def test_post_cutoff_capture_error_is_visibly_rejected_without_blocking_clean_da
             "capture_started_at_ms": 1_786_895_000_000,
             "expiry_ms": 1_786_896_000_000,
             "rejection_code": "source_capture_error",
+            "recorder_leg_failures": [
+                {
+                    "error_type": "TimeoutError",
+                    "error_code": "persistence_sink_timeout",
+                },
+                {
+                    "error_type": "CancelledError",
+                    "error_code": "persistence_sink_cancelled",
+                },
+            ],
             "source_capture_root": str(failed_root.resolve()),
             "source_capture_summary_sha256": hashlib.sha256(
                 (failed_root / "capture-summary.json").read_bytes()
@@ -548,6 +579,113 @@ def test_post_cutoff_capture_error_is_visibly_rejected_without_blocking_clean_da
     assert (
         config.data_root / "captures" / "1786896900000" / clean_root.name
     ).is_dir()
+
+
+def test_rejected_capture_error_reuses_cached_tree_identity_when_unchanged(
+    tmp_path: Path,
+    fake_copy: list[tuple[Path, Path]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    del fake_copy
+    config_path = _service_config_path(tmp_path)
+    config = shadow_module.load_shadow_config(config_path)
+    failed_root = _make_source_attempt(
+        config.source_runs_root,
+        expiry_ms=1_786_896_000_000,
+        attempt_name="failed-cached",
+        capture_started_at_ms=1_786_895_000_000,
+        failed=True,
+    )
+    hashed_paths: list[Path] = []
+    integrity_roots: list[Path] = []
+    original_sha256 = shadow_module._sha256
+    original_clean_integrity = shadow_module._clean_integrity
+
+    def record_sha256(path: Path) -> str:
+        hashed_paths.append(Path(path).resolve())
+        return original_sha256(path)
+
+    def record_clean_integrity(summary: dict[str, Any], *, root: Path) -> bool:
+        integrity_roots.append(root.resolve())
+        return original_clean_integrity(summary, root=root)
+
+    monkeypatch.setattr(shadow_module, "_sha256", record_sha256)
+    monkeypatch.setattr(shadow_module, "_clean_integrity", record_clean_integrity)
+
+    shadow_module.run_shadow_refresh(config)
+    first_hashes = tuple(hashed_paths)
+    assert integrity_roots == [failed_root.resolve()]
+    hashed_paths.clear()
+    integrity_roots.clear()
+
+    shadow_module.run_shadow_refresh(config)
+    second_hashes = tuple(hashed_paths)
+    second_source_hashes = {
+        path
+        for path in second_hashes
+        if path.is_relative_to(failed_root.resolve())
+    }
+
+    expected_tree_paths = {
+        (failed_root / "capture-config.json").resolve(),
+        (failed_root / "capture-summary.json").resolve(),
+        (failed_root / "notes.txt").resolve(),
+        (failed_root / "raw" / "clob_market_ws" / "events.jsonl").resolve(),
+        (failed_root / "raw" / "clob_market_ws" / "events.manifest.json").resolve(),
+    }
+    assert expected_tree_paths.issubset(set(first_hashes))
+    assert second_source_hashes == {
+        (failed_root / "capture-config.json").resolve(),
+        (failed_root / "capture-summary.json").resolve(),
+    }
+    assert integrity_roots == []
+    cache = _load_json(_rejected_cache_path(config))
+    cache_entry = cache["entries"][str(failed_root.resolve())]
+    assert cache_entry["source_capture_root"] == str(failed_root.resolve())
+    assert cache_entry["source_capture_tree"]["schema_version"] == (
+        "v07-shadow-tree-identity.v1"
+    )
+
+
+def test_rejected_capture_error_cache_invalidates_when_inventory_changes(
+    tmp_path: Path,
+    fake_copy: list[tuple[Path, Path]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    del fake_copy
+    config_path = _service_config_path(tmp_path)
+    config = shadow_module.load_shadow_config(config_path)
+    failed_root = _make_source_attempt(
+        config.source_runs_root,
+        expiry_ms=1_786_896_000_000,
+        attempt_name="failed-cache-invalidated",
+        capture_started_at_ms=1_786_895_000_000,
+        failed=True,
+    )
+    shadow_module.run_shadow_refresh(config)
+    first_cache = _load_json(_rejected_cache_path(config))
+    first_tree_sha = first_cache["entries"][str(failed_root.resolve())][
+        "source_capture_tree"
+    ]["tree_sha256"]
+    hashed_paths: list[Path] = []
+    original_sha256 = shadow_module._sha256
+
+    (failed_root / "notes.txt").write_text("shadow source changed\n", encoding="utf-8")
+
+    def record_sha256(path: Path) -> str:
+        hashed_paths.append(Path(path).resolve())
+        return original_sha256(path)
+
+    monkeypatch.setattr(shadow_module, "_sha256", record_sha256)
+
+    shadow_module.run_shadow_refresh(config)
+
+    assert (failed_root / "notes.txt").resolve() in set(hashed_paths)
+    second_cache = _load_json(_rejected_cache_path(config))
+    second_tree_sha = second_cache["entries"][str(failed_root.resolve())][
+        "source_capture_tree"
+    ]["tree_sha256"]
+    assert second_tree_sha != first_tree_sha
 
 
 @pytest.mark.parametrize(
@@ -758,6 +896,180 @@ def test_three_cases_call_builder_and_write_status(
     performance = _load_json(config.performance_path)
     assert performance["predictive_explainable_economic_attempt_count"] == 3
     assert performance["positive_100_trade_check"] is False
+
+
+def test_case_data_quality_gap_is_rejected_without_failing_refresh(
+    tmp_path: Path,
+    fake_copy: list[tuple[Path, Path]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    del fake_copy
+    config_path = _service_config_path(tmp_path)
+    config = shadow_module.load_shadow_config(config_path)
+    expiries = [
+        1_800_000_000_000,
+        1_800_003_600_000,
+        1_800_007_200_000,
+        1_800_010_800_000,
+    ]
+    for index, expiry_ms in enumerate(expiries):
+        _make_source_attempt(
+            config.source_runs_root,
+            expiry_ms=expiry_ms,
+            attempt_name=f"attempt-{index}",
+            capture_started_at_ms=expiry_ms - 540_000,
+        )
+
+    builder_calls = 0
+
+    def reject_first_case(*, manifest_path: Path) -> dict[str, Any]:
+        nonlocal builder_calls
+        builder_calls += 1
+        manifest = _load_json(manifest_path)
+        raise shadow_module.CaseDataQualityError(
+            case_alias=manifest["cases"][0]["event_cluster_id"],
+            error_code="exact_shared_60s_boundaries_missing",
+        )
+
+    monkeypatch.setattr(
+        shadow_module,
+        "build_counterfactual_report",
+        reject_first_case,
+    )
+
+    result = shadow_module.run_shadow_refresh(config)
+    second = shadow_module.run_shadow_refresh(config)
+
+    assert builder_calls == 1
+    assert second["latest_data_quality_rejections"] == result[
+        "latest_data_quality_rejections"
+    ]
+    assert result["phase"] == "warming_up"
+    assert result["case_count"] == 2
+    assert result["source_data_quality_rejected_count"] == 1
+    assert result["latest_data_quality_rejections"] == [
+        {
+            "case_alias": "expiry-1800003600000",
+            "error_code": "exact_shared_60s_boundaries_missing",
+        }
+    ]
+    manifest = _load_json(config.research_root / "manifests" / "manifest-latest.json")
+    assert [case["event_cluster_id"] for case in manifest["cases"]] == [
+        "expiry-1800007200000",
+        "expiry-1800010800000",
+    ]
+    assert manifest["cases"][0]["history_roots"] == [
+        str(config.data_root / "captures" / str(expiries[1]) / "attempt-1")
+    ]
+
+
+def test_rejected_case_history_still_advances_later_cases_and_invalidates_stale_cache(
+    tmp_path: Path,
+    fake_copy: list[tuple[Path, Path]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    del fake_copy
+    config_path = _service_config_path(tmp_path)
+    config = shadow_module.load_shadow_config(config_path)
+    expiries = [
+        1_800_000_000_000,
+        1_800_003_600_000,
+        1_800_007_200_000,
+        1_800_010_800_000,
+        1_800_014_400_000,
+    ]
+    for index, expiry_ms in enumerate(expiries):
+        _make_source_attempt(
+            config.source_runs_root,
+            expiry_ms=expiry_ms,
+            attempt_name=f"attempt-{index}",
+            capture_started_at_ms=expiry_ms - 540_000,
+        )
+
+    stale_attempt_root = config.data_root / "captures" / str(expiries[2]) / "attempt-2"
+    stale_case = {
+        "event_cluster_id": "expiry-1800007200000",
+        "canonical_event_cluster_id": _canonical_cluster_id(expiries[2]),
+        "split": "train",
+        "capture_root": str(stale_attempt_root),
+        "predictor_root": str(stale_attempt_root),
+        "capture_config_path": str(stale_attempt_root / "capture-config.json"),
+        "history_roots": [
+            str(config.data_root / "captures" / str(expiries[0]) / "attempt-0")
+        ],
+        "decision_tau_seconds": [60, 120, 180, 240],
+    }
+    stale_commitment = shadow_module._case_data_quality_commitment(stale_case)
+    _write_json(
+        _case_data_quality_cache_path(config),
+        {
+            "schema_version": (
+                shadow_module.CASE_DATA_QUALITY_CACHE_SCHEMA_VERSION
+            ),
+            "generated_at": "2026-08-17T00:00:00Z",
+            "entries": {
+                stale_commitment: {
+                    "case_alias": stale_case["event_cluster_id"],
+                    "case_commitment_sha256": stale_commitment,
+                    "error_code": "exact_shared_60s_boundaries_missing",
+                }
+            },
+        },
+    )
+
+    builder_calls = 0
+    seen_manifests: list[dict[str, Any]] = []
+
+    def reject_only_first_case(*, manifest_path: Path) -> dict[str, Any]:
+        nonlocal builder_calls
+        builder_calls += 1
+        manifest = _load_json(manifest_path)
+        seen_manifests.append(manifest)
+        first_case = manifest["cases"][0]
+        if builder_calls == 1:
+            raise shadow_module.CaseDataQualityError(
+                case_alias=first_case["event_cluster_id"],
+                error_code="exact_shared_60s_boundaries_missing",
+            )
+        return {
+            "schema_version": "btc-5m-15m-v07-counterfactual-report.v8",
+            "evaluation": {
+                "status": "counterfactual_insufficient",
+                "true_edge_gate_satisfied": False,
+                "qualified_net_pnl": None,
+                "predictive_explainable_economic_attempt_count": 3,
+                "structural_explainable_economic_attempt_count": 0,
+                "predictive_settled_expiry_cluster_count": 3,
+                "structural_settled_expiry_cluster_count": 0,
+                "predictive_net_pnl": "1.25",
+                "structural_net_pnl": "0",
+                "net_pnl": "1.25",
+            },
+        }
+
+    monkeypatch.setattr(
+        shadow_module,
+        "build_counterfactual_report",
+        reject_only_first_case,
+    )
+
+    result = shadow_module.run_shadow_refresh(config)
+
+    assert builder_calls == 2
+    assert result["report_status"] == "report_built"
+    assert result["phase"] == "ok"
+    assert result["case_count"] == 3
+    assert result["source_data_quality_rejected_count"] == 1
+    assert result["latest_data_quality_rejections"] == [
+        {
+            "case_alias": "expiry-1800003600000",
+            "error_code": "exact_shared_60s_boundaries_missing",
+        }
+    ]
+    assert seen_manifests[1]["cases"][0]["event_cluster_id"] == "expiry-1800007200000"
+    assert seen_manifests[1]["cases"][0]["history_roots"] == [
+        str(config.data_root / "captures" / str(expiries[1]) / "attempt-1")
+    ]
 
 
 def test_repeat_runs_are_idempotent(

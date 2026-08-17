@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import tempfile
 import time
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -22,7 +22,9 @@ from scripts.build_btc_twap_relative_value_pilot_report import (
     _pair_from_capture_targets,
 )
 from scripts.build_btc_twap_relative_value_v07_counterfactual import (
+    CASE_DATA_QUALITY_ERROR_CODES,
     MANIFEST_SCHEMA_VERSION,
+    CaseDataQualityError,
     build_counterfactual_report,
 )
 from src.edge_lab.btc_twap_relative_value_v07 import canonical_event_cluster_id
@@ -45,6 +47,12 @@ SOURCE_SUMMARY_SCHEMA_VERSION = "btc-twap-compact-forward-capture-summary.v1"
 MODE = "prospective_actual_market_counterfactual_shadow"
 STATUS_SCHEMA_VERSION = "btc-twap-relative-value-v07-shadow-status.v1"
 SOURCE_MARKER_SCHEMA_VERSION = "btc-twap-relative-value-v07-shadow-source-marker.v1"
+REJECTED_SOURCE_CACHE_SCHEMA_VERSION = (
+    "btc-twap-relative-value-v07-shadow-rejected-source-cache.v2"
+)
+CASE_DATA_QUALITY_CACHE_SCHEMA_VERSION = (
+    "btc-twap-relative-value-v07-shadow-case-data-quality-cache.v1"
+)
 ALLOWED_CONFIG_KEYS = frozenset(
     {
         "schema_version",
@@ -361,6 +369,235 @@ def _tree_identity(root: Path) -> dict[str, Any]:
     }
 
 
+def _source_inventory_token(root: Path) -> dict[str, Any]:
+    """Bind a finalized tree to kernel-maintained identity and change times.
+
+    On the Linux deployment, the unprivileged source account cannot restore
+    ``ctime_ns`` after changing content or metadata.  UID/GID, mode, device,
+    inode, link count, type, size, and both timestamps keep cache reuse inside
+    that trust boundary; any drift forces the content-level audit again.
+    """
+    entries: list[dict[str, Any]] = []
+    for path in (root, *sorted(root.rglob("*"))):
+        stat_result = path.lstat()
+        if path.is_symlink():
+            raise ValueError(f"source capture contains symlink: {path}")
+        elif path.is_dir():
+            kind = "dir"
+        elif path.is_file():
+            kind = "file"
+            if stat_result.st_nlink != 1:
+                raise ValueError(f"source capture contains hard-linked file: {path}")
+        else:
+            raise ValueError(f"source capture contains non-regular file: {path}")
+        entries.append(
+            {
+                "path": "." if path == root else path.relative_to(root).as_posix(),
+                "kind": kind,
+                "mtime_ns": stat_result.st_mtime_ns,
+                "ctime_ns": stat_result.st_ctime_ns,
+                "size": stat_result.st_size,
+                "device": stat_result.st_dev,
+                "inode": stat_result.st_ino,
+                "nlink": stat_result.st_nlink,
+                "mode": stat_result.st_mode,
+                "uid": stat_result.st_uid,
+                "gid": stat_result.st_gid,
+            }
+        )
+    return {
+        "schema_version": "v07-shadow-tree-inventory.v2",
+        "entry_count": len(entries),
+        "inventory_sha256": hashlib.sha256(canonical_json_bytes(entries)).hexdigest(),
+    }
+
+
+def _validated_tree_identity(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, Mapping):
+        return None
+    file_count = value.get("file_count")
+    tree_sha256 = value.get("tree_sha256")
+    if (
+        value.get("schema_version") != "v07-shadow-tree-identity.v1"
+        or isinstance(file_count, bool)
+        or not isinstance(file_count, int)
+        or file_count < 0
+        or not isinstance(tree_sha256, str)
+        or not tree_sha256
+    ):
+        return None
+    return {
+        "schema_version": "v07-shadow-tree-identity.v1",
+        "file_count": file_count,
+        "tree_sha256": tree_sha256,
+    }
+
+
+def _validated_inventory_token(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, Mapping):
+        return None
+    entry_count = value.get("entry_count")
+    inventory_sha256 = value.get("inventory_sha256")
+    if (
+        value.get("schema_version") != "v07-shadow-tree-inventory.v2"
+        or isinstance(entry_count, bool)
+        or not isinstance(entry_count, int)
+        or entry_count < 0
+        or not isinstance(inventory_sha256, str)
+        or not inventory_sha256
+    ):
+        return None
+    return {
+        "schema_version": "v07-shadow-tree-inventory.v2",
+        "entry_count": entry_count,
+        "inventory_sha256": inventory_sha256,
+    }
+
+
+def _rejected_source_cache_path(config: V07ShadowConfig) -> Path:
+    return config.data_root / "monitor" / "rejected-source-cache.json"
+
+
+def _load_rejected_source_cache(config: V07ShadowConfig) -> dict[str, dict[str, Any]]:
+    cache_path = _rejected_source_cache_path(config)
+    if not cache_path.is_file():
+        return {}
+    try:
+        document = _load_json(cache_path, label="rejected source cache")
+    except (OSError, UnicodeError, TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    if document.get("schema_version") != REJECTED_SOURCE_CACHE_SCHEMA_VERSION:
+        return {}
+    entries = document.get("entries")
+    if not isinstance(entries, Mapping):
+        return {}
+    normalized: dict[str, dict[str, Any]] = {}
+    for root, entry in entries.items():
+        if isinstance(root, str) and isinstance(entry, Mapping):
+            normalized[root] = dict(entry)
+    return normalized
+
+
+def _write_rejected_source_cache(
+    config: V07ShadowConfig, entries: Mapping[str, Mapping[str, Any]]
+) -> None:
+    _atomic_write_json(
+        _rejected_source_cache_path(config),
+        {
+            "schema_version": REJECTED_SOURCE_CACHE_SCHEMA_VERSION,
+            "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "entries": {key: dict(entries[key]) for key in sorted(entries)},
+        },
+    )
+
+
+def _case_data_quality_cache_path(config: V07ShadowConfig) -> Path:
+    return config.data_root / "monitor" / "case-data-quality-cache.json"
+
+
+def _load_case_data_quality_cache(
+    config: V07ShadowConfig,
+) -> dict[str, dict[str, Any]]:
+    cache_path = _case_data_quality_cache_path(config)
+    if not cache_path.is_file():
+        return {}
+    try:
+        document = _load_json(cache_path, label="case data-quality cache")
+    except (OSError, UnicodeError, TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    if document.get("schema_version") != CASE_DATA_QUALITY_CACHE_SCHEMA_VERSION:
+        return {}
+    entries = document.get("entries")
+    if not isinstance(entries, Mapping):
+        return {}
+    return {
+        key: dict(entry)
+        for key, entry in entries.items()
+        if isinstance(key, str) and isinstance(entry, Mapping)
+    }
+
+
+def _write_case_data_quality_cache(
+    config: V07ShadowConfig, entries: Mapping[str, Mapping[str, Any]]
+) -> None:
+    _atomic_write_json(
+        _case_data_quality_cache_path(config),
+        {
+            "schema_version": CASE_DATA_QUALITY_CACHE_SCHEMA_VERSION,
+            "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "entries": {key: dict(entries[key]) for key in sorted(entries)},
+        },
+    )
+
+
+def _case_data_quality_commitment(case: Mapping[str, Any]) -> str:
+    return hashlib.sha256(canonical_json_bytes(case)).hexdigest()
+
+
+def _cached_case_data_quality_rejection(
+    *,
+    case: Mapping[str, Any],
+    cache_entries: Mapping[str, Mapping[str, Any]],
+) -> Mapping[str, str] | None:
+    commitment = _case_data_quality_commitment(case)
+    entry = cache_entries.get(commitment)
+    case_alias = case.get("event_cluster_id")
+    if not isinstance(entry, Mapping) or not isinstance(case_alias, str):
+        return None
+    error_code = entry.get("error_code")
+    if (
+        entry.get("case_commitment_sha256") != commitment
+        or entry.get("case_alias") != case_alias
+        or error_code not in CASE_DATA_QUALITY_ERROR_CODES
+    ):
+        return None
+    return {"case_alias": case_alias, "error_code": str(error_code)}
+
+
+def _rejected_source_tree_identity(
+    *,
+    root: Path,
+    capture_config_path: Path,
+    summary_path: Path,
+    summary: Mapping[str, Any],
+    cache_entries: dict[str, dict[str, Any]],
+) -> tuple[dict[str, Any], bool]:
+    cache_key = str(root)
+    config_sha256 = _sha256(capture_config_path)
+    summary_sha256 = _sha256(summary_path)
+    inventory_token = _source_inventory_token(root)
+    cached_entry = cache_entries.get(cache_key)
+    if isinstance(cached_entry, Mapping):
+        cached_tree = _validated_tree_identity(cached_entry.get("source_capture_tree"))
+        cached_inventory = _validated_inventory_token(
+            cached_entry.get("source_capture_inventory_token")
+        )
+        if (
+            cached_entry.get("source_capture_root") == cache_key
+            and cached_entry.get("source_capture_config_sha256") == config_sha256
+            and cached_entry.get("source_capture_summary_sha256") == summary_sha256
+            and cached_entry.get("source_capture_integrity_clean") is True
+            and cached_inventory == inventory_token
+            and cached_tree is not None
+        ):
+            return cached_tree, False
+    if not _clean_integrity(summary, root=root):
+        raise ValueError("post-cutoff source capture integrity is not clean")
+    tree_identity = _tree_identity(root)
+    inventory_token_after = _source_inventory_token(root)
+    if inventory_token_after != inventory_token:
+        raise ValueError("post-cutoff source capture changed during validation")
+    cache_entries[cache_key] = {
+        "source_capture_root": cache_key,
+        "source_capture_config_sha256": config_sha256,
+        "source_capture_summary_sha256": summary_sha256,
+        "source_capture_integrity_clean": True,
+        "source_capture_tree": tree_identity,
+        "source_capture_inventory_token": inventory_token,
+    }
+    return tree_identity, True
+
+
 def _validated_source_capture_error(value: Any) -> Mapping[str, str] | None:
     if value is None:
         return None
@@ -373,6 +610,31 @@ def _validated_source_capture_error(value: Any) -> Mapping[str, str] | None:
     if value.get("error_code") != "capture_failed":
         raise ValueError("post-cutoff source capture_error contract is invalid")
     return {"error_type": error_type, "error_code": "capture_failed"}
+
+
+def _validated_recorder_leg_failures(value: Any) -> tuple[Mapping[str, str], ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list) or len(value) > 2:
+        raise ValueError("post-cutoff recorder_leg_failures contract is invalid")
+    failures: list[Mapping[str, str]] = []
+    for failure in value:
+        if not isinstance(failure, Mapping) or set(failure) != {
+            "error_type",
+            "error_code",
+        }:
+            raise ValueError("post-cutoff recorder_leg_failures contract is invalid")
+        error_type = failure.get("error_type")
+        error_code = failure.get("error_code")
+        if (
+            not isinstance(error_type, str)
+            or not error_type.strip()
+            or not isinstance(error_code, str)
+            or not error_code.strip()
+        ):
+            raise ValueError("post-cutoff recorder_leg_failures contract is invalid")
+        failures.append({"error_type": error_type, "error_code": error_code})
+    return tuple(failures)
 
 
 def _atomic_write_json(path: Path, document: Mapping[str, Any]) -> None:
@@ -754,6 +1016,8 @@ def _select_source_captures(
     rejected_capture_error_count = 0
     rejected_attempts: list[Mapping[str, Any]] = []
     resolved_source_root = config.source_runs_root.resolve()
+    rejected_cache_entries = _load_rejected_source_cache(config)
+    rejected_cache_dirty = False
     for summary_path in sorted(
         config.source_runs_root.glob("*/*/capture-summary.json")
     ):
@@ -874,8 +1138,6 @@ def _select_source_captures(
             ) from exc
         if generated_at_ms < capture_started_at_ms:
             raise ValueError("post-cutoff source capture predates its start")
-        if not _clean_integrity(summary, root=resolved_root):
-            raise ValueError("post-cutoff source capture integrity is not clean")
         parsed_targets = _pair_from_source_targets(source_config.get("targets"))
         if parsed_targets is None:
             raise ValueError("post-cutoff source target contract is invalid")
@@ -890,21 +1152,34 @@ def _select_source_captures(
         post_cutoff_attempt_count += 1
         capture_error = _validated_source_capture_error(summary.get("capture_error"))
         if capture_error is not None:
-            # A failed attempt is still untrusted source input. Traverse and hash
-            # the entire tree before taking the non-fatal rejection path so a
-            # symlink, hard link, or non-regular file cannot bypass the boundary.
-            _tree_identity(resolved_root)
+            recorder_leg_failures = _validated_recorder_leg_failures(
+                summary.get("recorder_leg_failures")
+            )
+            # A failed attempt is still untrusted source input. Reuse the prior
+            # full tree identity only when the config/summary digests and a cheap
+            # inventory token still prove the tree is unchanged.
+            _, cache_updated = _rejected_source_tree_identity(
+                root=resolved_root,
+                capture_config_path=resolved_config_path,
+                summary_path=resolved_summary_path,
+                summary=summary,
+                cache_entries=rejected_cache_entries,
+            )
+            rejected_cache_dirty = rejected_cache_dirty or cache_updated
             rejected_capture_error_count += 1
             rejected_attempts.append(
                 {
                     "capture_started_at_ms": capture_started_at_ms,
                     "expiry_ms": pair.expires_at_ms,
                     "rejection_code": "source_capture_error",
+                    "recorder_leg_failures": list(recorder_leg_failures),
                     "source_capture_root": str(resolved_root),
                     "source_capture_summary_sha256": _sha256(resolved_summary_path),
                 }
             )
             continue
+        if not _clean_integrity(summary, root=resolved_root):
+            raise ValueError("post-cutoff source capture integrity is not clean")
         finalized_count += 1
         expiry_ms = pair.expires_at_ms
         canonical_cluster_id = canonical_event_cluster_id(pair)
@@ -936,6 +1211,8 @@ def _select_source_captures(
             current.root.as_posix(),
         ):
             candidates[expiry_ms] = selected
+    if rejected_cache_dirty:
+        _write_rejected_source_cache(config, rejected_cache_entries)
     return _SourceScanResult(
         selected=tuple(
             candidates[key]
@@ -1008,10 +1285,16 @@ def _build_manifest(
     projected: Sequence[tuple[_SelectedCapture, Path]],
     *,
     initial_history_roots: Sequence[Path] = (),
+    excluded_case_aliases: Collection[str] = (),
 ) -> dict[str, Any]:
     cases: list[dict[str, Any]] = []
     prior_root = initial_history_roots[-1] if initial_history_roots else None
-    for index, (selection, projected_root) in enumerate(projected):
+    for selection, projected_root in projected:
+        if selection.alias in excluded_case_aliases:
+            prior_root = projected_root
+            continue
+        history_roots = [] if prior_root is None else [str(prior_root)]
+        index = len(cases)
         split = (
             "train"
             if index < config.train_case_count
@@ -1027,7 +1310,7 @@ def _build_manifest(
                 "capture_root": str(projected_root),
                 "predictor_root": str(projected_root),
                 "capture_config_path": str(projected_root / "capture-config.json"),
-                "history_roots": [] if prior_root is None else [str(prior_root)],
+                "history_roots": history_roots,
                 "decision_tau_seconds": list(config.decision_tau_seconds),
             }
         )
@@ -1046,6 +1329,7 @@ def _report_summary(
     selected: Sequence[_SelectedCapture],
     projected: Sequence[tuple[_SelectedCapture, Path]],
     history_seed_count: int,
+    data_quality_rejections: Sequence[Mapping[str, str]],
     report: Mapping[str, Any] | None,
     report_status: str,
     manifest_path: Path,
@@ -1147,9 +1431,16 @@ def _report_summary(
         "latest_rejected_attempts": [
             dict(attempt) for attempt in source_scan.latest_rejected_attempts
         ],
+        "source_data_quality_rejected_count": len(data_quality_rejections),
+        "latest_data_quality_rejections": [
+            dict(rejection) for rejection in data_quality_rejections[-5:]
+        ],
         "selection_denominator_count": source_scan.finalized_clean_count,
         "cohort_admission_count": len(projected),
-        "data_quality_complete": source_scan.rejected_capture_error_count == 0,
+        "data_quality_complete": (
+            source_scan.rejected_capture_error_count == 0
+            and not data_quality_rejections
+        ),
         "source_eligible_count": len(selected),
         "history_seed_count": history_seed_count,
         "projected_count": len(projected) + history_seed_count,
@@ -1278,33 +1569,98 @@ def run_shadow_refresh(config: V07ShadowConfig) -> dict[str, Any]:
                 projected = projected_candidates[1 : config.maximum_cases + 1]
             else:
                 projected = projected_candidates[: config.maximum_cases]
-        selected = [selection for selection, _ in projected]
-        manifest = _build_manifest(
-            config,
-            projected,
-            initial_history_roots=[root for _, root in history_seed],
-        )
         manifest_root = config.research_root / "manifests"
         manifest_path = manifest_root / "manifest-latest.json"
-        _atomic_write_json(manifest_path, manifest)
-        _write_history_json(manifest_root / "history", "manifest", manifest)
         minimum_cases = config.train_case_count + config.validation_case_count + 1
         report: Mapping[str, Any] | None = None
         report_path: Path | None = None
         report_status = "warming_up"
-        if len(projected) >= minimum_cases:
-            report = build_counterfactual_report(manifest_path=manifest_path)
+        projected_pool = list(projected)
+        excluded_case_aliases: set[str] = set()
+        data_quality_rejections: list[Mapping[str, str]] = []
+        data_quality_cache = _load_case_data_quality_cache(config)
+        data_quality_cache_dirty = False
+        while True:
+            projected = [
+                item
+                for item in projected_pool
+                if item[0].alias not in excluded_case_aliases
+            ]
+            manifest = _build_manifest(
+                config,
+                projected_pool,
+                initial_history_roots=[root for _, root in history_seed],
+                excluded_case_aliases=excluded_case_aliases,
+            )
+            _atomic_write_json(manifest_path, manifest)
+            cached_rejection = next(
+                (
+                    rejection
+                    for case in manifest["cases"]
+                    if (
+                        rejection := _cached_case_data_quality_rejection(
+                            case=case,
+                            cache_entries=data_quality_cache,
+                        )
+                    )
+                    is not None
+                ),
+                None,
+            )
+            if cached_rejection is not None:
+                excluded_case_aliases.add(cached_rejection["case_alias"])
+                data_quality_rejections.append(cached_rejection)
+                continue
+            if len(projected) < minimum_cases:
+                break
+            try:
+                report = build_counterfactual_report(manifest_path=manifest_path)
+            except CaseDataQualityError as exc:
+                admitted_aliases = {selection.alias for selection, _ in projected}
+                if (
+                    exc.case_alias not in admitted_aliases
+                    or exc.case_alias in excluded_case_aliases
+                ):
+                    raise RuntimeError(
+                        "counterfactual builder rejected an unknown case"
+                    ) from exc
+                excluded_case_aliases.add(exc.case_alias)
+                data_quality_rejections.append(
+                    {
+                        "case_alias": exc.case_alias,
+                        "error_code": exc.error_code,
+                    }
+                )
+                rejected_case = next(
+                    case
+                    for case in manifest["cases"]
+                    if case["event_cluster_id"] == exc.case_alias
+                )
+                commitment = _case_data_quality_commitment(rejected_case)
+                data_quality_cache[commitment] = {
+                    "case_alias": exc.case_alias,
+                    "case_commitment_sha256": commitment,
+                    "error_code": exc.error_code,
+                }
+                data_quality_cache_dirty = True
+                continue
             report_root = config.research_root / "reports"
             report_path = report_root / "report-latest.json"
             _atomic_write_json(report_path, report)
             _write_history_json(report_root / "history", "report", report)
             report_status = "report_built"
+            break
+        if data_quality_cache_dirty:
+            _write_case_data_quality_cache(config, data_quality_cache)
+        _write_history_json(manifest_root / "history", "manifest", manifest)
+        selected = [selection for selection, _ in projected]
         document = _report_summary(
             config,
             source_scan=source_scan,
             selected=selected,
             projected=projected,
             history_seed_count=len(history_seed),
+            data_quality_rejections=data_quality_rejections,
             report=report,
             report_status=report_status,
             manifest_path=manifest_path,
@@ -1359,6 +1715,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             "source_rejected_count": 0,
             "source_rejected_capture_error_count": 0,
             "latest_rejected_attempts": [],
+            "source_data_quality_rejected_count": 0,
+            "latest_data_quality_rejections": [],
             "selection_denominator_count": 0,
             "cohort_admission_count": 0,
             "data_quality_complete": False,

@@ -98,6 +98,33 @@ from src.edge_lab.settlement_regime import (  # noqa: E402
 MANIFEST_SCHEMA_VERSION = "btc-5m-15m-v07-counterfactual-manifest.v2"
 REPORT_SCHEMA_VERSION = "btc-5m-15m-v07-counterfactual-report.v8"
 LOCK_JOURNAL_SCHEMA_VERSION = "btc-5m-15m-v07-lock-journal.v4"
+CASE_DATA_QUALITY_ERROR_CODES = frozenset(
+    {
+        "boundary_source_event_ids_missing",
+        "causal_predictor_history_missing",
+        "causal_signal_books_incomplete",
+        "causal_strike_or_state_missing",
+        "exact_shared_60s_boundaries_missing",
+        "executable_market_baseline_missing",
+        "official_resolution_evidence_missing",
+        "terminal_state_stale",
+    }
+)
+
+
+class CaseDataQualityError(ValueError):
+    """A single prospective case lacks evidence but did not violate safety."""
+
+    def __init__(self, *, case_alias: str, error_code: str) -> None:
+        if not isinstance(case_alias, str) or not case_alias:
+            raise ValueError("case_alias must be non-empty")
+        if error_code not in CASE_DATA_QUALITY_ERROR_CODES:
+            raise ValueError("unsupported case data-quality error code")
+        self.case_alias = case_alias
+        self.error_code = error_code
+        super().__init__(f"case {case_alias}: {error_code}")
+
+
 LOCK_JOURNAL_SOURCE = "v07_locked_oos_journal"
 CAPTURE_CONFIG_SCHEMA_VERSION = "btc-5m-15m-relative-value-capture.v1"
 SOURCE_BASELINE = "c557160d0c98e195a988f4353bbe19a3b00b3576"
@@ -1083,6 +1110,7 @@ def _validate_rules_and_fees(
 
 def _validated_resolution_evidence(
     *,
+    case_alias: str,
     capture_root: Path,
     targets: Sequence[Mapping[str, Any]],
     expected_outcomes: Mapping[str, str],
@@ -1147,7 +1175,10 @@ def _validated_resolution_evidence(
     result: dict[str, Any] = {}
     for market_id, events in candidates.items():
         if not events:
-            raise ValueError(f"official resolution evidence missing for {market_id}")
+            raise CaseDataQualityError(
+                case_alias=case_alias,
+                error_code="official_resolution_evidence_missing",
+            )
         semantics = {
             (
                 str(event["condition_id"]).lower(),
@@ -1380,8 +1411,9 @@ def _load_case_contexts(
     opening_15 = _exact_observation(shared_twap, pair.market_15.opens_at_ms)
     closing = _exact_observation(shared_twap, expiry_ms)
     if opening_5 is None or opening_15 is None or closing is None:
-        raise ValueError(
-            f"case {cluster_alias} exact shared 60s boundaries are missing"
+        raise CaseDataQualityError(
+            case_alias=cluster_alias,
+            error_code="exact_shared_60s_boundaries_missing",
         )
     opening_5_event = _opening_event_id(
         twap_roots,
@@ -1402,7 +1434,10 @@ def _load_case_contexts(
         expected_value=closing[2],
     )
     if not opening_5_event or not opening_15_event or not closing_event:
-        raise ValueError(f"case {cluster_alias} boundary source event IDs are missing")
+        raise CaseDataQualityError(
+            case_alias=cluster_alias,
+            error_code="boundary_source_event_ids_missing",
+        )
 
     actual5 = closing[2] >= opening_5[2]
     actual15 = closing[2] >= opening_15[2]
@@ -1411,6 +1446,7 @@ def _load_case_contexts(
         pair.market_15.market_id: "Up" if actual15 else "Down",
     }
     resolution_evidence = _validated_resolution_evidence(
+        case_alias=cluster_alias,
         capture_root=capture_root,
         targets=targets,
         expected_outcomes=expected_outcomes,
@@ -1478,15 +1514,17 @@ def _load_case_contexts(
         )
         state = _latest_before(shared_twap, decision_at_ms)
         if strike5 is None or strike15 is None or state is None:
-            raise ValueError(
-                f"case {cluster_alias} has missing causal strike/state at tau {tau}"
+            raise CaseDataQualityError(
+                case_alias=cluster_alias,
+                error_code="causal_strike_or_state_missing",
             )
         if (
             decision_at_ms - state[0] > strategy.maximum_chainlink_staleness_ms
             or decision_at_ms - state[1] > strategy.maximum_chainlink_staleness_ms
         ):
-            raise ValueError(
-                f"case {cluster_alias} terminal state is stale at tau {tau}"
+            raise CaseDataQualityError(
+                case_alias=cluster_alias,
+                error_code="terminal_state_stale",
             )
         predictor_prices = _resample_one_second(
             predictor,
@@ -1494,8 +1532,9 @@ def _load_case_contexts(
             seconds=model.minimum_history_seconds,
         )
         if split != "test" and len(predictor_prices) != model.minimum_history_seconds:
-            raise ValueError(
-                f"case {cluster_alias} lacks causal predictor history at tau {tau}"
+            raise CaseDataQualityError(
+                case_alias=cluster_alias,
+                error_code="causal_predictor_history_missing",
             )
         required_tokens = (
             pair.market_5.up_token_id,
@@ -1509,8 +1548,9 @@ def _load_case_contexts(
             maximum_age_ms=strategy.maximum_book_staleness_ms,
         )
         if set(signal) != set(required_tokens):
-            raise ValueError(
-                f"case {cluster_alias} has incomplete causal signal books at tau {tau}"
+            raise CaseDataQualityError(
+                case_alias=cluster_alias,
+                error_code="causal_signal_books_incomplete",
             )
         signal_books = {key: value.snapshot for key, value in signal.items()}
         market5 = executable_binary_ask_probability(
@@ -1543,9 +1583,9 @@ def _load_case_contexts(
             or raw_market5 is None
             or raw_market15 is None
         ):
-            raise ValueError(
-                f"case {cluster_alias} executable market baseline is missing "
-                f"at tau {tau}"
+            raise CaseDataQualityError(
+                case_alias=cluster_alias,
+                error_code="executable_market_baseline_missing",
             )
         contexts.append(
             _RawDecisionContext(

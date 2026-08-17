@@ -8,6 +8,7 @@ DATA_ROOT="${DATA_ROOT:-/var/lib/poly-mm-watch}"
 SERVICE_USER="${SERVICE_USER:-polybotwatch}"
 SERVICE_GROUP="${SERVICE_GROUP:-polybotwatch}"
 DEPLOYMENT_REVISION_PATH="${INSTALL_ROOT}/.deployment-revision"
+RUNTIME_CONFIG_PATH="${RUNTIME_CONFIG_PATH:-/etc/polymm-watch-config.json}"
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "Run as root." >&2
@@ -54,6 +55,64 @@ install -o root -g root -m 0644 \
   "${INSTALL_ROOT}/deploy/aws/watch/polymm-watch.timer" \
   /etc/systemd/system/polymm-watch.timer
 
+WATCH_REGION_VALUE="${POLYMM_WATCH_AWS_REGION:-}"
+WATCH_INSTANCE_ID_VALUE="${POLYMM_WATCH_INSTANCE_ID:-}"
+if [[ -z "${WATCH_REGION_VALUE}" || -z "${WATCH_INSTANCE_ID_VALUE}" ]]; then
+  IDENTITY_JSON="$(
+    python3.11 - <<'PY'
+import json
+import urllib.request
+
+token_request = urllib.request.Request(
+    "http://169.254.169.254/latest/api/token",
+    method="PUT",
+    headers={"X-aws-ec2-metadata-token-ttl-seconds": "60"},
+)
+with urllib.request.urlopen(token_request, timeout=2) as response:
+    token = response.read().decode("utf-8")
+
+document_request = urllib.request.Request(
+    "http://169.254.169.254/latest/dynamic/instance-identity/document",
+    headers={"X-aws-ec2-metadata-token": token},
+)
+with urllib.request.urlopen(document_request, timeout=2) as response:
+    print(response.read().decode("utf-8"))
+PY
+  )"
+  if [[ -z "${WATCH_REGION_VALUE}" ]]; then
+    WATCH_REGION_VALUE="$(
+      python3.11 -c 'import json,sys; print(json.loads(sys.stdin.read())["region"])' \
+        <<<"${IDENTITY_JSON}"
+    )"
+  fi
+  if [[ -z "${WATCH_INSTANCE_ID_VALUE}" ]]; then
+    WATCH_INSTANCE_ID_VALUE="$(
+      python3.11 -c 'import json,sys; print(json.loads(sys.stdin.read())["instanceId"])' \
+        <<<"${IDENTITY_JSON}"
+    )"
+  fi
+fi
+
+python3.11 - "${INSTALL_ROOT}/deploy/aws/watch/watch-config.json" \
+  "${RUNTIME_CONFIG_PATH}" "${WATCH_REGION_VALUE}" \
+  "${WATCH_INSTANCE_ID_VALUE}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+source_path = Path(sys.argv[1])
+runtime_path = Path(sys.argv[2])
+region = sys.argv[3]
+instance_id = sys.argv[4]
+document = json.loads(source_path.read_text(encoding="utf-8"))
+host = document.get("host", {})
+host["cpu_credit_region"] = region
+host["cpu_credit_instance_id"] = instance_id
+runtime_path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+PY
+chown root:root "${RUNTIME_CONFIG_PATH}"
+chmod 0644 "${RUNTIME_CONFIG_PATH}"
+
 if [[ -n "${POLYMM_SNS_TOPIC_ARN:-}" ]]; then
   command -v aws >/dev/null
   printf 'POLYMM_SNS_TOPIC_ARN=%s\n' "${POLYMM_SNS_TOPIC_ARN}" \
@@ -65,7 +124,7 @@ chown -R root:root "${INSTALL_ROOT}"
 chmod -R a+rX "${INSTALL_ROOT}"
 "${INSTALL_ROOT}/.venv/bin/python" \
   "${INSTALL_ROOT}/scripts/watch_paper_tracks.py" \
-  --config "${INSTALL_ROOT}/deploy/aws/watch/watch-config.json" \
+  --config "${RUNTIME_CONFIG_PATH}" \
   --stdout-only
 systemctl daemon-reload
 

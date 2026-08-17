@@ -173,11 +173,20 @@ class TrackConfig:
     expected_cycle_seconds: int = 900
     expected_regime: str | None = None
     regime_state_path: Path | None = None
+    lifecycle: str = "active"
 
     def __post_init__(self) -> None:
+        lifecycle = self.lifecycle.strip().lower() or "active"
+        if lifecycle not in {"active", "maintenance", "retired"}:
+            raise ValueError(f"unsupported track lifecycle: {lifecycle}")
+        object.__setattr__(self, "lifecycle", lifecycle)
         object.__setattr__(self, "status_path", self.status_path.expanduser().resolve())
         if self.health_path is not None:
-            object.__setattr__(self, "health_path", self.health_path.expanduser().resolve())
+            object.__setattr__(
+                self,
+                "health_path",
+                self.health_path.expanduser().resolve(),
+            )
         if self.data_root is not None:
             object.__setattr__(self, "data_root", self.data_root.expanduser().resolve())
         if self.regime_state_path is not None:
@@ -187,6 +196,10 @@ class TrackConfig:
                 self.regime_state_path.expanduser().resolve(),
             )
 
+    @property
+    def monitors_runtime(self) -> bool:
+        return self.lifecycle == "active"
+
 
 @dataclass(frozen=True)
 class HostConfig:
@@ -194,6 +207,12 @@ class HostConfig:
     mem_available_threshold_bytes: int = 300 * 1024 * 1024
     cpu_credit_threshold: float = 100.0
     cpu_credit_decrease_seconds: int = 1800
+    cpu_credit_region: str | None = None
+    cpu_credit_instance_id: str | None = None
+    cpu_credit_cloudwatch_timeout_seconds: int = 10
+    cpu_credit_cloudwatch_period_seconds: int = 300
+    cpu_credit_cloudwatch_lookback_seconds: int = 1800
+    cpu_credit_cloudwatch_max_age_seconds: int = 900
     process_rss_budgets_bytes: Mapping[str, int] | None = None
 
 
@@ -502,6 +521,7 @@ def _load_watch_config(path: Path) -> WatchConfig:
                 if track.get("regime_state_path")
                 else None
             ),
+            lifecycle=str(track.get("lifecycle", "active")),
         )
         for track in document.get("tracks", [])
     )
@@ -522,6 +542,28 @@ def _load_watch_config(path: Path) -> WatchConfig:
             ),
             cpu_credit_decrease_seconds=int(
                 host_document.get("cpu_credit_decrease_seconds", 1800)
+            ),
+            cpu_credit_region=(
+                str(host_document["cpu_credit_region"])
+                if host_document.get("cpu_credit_region")
+                else None
+            ),
+            cpu_credit_instance_id=(
+                str(host_document["cpu_credit_instance_id"])
+                if host_document.get("cpu_credit_instance_id")
+                else None
+            ),
+            cpu_credit_cloudwatch_timeout_seconds=int(
+                host_document.get("cpu_credit_cloudwatch_timeout_seconds", 10)
+            ),
+            cpu_credit_cloudwatch_period_seconds=int(
+                host_document.get("cpu_credit_cloudwatch_period_seconds", 300)
+            ),
+            cpu_credit_cloudwatch_lookback_seconds=int(
+                host_document.get("cpu_credit_cloudwatch_lookback_seconds", 1800)
+            ),
+            cpu_credit_cloudwatch_max_age_seconds=int(
+                host_document.get("cpu_credit_cloudwatch_max_age_seconds", 900)
             ),
             process_rss_budgets_bytes=(
                 {
@@ -575,6 +617,9 @@ def collect_local_host_status(
     now: datetime,
     proc_root: Path = Path("/proc"),
     previous: Mapping[str, Any] | None = None,
+    host: HostConfig | None = None,
+    subprocess_run: Any = subprocess.run,
+    aws_cli_path: str | None = None,
 ) -> dict[str, Any]:
     """Collect Linux-local memory and per-track RSS without extra privileges."""
 
@@ -605,10 +650,141 @@ def collect_local_host_status(
         if known:
             process_rss[track.name] = sum(known)
     snapshot["process_rss_bytes"] = process_rss
-    if isinstance(previous, Mapping):
-        for field in ("cpu_credit_balance", "cpu_credit_observed_at"):
-            if field in previous:
-                snapshot[field] = previous[field]
+    if host is not None:
+        snapshot.update(
+            _cloudwatch_cpu_credit_status(
+                host=host,
+                now=now,
+                subprocess_run=subprocess_run,
+                aws_cli_path=aws_cli_path,
+            )
+        )
+    return snapshot
+
+
+def _cloudwatch_cpu_credit_status(
+    *,
+    host: HostConfig,
+    now: datetime,
+    subprocess_run: Any,
+    aws_cli_path: str | None,
+) -> dict[str, Any]:
+    snapshot: dict[str, Any] = {"cpu_credit_refresh_attempted": True}
+    if not host.cpu_credit_region or not host.cpu_credit_instance_id:
+        snapshot["cpu_credit_telemetry_unavailable"] = {
+            "reason": "cpu_credit_config_missing",
+            "region": host.cpu_credit_region,
+            "instance_id": host.cpu_credit_instance_id,
+        }
+        return snapshot
+    aws = aws_cli_path or shutil.which("aws")
+    if aws is None:
+        snapshot["cpu_credit_telemetry_unavailable"] = {
+            "reason": "aws_cli_missing",
+            "region": host.cpu_credit_region,
+            "instance_id": host.cpu_credit_instance_id,
+        }
+        return snapshot
+    end_time = now.astimezone(timezone.utc) + timedelta(minutes=1)
+    start_time = end_time - timedelta(
+        seconds=max(host.cpu_credit_cloudwatch_lookback_seconds, 300)
+    )
+    try:
+        completed = subprocess_run(
+            [
+                aws,
+                "cloudwatch",
+                "get-metric-statistics",
+                "--region",
+                host.cpu_credit_region,
+                "--namespace",
+                "AWS/EC2",
+                "--metric-name",
+                "CPUCreditBalance",
+                "--dimensions",
+                f"Name=InstanceId,Value={host.cpu_credit_instance_id}",
+                "--statistics",
+                "Average",
+                "--period",
+                str(host.cpu_credit_cloudwatch_period_seconds),
+                "--start-time",
+                _utc_text(start_time),
+                "--end-time",
+                _utc_text(end_time),
+                "--output",
+                "json",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=host.cpu_credit_cloudwatch_timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        snapshot["cpu_credit_telemetry_unavailable"] = {
+            "reason": "cloudwatch_timeout",
+            "region": host.cpu_credit_region,
+            "instance_id": host.cpu_credit_instance_id,
+        }
+        return snapshot
+    except OSError:
+        snapshot["cpu_credit_telemetry_unavailable"] = {
+            "reason": "cloudwatch_process_failed",
+            "region": host.cpu_credit_region,
+            "instance_id": host.cpu_credit_instance_id,
+        }
+        return snapshot
+    except subprocess.CalledProcessError as exc:
+        snapshot["cpu_credit_telemetry_unavailable"] = {
+            "reason": "cloudwatch_cli_failed",
+            "region": host.cpu_credit_region,
+            "instance_id": host.cpu_credit_instance_id,
+            "stderr": exc.stderr.strip() if isinstance(exc.stderr, str) else "",
+        }
+        return snapshot
+    try:
+        document = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        snapshot["cpu_credit_telemetry_unavailable"] = {
+            "reason": "cloudwatch_bad_json",
+            "region": host.cpu_credit_region,
+            "instance_id": host.cpu_credit_instance_id,
+        }
+        return snapshot
+    datapoints = document.get("Datapoints")
+    if not isinstance(datapoints, list):
+        datapoints = []
+    points: list[tuple[datetime, float]] = []
+    for point in datapoints:
+        if not isinstance(point, Mapping):
+            continue
+        observed_at = _parse_utc(
+            point.get("Timestamp") if isinstance(point.get("Timestamp"), str) else None
+        )
+        average = point.get("Average")
+        if observed_at is None or not isinstance(average, (int, float)):
+            continue
+        points.append((observed_at, float(average)))
+    if not points:
+        snapshot["cpu_credit_telemetry_unavailable"] = {
+            "reason": "cloudwatch_metric_missing",
+            "region": host.cpu_credit_region,
+            "instance_id": host.cpu_credit_instance_id,
+        }
+        return snapshot
+    observed_at, balance = max(points, key=lambda item: item[0])
+    metric_age = now.astimezone(timezone.utc) - observed_at
+    if metric_age < timedelta(minutes=-1) or metric_age > timedelta(
+        seconds=host.cpu_credit_cloudwatch_max_age_seconds
+    ):
+        snapshot["cpu_credit_telemetry_unavailable"] = {
+            "reason": "cloudwatch_metric_stale",
+            "region": host.cpu_credit_region,
+            "instance_id": host.cpu_credit_instance_id,
+            "observed_at": _utc_text(observed_at),
+        }
+        return snapshot
+    snapshot["cpu_credit_balance"] = balance
+    snapshot["cpu_credit_observed_at"] = _utc_text(observed_at)
     return snapshot
 
 
@@ -632,6 +808,7 @@ def _refresh_local_host_status(
             now=now,
             proc_root=proc_root,
             previous=previous,
+            host=config.host,
         ),
     )
 
@@ -645,6 +822,8 @@ def _regime_alerts(
     alerts: dict[str, AlertRecord] = {}
     prior_tracks = prior_state.get("tracks", {})
     for track in config.tracks:
+        if not track.monitors_runtime:
+            continue
         if track.regime_state_path is None:
             continue
         regime = _read_object(track.regime_state_path) or {}
@@ -724,6 +903,30 @@ def _host_alerts_and_state(
                 subject="host memory pressure",
                 body={"mem_available_bytes": memory},
             )
+    refresh_attempted = bool(host.get("cpu_credit_refresh_attempted"))
+    unavailable = (
+        dict(host.get("cpu_credit_telemetry_unavailable"))
+        if isinstance(host.get("cpu_credit_telemetry_unavailable"), Mapping)
+        else None
+    )
+    if refresh_attempted:
+        for field in (
+            "cpu_credit_balance",
+            "cpu_credit_observed_at",
+            "cpu_credit_decreasing_since",
+        ):
+            host_state.pop(field, None)
+    if unavailable is not None:
+        host_state["cpu_credit_telemetry_unavailable"] = unavailable
+        key = "host:cpu_credit_telemetry_unavailable"
+        alerts[key] = AlertRecord(
+            key=key,
+            severity="warn",
+            subject="host CPU credit telemetry unavailable",
+            body=unavailable,
+        )
+    else:
+        host_state.pop("cpu_credit_telemetry_unavailable", None)
     credits = host.get("cpu_credit_balance")
     observed_at = _parse_utc(
         host.get("cpu_credit_observed_at")
@@ -755,6 +958,7 @@ def _host_alerts_and_state(
         host_state["cpu_credit_balance"] = current_credits
         if observed_at is not None:
             host_state["cpu_credit_observed_at"] = _utc_text(observed_at)
+        host_state.pop("cpu_credit_telemetry_unavailable", None)
         if decreasing_since is None:
             host_state.pop("cpu_credit_decreasing_since", None)
         else:
@@ -860,6 +1064,7 @@ def run_watch_cycle(
         else {}
     )
     for track in config.tracks:
+        runtime_monitored = track.monitors_runtime
         status_document = _read_object(track.status_path)
         health_document = (
             _read_object(track.health_path)
@@ -940,7 +1145,7 @@ def run_watch_cycle(
             regime=regime,
             last_success_at=last_success,
         )
-        if unavailable_sources:
+        if runtime_monitored and unavailable_sources:
             active_alerts[f"{track.name}:telemetry_unavailable"] = AlertRecord(
                 key=f"{track.name}:telemetry_unavailable",
                 severity="warn",
@@ -948,7 +1153,7 @@ def run_watch_cycle(
                 body={**body, "unavailable_sources": unavailable_sources},
             )
         heartbeat_at = _parse_utc(status.get("heartbeat_at"))
-        if status_document is not None and (
+        if runtime_monitored and status_document is not None and (
             heartbeat_at is None or now - heartbeat_at > timedelta(seconds=60)
         ):
             active_alerts[f"{track.name}:heartbeat_stale"] = AlertRecord(
@@ -957,7 +1162,7 @@ def run_watch_cycle(
                 subject=f"{track.name} heartbeat stale",
                 body=body,
             )
-        if track.kind != "rawcap" and (
+        if runtime_monitored and track.kind != "rawcap" and (
             report_progress_at is not None
             and now - report_progress_at
             >= timedelta(seconds=track.expected_cycle_seconds * 2)
@@ -968,8 +1173,11 @@ def run_watch_cycle(
                 subject=f"{track.name} reports stalled",
                 body={**body, "completed_report_count": report_count},
             )
-        if capture_progress_at is not None and now - capture_progress_at >= timedelta(
-            seconds=track.expected_cycle_seconds * 2
+        if (
+            runtime_monitored
+            and capture_progress_at is not None
+            and now - capture_progress_at
+            >= timedelta(seconds=track.expected_cycle_seconds * 2)
         ):
             active_alerts[f"{track.name}:capture_stalled"] = AlertRecord(
                 key=f"{track.name}:capture_stalled",
@@ -977,7 +1185,7 @@ def run_watch_cycle(
                 subject=f"{track.name} capture stalled",
                 body={**body, "latest_capture_timestamp": capture_marker},
             )
-        if status.get("phase") in {"error_wait", "stopped"} and (
+        if runtime_monitored and status.get("phase") in {"error_wait", "stopped"} and (
             last_success is None or now - last_success >= timedelta(minutes=10)
         ):
             active_alerts[f"{track.name}:phase_unhealthy"] = AlertRecord(
@@ -997,7 +1205,7 @@ def run_watch_cycle(
             if isinstance(health_failures, list)
             else []
         )
-        if material_health_failures:
+        if runtime_monitored and material_health_failures:
             active_alerts[f"{track.name}:health_gate"] = AlertRecord(
                 key=f"{track.name}:health_gate",
                 severity="warn",

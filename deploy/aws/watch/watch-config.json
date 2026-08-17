@@ -12,6 +12,7 @@
     {
       "name": "v05",
       "kind": "paper",
+      "lifecycle": "retired",
       "status_path": "/var/lib/poly-mm-v05/data/btc_5m_15m_relative_value_paper_v05_linux_2026-08-13/service/status.json",
       "health_path": "/var/lib/poly-mm-v05/monitor/health-latest.json",
       "data_root": "/var/lib/poly-mm-v05/data/btc_5m_15m_relative_value_paper_v05_linux_2026-08-13",
@@ -23,6 +24,7 @@
     {
       "name": "v06",
       "kind": "paper",
+      "lifecycle": "active",
       "status_path": "/var/lib/poly-mm-v06/data/btc_5m_15m_relative_value_paper_v06_linux_2026-08-14/service/status.json",
       "health_path": "/var/lib/poly-mm-v06/monitor/health-latest.json",
       "data_root": "/var/lib/poly-mm-v06/data/btc_5m_15m_relative_value_paper_v06_linux_2026-08-14",
@@ -34,6 +36,7 @@
     {
       "name": "rawcap",
       "kind": "rawcap",
+      "lifecycle": "maintenance",
       "status_path": "/var/lib/poly-mm-rawcap/status/status.json",
       "health_path": "/var/lib/poly-mm-rawcap/monitor/health-latest.json",
       "data_root": "/var/lib/poly-mm-rawcap/data",
@@ -47,6 +50,12 @@
     "mem_available_threshold_bytes": 314572800,
     "cpu_credit_threshold": 100.0,
     "cpu_credit_decrease_seconds": 1800,
+    "cpu_credit_region": "__POLYMM_WATCH_AWS_REGION__",
+    "cpu_credit_instance_id": "__POLYMM_WATCH_INSTANCE_ID__",
+    "cpu_credit_cloudwatch_timeout_seconds": 10,
+    "cpu_credit_cloudwatch_period_seconds": 300,
+    "cpu_credit_cloudwatch_lookback_seconds": 1800,
+    "cpu_credit_cloudwatch_max_age_seconds": 900,
     "process_rss_budgets_bytes": {
       "v05": 367001600,
       "v06": 367001600,

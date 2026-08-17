@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
+import pytest
 
 from scripts.watch_paper_tracks import (
     AlertRecord,
@@ -78,6 +81,8 @@ def _watch_config(
             "mem_available_threshold_bytes": 300,
             "cpu_credit_threshold": 100.0,
             "cpu_credit_decrease_seconds": 1800,
+            "cpu_credit_region": "us-east-1",
+            "cpu_credit_instance_id": "i-1234567890abcdef0",
             "process_rss_budgets_bytes": {"v05": 600},
         }
     return _write_json(tmp_path / "watch-config.json", config)
@@ -299,6 +304,46 @@ def test_unreadable_status_reports_telemetry_gap_not_stale_heartbeat(
     assert "v05:heartbeat_stale" not in alerts
 
 
+def test_retired_track_suppresses_runtime_and_telemetry_alerts(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    now = datetime(2026, 8, 14, 16, 0, tzinfo=UTC)
+    config_path = _watch_config(tmp_path)
+    status_path = tmp_path / "v05" / "service" / "status.json"
+    _write_json(status_path, {"phase": "error_wait"})
+    document = json.loads(config_path.read_text(encoding="utf-8"))
+    document["tracks"][0]["lifecycle"] = "retired"
+    config_path.write_text(json.dumps(document), encoding="utf-8")
+    original_read_text = Path.read_text
+
+    def deny_status_read(path: Path, *args, **kwargs):
+        if path == status_path:
+            raise PermissionError(status_path)
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", deny_status_read)
+    publisher = CollectingPublisher()
+
+    run_watch_cycle(
+        _load_watch_config(config_path),
+        publisher=publisher,
+        now=now,
+    )
+
+    assert publisher.alerts == []
+
+
+def test_watch_config_rejects_unknown_track_lifecycle(tmp_path: Path) -> None:
+    config_path = _watch_config(tmp_path)
+    document = json.loads(config_path.read_text(encoding="utf-8"))
+    document["tracks"][0]["lifecycle"] = "retierd"
+    config_path.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="unsupported track lifecycle"):
+        _load_watch_config(config_path)
+
+
 def test_watch_cycle_warns_on_regime_mismatch_and_quarantine_growth(
     tmp_path: Path,
 ) -> None:
@@ -403,6 +448,45 @@ def test_rawcap_track_does_not_require_report_progress(tmp_path: Path) -> None:
     assert "rawcap:report_stalled" not in {
         alert.key for alert in publisher.alerts
     }
+
+
+def test_maintenance_track_suppresses_runtime_alerts(tmp_path: Path) -> None:
+    now = datetime(2026, 8, 14, 16, 0, tzinfo=UTC)
+    status_path = _write_json(
+        tmp_path / "rawcap" / "status.json",
+        {
+            "phase": "stopped",
+            "heartbeat_at": (now - timedelta(hours=1))
+            .isoformat()
+            .replace("+00:00", "Z"),
+        },
+    )
+    config_path = _write_json(
+        tmp_path / "watch-config.json",
+        {
+            "schema_version": "polymm-paper-track-watch-config.v1",
+            "state_path": str(tmp_path / "watch" / "state.json"),
+            "tracks": [
+                {
+                    "name": "rawcap",
+                    "kind": "rawcap",
+                    "lifecycle": "maintenance",
+                    "status_path": str(status_path),
+                    "data_root": str(tmp_path / "rawcap" / "data"),
+                    "expected_cycle_seconds": 900,
+                }
+            ],
+        },
+    )
+    publisher = CollectingPublisher()
+
+    run_watch_cycle(
+        _load_watch_config(config_path),
+        publisher=publisher,
+        now=now,
+    )
+
+    assert publisher.alerts == []
 
 
 def test_watch_cycle_persists_active_alert_snapshot(tmp_path: Path) -> None:
@@ -577,3 +661,166 @@ def test_watch_pages_on_sustained_cpu_credit_decline_above_absolute_floor(
     assert "host:cpu_credit_declining" in {
         alert.key for alert in publisher.alerts
     }
+
+
+def test_local_host_snapshot_uses_fresh_cloudwatch_cpu_credit(
+    tmp_path: Path,
+) -> None:
+    proc_root = tmp_path / "proc"
+    (proc_root / "meminfo").parent.mkdir(parents=True, exist_ok=True)
+    (proc_root / "meminfo").write_text(
+        "MemAvailable:    850000 kB\n",
+        encoding="utf-8",
+    )
+    config = _load_watch_config(_watch_config(tmp_path, include_host=True))
+
+    def fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args=args[0],
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "Datapoints": [
+                        {
+                            "Average": 87.5,
+                            "Timestamp": "2026-08-14T15:55:00+00:00",
+                        }
+                    ]
+                }
+            ),
+            stderr="",
+        )
+
+    snapshot = collect_local_host_status(
+        config.tracks,
+        now=datetime(2026, 8, 14, 16, 0, tzinfo=UTC),
+        proc_root=proc_root,
+        previous={
+            "cpu_credit_balance": 244.11,
+            "cpu_credit_observed_at": "2026-08-14T03:00:00Z",
+        },
+        host=config.host,
+        subprocess_run=fake_run,
+        aws_cli_path="aws",
+    )
+
+    assert snapshot["cpu_credit_balance"] == 87.5
+    assert snapshot["cpu_credit_observed_at"] == "2026-08-14T15:55:00Z"
+
+
+def test_local_host_snapshot_rejects_stale_cloudwatch_cpu_credit(
+    tmp_path: Path,
+) -> None:
+    proc_root = tmp_path / "proc"
+    (proc_root / "meminfo").parent.mkdir(parents=True, exist_ok=True)
+    (proc_root / "meminfo").write_text(
+        "MemAvailable:    850000 kB\n",
+        encoding="utf-8",
+    )
+    config = _load_watch_config(_watch_config(tmp_path, include_host=True))
+
+    def fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args=args[0],
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "Datapoints": [
+                        {
+                            "Average": 244.11,
+                            "Timestamp": "2026-08-14T15:30:00+00:00",
+                        }
+                    ]
+                }
+            ),
+            stderr="",
+        )
+
+    snapshot = collect_local_host_status(
+        config.tracks,
+        now=datetime(2026, 8, 14, 16, 0, tzinfo=UTC),
+        proc_root=proc_root,
+        host=config.host,
+        subprocess_run=fake_run,
+        aws_cli_path="aws",
+    )
+
+    assert "cpu_credit_balance" not in snapshot
+    assert snapshot["cpu_credit_telemetry_unavailable"]["reason"] == (
+        "cloudwatch_metric_stale"
+    )
+
+
+def test_local_host_snapshot_reports_cloudwatch_process_failure(
+    tmp_path: Path,
+) -> None:
+    proc_root = tmp_path / "proc"
+    (proc_root / "meminfo").parent.mkdir(parents=True, exist_ok=True)
+    (proc_root / "meminfo").write_text(
+        "MemAvailable:    850000 kB\n",
+        encoding="utf-8",
+    )
+    config = _load_watch_config(_watch_config(tmp_path, include_host=True))
+
+    def fake_run(*args, **kwargs):
+        raise OSError("aws executable unavailable")
+
+    snapshot = collect_local_host_status(
+        config.tracks,
+        now=datetime(2026, 8, 14, 16, 0, tzinfo=UTC),
+        proc_root=proc_root,
+        host=config.host,
+        subprocess_run=fake_run,
+        aws_cli_path="aws",
+    )
+
+    assert "cpu_credit_balance" not in snapshot
+    assert snapshot["cpu_credit_telemetry_unavailable"]["reason"] == (
+        "cloudwatch_process_failed"
+    )
+
+
+def test_watch_replaces_stale_cpu_credit_decline_with_telemetry_unavailable(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 8, 14, 16, 0, tzinfo=UTC)
+    config_path = _watch_config(tmp_path, include_host=True)
+    _write_json(
+        tmp_path / "watch" / "host-status.json",
+        {
+            "cpu_credit_refresh_attempted": True,
+            "cpu_credit_telemetry_unavailable": {
+                "reason": "cloudwatch_timeout",
+                "region": "us-east-1",
+                "instance_id": "i-1234567890abcdef0",
+            },
+        },
+    )
+    _write_json(
+        tmp_path / "watch" / "state.json",
+        {
+            "schema_version": "polymm-paper-track-watch-state.v1",
+            "alerts": {},
+            "tracks": {},
+            "host": {
+                "cpu_credit_balance": 120.0,
+                "cpu_credit_observed_at": "2026-08-14T15:30:00Z",
+                "cpu_credit_decreasing_since": "2026-08-14T15:20:00Z",
+            },
+        },
+    )
+    publisher = CollectingPublisher()
+
+    run_watch_cycle(
+        _load_watch_config(config_path),
+        publisher=publisher,
+        now=now,
+    )
+
+    keys = {alert.key for alert in publisher.alerts}
+    assert "host:cpu_credit_telemetry_unavailable" in keys
+    assert "host:cpu_credit_declining" not in keys
+    state = json.loads(
+        (tmp_path / "watch" / "state.json").read_text(encoding="utf-8")
+    )
+    assert "cpu_credit_balance" not in state["host"]

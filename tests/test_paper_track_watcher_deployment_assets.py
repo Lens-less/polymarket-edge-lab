@@ -13,11 +13,30 @@ def test_watch_deployment_assets_exist() -> None:
     expected = {
         "README.md",
         "bootstrap_amazon_linux.sh",
+        "cloudwatch-read-policy.json",
         "polymm-watch.service",
         "polymm-watch.timer",
         "watch-config.json",
     }
     assert expected.issubset({path.name for path in DEPLOY_ROOT.iterdir()})
+
+
+def test_watch_cloudwatch_policy_is_read_only_and_minimal() -> None:
+    document = json.loads(
+        (DEPLOY_ROOT / "cloudwatch-read-policy.json").read_text(encoding="utf-8")
+    )
+
+    assert document == {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Sid": "ReadCpuCreditBalanceOnly",
+                "Effect": "Allow",
+                "Action": "cloudwatch:GetMetricStatistics",
+                "Resource": "*",
+            }
+        ],
+    }
 
 
 def test_watch_service_is_read_only_to_strategy_roots() -> None:
@@ -32,8 +51,13 @@ def test_watch_service_is_read_only_to_strategy_roots() -> None:
     assert "ReadOnlyPaths=/var/lib/poly-mm-v06" in text
     assert "ReadOnlyPaths=/var/lib/poly-mm-rawcap" in text
     assert "ReadWritePaths=/var/lib/poly-mm-watch" in text
-    assert "SupplementaryGroups=polybotv05 polybotv06 polybotraw" in text
-    assert "ExecStart=/opt/poly-mm-watch/.venv/bin/python /opt/poly-mm-watch/scripts/watch_paper_tracks.py --config /opt/poly-mm-watch/deploy/aws/watch/watch-config.json" in text
+    assert "SupplementaryGroups=polybotv06 polybotraw" in text
+    assert "polybotv05" not in text
+    assert (
+        "ExecStart=/opt/poly-mm-watch/.venv/bin/python "
+        "/opt/poly-mm-watch/scripts/watch_paper_tracks.py "
+        "--config /etc/polymm-watch-config.json"
+    ) in text
     assert "IPAddressDeny=169.254.169.254" not in text
 
 
@@ -49,6 +73,13 @@ def test_watch_timer_and_bootstrap_match_staged_manual_start() -> None:
     assert 'SERVICE_USER="${SERVICE_USER:-polybotwatch}"' in bootstrap_text
     assert 'SERVICE_GROUP="${SERVICE_GROUP:-polybotwatch}"' in bootstrap_text
     assert 'DEPLOYMENT_REVISION_PATH="${INSTALL_ROOT}/.deployment-revision"' in bootstrap_text
+    assert 'RUNTIME_CONFIG_PATH="${RUNTIME_CONFIG_PATH:-/etc/polymm-watch-config.json}"' in bootstrap_text
+    assert 'WATCH_REGION_VALUE="${POLYMM_WATCH_AWS_REGION:-}"' in bootstrap_text
+    assert 'WATCH_INSTANCE_ID_VALUE="${POLYMM_WATCH_INSTANCE_ID:-}"' in bootstrap_text
+    assert "latest/dynamic/instance-identity/document" in bootstrap_text
+    assert 'host["cpu_credit_region"] = region' in bootstrap_text
+    assert 'host["cpu_credit_instance_id"] = instance_id' in bootstrap_text
+    assert 'chmod 0644 "${RUNTIME_CONFIG_PATH}"' in bootstrap_text
     assert "verified source archive" in bootstrap_text
     assert "systemctl daemon-reload" in bootstrap_text
     assert "systemctl enable polymm-watch.timer" in bootstrap_text
@@ -64,6 +95,15 @@ def test_watch_config_tracks_v05_v06_and_rawcap() -> None:
     assert document["state_path"] == "/var/lib/poly-mm-watch/state/watch-state.json"
     assert document["digest_interval_seconds"] == 3600
     assert {track["name"] for track in document["tracks"]} == {"v05", "v06", "rawcap"}
+    lifecycle_by_track = {
+        track["name"]: track.get("lifecycle")
+        for track in document["tracks"]
+    }
+    assert lifecycle_by_track == {
+        "v05": "retired",
+        "v06": "active",
+        "rawcap": "maintenance",
+    }
     paper_tracks = {
         track["name"]: track
         for track in document["tracks"]
@@ -74,6 +114,12 @@ def test_watch_config_tracks_v05_v06_and_rawcap() -> None:
     } == {"/var/lib/poly-mm-rawcap/monitor/regime-latest.json"}
     assert document["host"]["mem_available_threshold_bytes"] == 314572800
     assert document["host"]["cpu_credit_threshold"] == 100.0
+    assert document["host"]["cpu_credit_cloudwatch_max_age_seconds"] == 900
+    assert document["host"]["cpu_credit_region"] == "__POLYMM_WATCH_AWS_REGION__"
+    assert (
+        document["host"]["cpu_credit_instance_id"]
+        == "__POLYMM_WATCH_INSTANCE_ID__"
+    )
 
 
 def test_watch_cli_can_start_from_outside_the_repository(tmp_path: Path) -> None:

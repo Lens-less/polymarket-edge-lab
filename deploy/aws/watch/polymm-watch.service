@@ -5,11 +5,11 @@ Description=Paper track progress watcher
 Type=oneshot
 User=polybotwatch
 Group=polybotwatch
-SupplementaryGroups=polybotv05 polybotv06 polybotraw
+SupplementaryGroups=polybotv06 polybotraw
 WorkingDirectory=/opt/poly-mm-watch
 Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=-/etc/polymm-watch.env
-ExecStart=/opt/poly-mm-watch/.venv/bin/python /opt/poly-mm-watch/scripts/watch_paper_tracks.py --config /opt/poly-mm-watch/deploy/aws/watch/watch-config.json
+ExecStart=/opt/poly-mm-watch/.venv/bin/python /opt/poly-mm-watch/scripts/watch_paper_tracks.py --config /etc/polymm-watch-config.json
 NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true

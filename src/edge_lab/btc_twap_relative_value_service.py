@@ -37,7 +37,12 @@ from .network_safety import (
     discard_session_cookies,
     safe_error_details,
 )
-from .recorder import DefaultWebSocketFactory, PublicRecorder, RecorderConfig
+from .recorder import (
+    DefaultWebSocketFactory,
+    PublicRecorder,
+    RecorderConfig,
+    RecorderWorkerError,
+)
 from .settlement_regime import (
     LEGACY_SETTLEMENT_REGIME_ID,
     SettlementRegimeSpec,
@@ -1648,6 +1653,15 @@ async def _run_redundant_recorders(
             await asyncio.gather(*pending, return_exceptions=True)
 
 
+def _recorder_failure_details(error: BaseException) -> dict[str, str]:
+    if isinstance(error, RecorderWorkerError):
+        return {
+            "error_type": error.error_type,
+            "error_code": error.error_code,
+        }
+    return safe_error_details(error, code="recorder_leg_failed")
+
+
 async def run_compact_forward_capture(
     config: ForwardCaptureConfig,
     *,
@@ -1727,7 +1741,7 @@ async def run_compact_forward_capture(
         "asset_count": len(config.asset_ids),
         "recorder_leg_count": 2,
         "recorder_leg_failures": [
-            safe_error_details(error, code="recorder_leg_failed")
+            _recorder_failure_details(error)
             for error in recorder_failures
         ],
         "websocket_redundancy": {

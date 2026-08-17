@@ -515,6 +515,78 @@ async def test_run_capture_builds_primary_and_secondary_recorders(
 
 
 @pytest.mark.anyio
+async def test_run_capture_preserves_recorder_worker_failure_codes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.edge_lab.btc_twap_relative_value_service as service
+    from src.edge_lab.recorder import RecorderWorkerError
+
+    failures = (
+        RecorderWorkerError(
+            error_type="TimeoutError",
+            error_code="persistence_sink_timeout",
+        ),
+        RecorderWorkerError(
+            error_type="CancelledError",
+            error_code="persistence_sink_cancelled",
+        ),
+    )
+    created = 0
+
+    class StubSession:
+        def close(self) -> None:
+            return None
+
+    class StubSourcesClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            return None
+
+    class StubSnapshotClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            return None
+
+    class FailedRecorder:
+        def __init__(self, **kwargs: Any) -> None:
+            nonlocal created
+            self.failure = failures[created]
+            created += 1
+
+        async def run(self, *, run_for_seconds: float) -> None:
+            raise self.failure
+
+        async def stop(self) -> None:
+            return None
+
+    monkeypatch.setattr(service, "verify_paper_only_guard", lambda: None)
+    monkeypatch.setattr(service, "public_session", lambda proxy_url: StubSession())
+    monkeypatch.setattr(service, "PublicSourcesClient", StubSourcesClient)
+    monkeypatch.setattr(
+        service,
+        "PublicSourcesSnapshotClient",
+        StubSnapshotClient,
+    )
+    monkeypatch.setattr(service, "PublicRecorder", FailedRecorder)
+
+    with pytest.raises(service.CaptureFinalizationError) as raised:
+        await service.run_compact_forward_capture(
+            _capture_config(tmp_path / "capture-root"),
+            duration_seconds=0.01,
+            proxy_url=None,
+        )
+
+    recorder_leg_failures = raised.value.summary["recorder_leg_failures"]
+    assert len(recorder_leg_failures) == 2
+    assert {
+        (failure["error_type"], failure["error_code"])
+        for failure in recorder_leg_failures
+    } == {
+        ("TimeoutError", "persistence_sink_timeout"),
+        ("CancelledError", "persistence_sink_cancelled"),
+    }
+
+
+@pytest.mark.anyio
 async def test_one_recorder_leg_failure_does_not_stop_healthy_sibling() -> None:
     import src.edge_lab.btc_twap_relative_value_service as service
 

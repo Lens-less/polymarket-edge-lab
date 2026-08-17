@@ -78,7 +78,7 @@ chmod -R a+rX "${INSTALL_ROOT}"
 "${INSTALL_ROOT}/.venv/bin/python" \
   "${INSTALL_ROOT}/scripts/maintain_btc_rawcap.py" \
   --data-root "${DATA_ROOT}/data" \
-  --compress-after-seconds 1800 \
+  --compress-after-seconds 600 \
   --retention-days 30 \
   --status-path "${DATA_ROOT}/monitor/maintenance-latest.json" \
   --validate-only

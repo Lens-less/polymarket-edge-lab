@@ -146,6 +146,21 @@ def test_v07_performance_service_and_timer_are_hardened() -> None:
     assert "Unit=polymm-btc-twap-paper-v07-performance.service" in timer_text
 
 
+def test_stale_v1_shadow_deployment_assets_are_not_active() -> None:
+    stale_paths = (
+        PROJECT_ROOT / "deploy" / "aws" / "v07_shadow",
+        PROJECT_ROOT
+        / "research"
+        / "btc_5m_15m_relative_value_counterfactual_v07_2026-08-15"
+        / "SERVICE_CONFIG.json",
+        PROJECT_ROOT
+        / "tests"
+        / "test_btc_twap_relative_value_v07_shadow_deployment_assets.py",
+    )
+
+    assert not any(path.exists() for path in stale_paths)
+
+
 def test_v07_source_acl_refresh_is_narrow_read_only_and_hardened() -> None:
     service_text = (
         DEPLOY_ROOT / "polymm-btc-twap-paper-v07-source-acl.service"
