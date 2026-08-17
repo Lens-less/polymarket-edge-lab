@@ -19,10 +19,8 @@ set +e
 status=$?
 set -e
 
-chmod 0640 "${TMP_PATH}"
 mv -f "${TMP_PATH}" "${OUTPUT_PATH}"
 cp "${OUTPUT_PATH}" "${HISTORY_TMP}"
-chmod 0640 "${HISTORY_TMP}"
 mv -f "${HISTORY_TMP}" "${HISTORY_PATH}"
 if [[ "${status}" -ne 0 ]]; then
   printf '%s\n' "health snapshot is unhealthy; details retained at ${HISTORY_PATH}" >&2
