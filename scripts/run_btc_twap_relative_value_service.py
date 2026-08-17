@@ -67,6 +67,12 @@ def _epoch_ms() -> int:
     return int(datetime.now(timezone.utc).timestamp() * 1_000)
 
 
+def _next_capture_expiry_seconds() -> int:
+    """Keep every capture ahead of the target 15-minute opening."""
+
+    return next_bootstrap_expiry_seconds(_epoch_ms())
+
+
 def _attempt_id() -> str:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
     return f"{timestamp}-{uuid.uuid4().hex[:12]}"
@@ -359,7 +365,6 @@ async def run_service(
         min_interval_seconds=0.05,
     )
     _emit_status(config, phase="starting")
-    bootstrap_required = True
     try:
         while not stop_event.is_set():
             plan = None
@@ -376,11 +381,7 @@ async def run_service(
                     now_ms=_epoch_ms(),
                     attempt_id=_attempt_id(),
                     clock_sync=clock_sync,
-                    expiry_seconds=(
-                        next_bootstrap_expiry_seconds(_epoch_ms())
-                        if bootstrap_required
-                        else None
-                    ),
+                    expiry_seconds=_next_capture_expiry_seconds(),
                 )
                 plan.capture_root.mkdir(parents=True, exist_ok=False)
                 write_json_document(plan.capture_config_path, plan.capture_config)
@@ -393,10 +394,8 @@ async def run_service(
                             plan=plan,
                             proxy_url=proxy_url,
                             stop_event=stop_event,
-                            clock_refresh_at_ms=(
-                                bootstrap_clock_refresh_at_ms(plan.expiry_seconds)
-                                if bootstrap_required
-                                else None
+                            clock_refresh_at_ms=bootstrap_clock_refresh_at_ms(
+                                plan.expiry_seconds
                             ),
                         )
                     )
@@ -446,7 +445,6 @@ async def run_service(
                     )
                 await asyncio.to_thread(_rebuild_summary, config)
                 _emit_status(config, phase="cycle_complete", plan=plan)
-                bootstrap_required = False
             except ServiceStopRequested:
                 break
             except BaseException as exc:

@@ -544,6 +544,14 @@ async def test_run_service_accepts_matching_preregistration_before_startup(
     ]
 
 
+def test_every_capture_targets_an_expiry_with_future_opening(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(runner, "_epoch_ms", lambda: 1_786_532_400_000)
+
+    assert runner._next_capture_expiry_seconds() == 1_786_534_200
+
+
 @pytest.mark.anyio
 async def test_run_service_persists_failed_capture_finalization_before_retry(
     tmp_path: Path,
