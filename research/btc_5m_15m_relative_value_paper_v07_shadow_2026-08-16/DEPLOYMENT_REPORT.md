@@ -11,6 +11,46 @@ counterfactual/shadow monitor. It does not submit orders, use credentials, call
 authenticated endpoints, or modify the frozen V0.6 evidence tree. A performance
 job runs every 30 minutes and a health job every 5 minutes.
 
+## 2026-08-17 11:10 UTC operational repair
+
+The final online audit found that the apparent V7 `2/2` warm-up plateau had a
+second cause beyond rejected-case history chaining. After each V6 settlement
+grace period, steady-state discovery selected the immediately following expiry.
+That capture began after part of the frozen 300-second predictor lookback and
+after its 15-minute opening, so the V7 train/validation window kept sliding
+forward without ever reaching a test case.
+
+The deployed service now applies the future-opening schedule to every capture,
+not only process bootstrap. At `11:06:29Z` the restarted V6 service selected
+the `11:30Z` expiry, whose 15-minute opening was still nine minutes in the
+future. This preserves the frozen predictor and boundary requirements instead
+of relaxing them. The trade-off is an expected clean qualification cadence of
+about one expiry every 30 minutes on the single-recorder service.
+
+Other online corrections in the same repair were:
+
+- the watcher now refreshes `CPUCreditBalance` from CloudWatch and rejects
+  missing or stale datapoints instead of copying an old balance
+- V05 is retired without widening its telemetry permissions; its service and
+  health timer are disabled
+- rawcap remains producer-stopped with its 15-minute maintenance timer active
+- the watcher has only `cloudwatch:GetMetricStatistics` in its added IAM policy
+- transient `run-u157` and `run-u197` failed-unit noise was cleared
+- CPU credit mode is verified as `standard`
+
+At the post-restart health check V6 was `healthy=true`, `phase=capturing`,
+`last_error=null`, and still reported zero orders and zero authenticated calls.
+The watcher observed a real CPU credit balance near `27`, with no stale decline
+alert. V7 remained healthy and correctly fail-closed with
+`qualified_net_pnl=null` and `true_edge=false`; the existing no-journal track
+can never grant true edge.
+
+Capacity remains the only immediate operational blocker. Free space was
+`16,261,636,096` bytes against the V6 15 GiB soft stop, a margin of only about
+148 MiB. The next capacity check may therefore pause new capture cycles. No
+volume expansion and no historical-data deletion was performed without the
+required cost/retention decision.
+
 Codex heartbeat automation `v7-30` performs a read-only safety check every 10
 minutes and reports state changes or failures back to the current task. Its
 prompt forbids server, repository, cloud-configuration, service, and order
