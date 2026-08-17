@@ -209,6 +209,7 @@ def test_watch_cycle_pages_digest_and_recovers_on_progress_stall(
 
 def test_watch_cycle_warns_on_host_pressure_and_heartbeat(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     now = datetime(2026, 8, 14, 16, 0, tzinfo=UTC)
     config_path = _watch_config(tmp_path, include_host=True)
@@ -251,6 +252,10 @@ def test_watch_cycle_warns_on_host_pressure_and_heartbeat(
     )
     config = _load_watch_config(config_path)
     publisher = CollectingPublisher()
+    monkeypatch.setattr(
+        "scripts.watch_paper_tracks._refresh_local_host_status",
+        lambda *args, **kwargs: None,
+    )
 
     run_watch_cycle(config, publisher=publisher, now=now)
 
@@ -623,6 +628,7 @@ def test_capture_progress_uses_summary_timestamp_not_run_directory_mtime(
 
 def test_watch_pages_on_sustained_cpu_credit_decline_above_absolute_floor(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     now = datetime(2026, 8, 14, 16, 0, tzinfo=UTC)
     config_path = _watch_config(tmp_path, include_host=True)
@@ -651,6 +657,10 @@ def test_watch_pages_on_sustained_cpu_credit_decline_above_absolute_floor(
         },
     )
     publisher = CollectingPublisher()
+    monkeypatch.setattr(
+        "scripts.watch_paper_tracks._refresh_local_host_status",
+        lambda *args, **kwargs: None,
+    )
 
     run_watch_cycle(
         _load_watch_config(config_path),
