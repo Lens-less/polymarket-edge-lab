@@ -321,13 +321,20 @@ def test_retired_track_suppresses_runtime_and_telemetry_alerts(
     document["tracks"][0]["lifecycle"] = "retired"
     config_path.write_text(json.dumps(document), encoding="utf-8")
     original_read_text = Path.read_text
+    original_exists = Path.exists
 
     def deny_status_read(path: Path, *args, **kwargs):
         if path == status_path:
             raise PermissionError(status_path)
         return original_read_text(path, *args, **kwargs)
 
+    def deny_status_exists(path: Path) -> bool:
+        if path == status_path:
+            raise PermissionError(status_path)
+        return original_exists(path)
+
     monkeypatch.setattr(Path, "read_text", deny_status_read)
+    monkeypatch.setattr(Path, "exists", deny_status_exists)
     publisher = CollectingPublisher()
 
     run_watch_cycle(
@@ -337,6 +344,10 @@ def test_retired_track_suppresses_runtime_and_telemetry_alerts(
     )
 
     assert publisher.alerts == []
+    state = json.loads(
+        (tmp_path / "watch" / "state.json").read_text(encoding="utf-8")
+    )
+    assert state["tracks"]["v05"] == {"lifecycle": "retired"}
 
 
 def test_watch_config_rejects_unknown_track_lifecycle(tmp_path: Path) -> None:

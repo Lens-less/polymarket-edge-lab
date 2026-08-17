@@ -1064,6 +1064,9 @@ def run_watch_cycle(
         else {}
     )
     for track in config.tracks:
+        if track.lifecycle == "retired":
+            result_tracks[track.name] = {"lifecycle": "retired"}
+            continue
         runtime_monitored = track.monitors_runtime
         status_document = _read_object(track.status_path)
         health_document = (
