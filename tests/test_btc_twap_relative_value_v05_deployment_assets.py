@@ -96,6 +96,8 @@ def test_v05_health_assets_use_atomic_latest_and_unique_history() -> None:
         in health_script_text
     )
     assert 'HISTORY_PATH="${HISTORY_TMP%.tmp}"' in health_script_text
+    assert 'chmod 0640 "${TMP_PATH}"' in health_script_text
+    assert 'chmod 0640 "${HISTORY_TMP}"' in health_script_text
     assert health_script_text.count("mv -f") == 2
     assert "--maximum-heartbeat-age-seconds 90" in health_script_text
     assert "--proxy" not in health_script_text
