@@ -20,12 +20,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import scripts.build_btc_twap_relative_value_v07_counterfactual as v07_builder  # noqa: E402
-from src.edge_lab.btc_twap_relative_value_readiness import (  # noqa: E402
+import scripts.build_btc_twap_relative_value_v07_counterfactual as v07_builder
+from src.edge_lab.btc_twap_pair_pricing import PairPricingPolicy
+from src.edge_lab.btc_twap_relative_value_readiness import (
     PerfectInformationAttempt,
     evaluate_perfect_information_upper_bound,
 )
-from src.edge_lab.data_store import canonical_json_bytes  # noqa: E402
+from src.edge_lab.data_store import canonical_json_bytes
 
 REPORT_SCHEMA = "btc-5m-15m-gate-0-executable-upper-bound-report.v1"
 
@@ -126,6 +127,12 @@ def build_upper_bound_report(
         raise ValueError("Gate-0 input repeats a common expiry")
 
     attempts: list[PerfectInformationAttempt] = []
+    pricing_policy = PairPricingPolicy(
+        maximum_spread_each_leg=strategy.maximum_spread_each_leg,
+        minimum_market_price=strategy.minimum_market_price,
+        maximum_market_price=strategy.maximum_market_price,
+        pair_risk_usdc=strategy.pair_risk_usdc,
+    )
     for context in sorted(selected, key=lambda item: item.expiry_ms):
         token_ids = (
             context.pair.market_5.up_token_id,
@@ -150,7 +157,7 @@ def build_upper_bound_report(
                 books={token_id: signal[token_id].snapshot for token_id in token_ids},
                 actual_5_up=context.actual_5_up,
                 actual_15_up=context.actual_15_up,
-                config=strategy,
+                pricing_policy=pricing_policy,
             )
         )
 

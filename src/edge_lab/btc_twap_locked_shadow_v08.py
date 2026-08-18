@@ -12,7 +12,7 @@ import hashlib
 import json
 import os
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any
 
@@ -145,6 +145,24 @@ class RollingCohortAdmission:
     received_at_ms: int
     monotonic_ns: int
 
+    def __post_init__(self) -> None:
+        for name in (
+            "common_expiry_id",
+            "canonical_pair_id",
+            "capture_attempt_id",
+            "market_5_id",
+            "market_15_id",
+            "condition_5_id",
+            "condition_15_id",
+        ):
+            _text(getattr(self, name), name=name)
+        for name in ("expiry_ms", "discovered_at_ms", "received_at_ms", "monotonic_ns"):
+            object.__setattr__(self, name, _integer(getattr(self, name), name=name))
+        if self.common_expiry_id != canonical_expiry_cluster_id(self.expiry_ms):
+            raise ValueError("common_expiry_id is not canonical for expiry_ms")
+        if self.discovered_at_ms > self.received_at_ms:
+            raise ValueError("cohort discovery cannot postdate its receipt")
+
     def to_document(self) -> dict[str, Any]:
         document = asdict(self)
         document["schema_version"] = "btc-5m-15m-readiness-v08-cohort-admission.v1"
@@ -161,6 +179,31 @@ class RollingDecisionReceipt:
     action: str
     action_payload_sha256: str
     edge_basis: str = "structural"
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "common_expiry_id",
+            _text(self.common_expiry_id, name="common_expiry_id"),
+        )
+        object.__setattr__(
+            self,
+            "decision_tau_seconds",
+            _integer(self.decision_tau_seconds, name="decision_tau_seconds"),
+        )
+        if self.decision_tau_seconds <= 0:
+            raise ValueError("decision_tau_seconds must be positive")
+        for name in ("decision_at_ms", "receipt_received_at_ms", "monotonic_ns"):
+            object.__setattr__(self, name, _integer(getattr(self, name), name=name))
+        if self.receipt_received_at_ms < self.decision_at_ms:
+            raise ValueError("decision receipt cannot precede decision time")
+        object.__setattr__(self, "action", _text(self.action, name="action"))
+        object.__setattr__(
+            self,
+            "action_payload_sha256",
+            _sha256(self.action_payload_sha256, name="action_payload_sha256"),
+        )
+        object.__setattr__(self, "edge_basis", _text(self.edge_basis, name="edge_basis"))
 
     def to_document(self) -> dict[str, Any]:
         document = asdict(self)
@@ -179,10 +222,52 @@ class RollingCohortOutcome:
     realized_net_pnl: str | None
     evidence_sha256: str
 
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "common_expiry_id",
+            _text(self.common_expiry_id, name="common_expiry_id"),
+        )
+        object.__setattr__(self, "outcome", _text(self.outcome, name="outcome"))
+        if self.outcome not in ALLOWED_OUTCOMES:
+            raise ValueError("unsupported rolling cohort outcome")
+        if not isinstance(self.clean, bool):
+            raise TypeError("clean must be bool")
+        for name in ("finalized_at_ms", "received_at_ms", "monotonic_ns"):
+            object.__setattr__(self, name, _integer(getattr(self, name), name=name))
+        if self.received_at_ms < self.finalized_at_ms:
+            raise ValueError("outcome receipt cannot precede finalization")
+        expected_clean = self.outcome not in {
+            "capture_dirty",
+            "rule_or_fee_dirty",
+            "rtds_gap_dirty",
+        }
+        if self.clean is not expected_clean:
+            raise ValueError("outcome clean flag disagrees with its status")
+        if self.realized_net_pnl is not None:
+            object.__setattr__(
+                self,
+                "realized_net_pnl",
+                _text(self.realized_net_pnl, name="realized_net_pnl"),
+            )
+        object.__setattr__(
+            self,
+            "evidence_sha256",
+            _sha256(self.evidence_sha256, name="evidence_sha256"),
+        )
+
     def to_document(self) -> dict[str, Any]:
         document = asdict(self)
         document["schema_version"] = "btc-5m-15m-readiness-v08-outcome.v1"
         return document
+
+
+def _validated_document(cls: type[Any], candidate: Mapping[str, Any]) -> Any:
+    payload = dict(candidate)
+    payload.pop("schema_version", None)
+    allowed = {field.name for field in fields(cls)}
+    filtered = {key: value for key, value in payload.items() if key in allowed}
+    return cls(**filtered)
 
 
 def _receipts_dir(root: Path) -> Path:
@@ -312,20 +397,6 @@ def admit_rolling_cohort(
     root = Path(root)
     state = _state(root)
     policy = state["policy"]
-    for name in (
-        "common_expiry_id",
-        "canonical_pair_id",
-        "capture_attempt_id",
-        "market_5_id",
-        "market_15_id",
-        "condition_5_id",
-        "condition_15_id",
-    ):
-        _text(getattr(admission, name), name=name)
-    for name in ("expiry_ms", "discovered_at_ms", "received_at_ms", "monotonic_ns"):
-        _integer(getattr(admission, name), name=name)
-    if admission.common_expiry_id != canonical_expiry_cluster_id(admission.expiry_ms):
-        raise ValueError("common_expiry_id is not canonical for expiry_ms")
     if admission.common_expiry_id in state["admissions"]:
         raise ValueError("common expiry was already admitted; replacement is forbidden")
     if admission.expiry_ms < policy["track_starts_at_ms"]:
@@ -333,8 +404,6 @@ def admit_rolling_cohort(
     earliest_decision = (
         admission.expiry_ms - max(policy["decision_tau_seconds"]) * 1_000
     )
-    if admission.discovered_at_ms > admission.received_at_ms:
-        raise ValueError("cohort discovery cannot postdate its receipt")
     if admission.received_at_ms >= earliest_decision:
         raise ValueError("cohort must be admitted before its first decision")
     _append_receipt(
@@ -365,6 +434,8 @@ def append_rolling_decision(
     )
     if decision.decision_at_ms != expected_decision_at:
         raise ValueError("decision timestamp does not match expiry minus locked tau")
+    if decision.receipt_received_at_ms < decision.decision_at_ms:
+        raise ValueError("decision receipt cannot precede decision time")
     if decision.receipt_received_at_ms >= admission["expiry_ms"]:
         raise ValueError("decision receipt must be strictly pre-label")
     identity = f"{decision.common_expiry_id}:{decision.decision_tau_seconds}"
@@ -399,22 +470,8 @@ def finalize_rolling_cohort(
         raise ValueError("outcome cohort was not pre-admitted")
     if outcome.common_expiry_id in state["outcomes"]:
         raise ValueError("cohort outcome already exists and cannot be replaced")
-    if outcome.outcome not in ALLOWED_OUTCOMES:
-        raise ValueError("unsupported rolling cohort outcome")
     if outcome.finalized_at_ms < admission["expiry_ms"]:
         raise ValueError("cohort cannot finalize before common expiry")
-    if outcome.received_at_ms < outcome.finalized_at_ms:
-        raise ValueError("outcome receipt cannot precede finalization")
-    if outcome.clean is not (
-        outcome.outcome
-        not in {
-            "capture_dirty",
-            "rule_or_fee_dirty",
-            "rtds_gap_dirty",
-        }
-    ):
-        raise ValueError("outcome clean flag disagrees with its status")
-    _sha256(outcome.evidence_sha256, name="evidence_sha256")
     _append_receipt(
         root,
         kind="cohort_finalized",
@@ -462,6 +519,11 @@ def audit_rolling_shadow(root: str | Path) -> dict[str, Any]:
             ):
                 errors.append("policy_document_invalid")
                 continue
+            try:
+                _validated_document(RollingInclusionPolicy, candidate)
+            except (TypeError, ValueError):
+                errors.append("policy_document_invalid")
+                continue
             policy = candidate
             policy_sha256 = body.get("policy_sha256")
             if policy_sha256 != _digest(policy):
@@ -471,16 +533,34 @@ def audit_rolling_shadow(root: str | Path) -> dict[str, Any]:
             if not isinstance(candidate, dict):
                 errors.append(f"admission_invalid_at_{expected_sequence}")
                 continue
+            try:
+                admission = _validated_document(RollingCohortAdmission, candidate)
+            except (TypeError, ValueError):
+                errors.append(f"admission_invalid_at_{expected_sequence}")
+                continue
             cohort_id = candidate.get("common_expiry_id")
             if not isinstance(cohort_id, str) or cohort_id in admissions:
                 errors.append(f"duplicate_or_invalid_admission_at_{expected_sequence}")
                 continue
             if body.get("policy_sha256") != policy_sha256:
                 errors.append(f"admission_policy_mismatch_at_{expected_sequence}")
+            if policy is not None:
+                earliest_decision = (
+                    admission.expiry_ms - max(policy["decision_tau_seconds"]) * 1_000
+                )
+                if admission.expiry_ms < policy["track_starts_at_ms"]:
+                    errors.append(f"admission_before_track_at_{expected_sequence}")
+                if admission.received_at_ms >= earliest_decision:
+                    errors.append(f"admission_after_first_decision_at_{expected_sequence}")
             admissions[cohort_id] = candidate
         elif kind == "decision_locked":
             candidate = body.get("decision")
             if not isinstance(candidate, dict):
+                errors.append(f"decision_invalid_at_{expected_sequence}")
+                continue
+            try:
+                decision = _validated_document(RollingDecisionReceipt, candidate)
+            except (TypeError, ValueError):
                 errors.append(f"decision_invalid_at_{expected_sequence}")
                 continue
             identity = f"{candidate.get('common_expiry_id')}:{candidate.get('decision_tau_seconds')}"
@@ -490,16 +570,33 @@ def audit_rolling_shadow(root: str | Path) -> dict[str, Any]:
             ):
                 errors.append(f"orphan_or_duplicate_decision_at_{expected_sequence}")
                 continue
+            admission = admissions[candidate["common_expiry_id"]]
+            expected_decision_at = admission["expiry_ms"] - decision.decision_tau_seconds * 1_000
+            if decision.decision_at_ms != expected_decision_at:
+                errors.append(f"decision_time_mismatch_at_{expected_sequence}")
+            if decision.receipt_received_at_ms >= admission["expiry_ms"]:
+                errors.append(f"decision_post_label_at_{expected_sequence}")
+            if policy is not None and decision.decision_tau_seconds not in policy["decision_tau_seconds"]:
+                errors.append(f"decision_tau_outside_policy_at_{expected_sequence}")
+            if decision.edge_basis != "structural":
+                errors.append(f"decision_edge_basis_invalid_at_{expected_sequence}")
             decisions[identity] = candidate
         elif kind == "cohort_finalized":
             candidate = body.get("outcome")
             if not isinstance(candidate, dict):
                 errors.append(f"outcome_invalid_at_{expected_sequence}")
                 continue
+            try:
+                outcome = _validated_document(RollingCohortOutcome, candidate)
+            except (TypeError, ValueError):
+                errors.append(f"outcome_invalid_at_{expected_sequence}")
+                continue
             cohort_id = candidate.get("common_expiry_id")
             if cohort_id not in admissions or cohort_id in outcomes:
                 errors.append(f"orphan_or_duplicate_outcome_at_{expected_sequence}")
                 continue
+            if outcome.finalized_at_ms < admissions[cohort_id]["expiry_ms"]:
+                errors.append(f"outcome_pre_expiry_at_{expected_sequence}")
             outcomes[cohort_id] = candidate
         else:
             errors.append(f"unknown_kind_at_{expected_sequence}")

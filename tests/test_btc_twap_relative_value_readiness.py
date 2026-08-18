@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from decimal import Decimal
 
+from src.edge_lab.btc_twap_pair_pricing import PairPricingPolicy
 from src.edge_lab.btc_twap_relative_value import (
     OrderBookSnapshot,
     PairAction,
@@ -19,7 +20,6 @@ from src.edge_lab.btc_twap_relative_value_readiness import (
     validate_cohort_data_coverage,
     validate_structural_floor,
 )
-from src.edge_lab.btc_twap_relative_value_v07 import V07StrategyConfig
 from src.edge_lab.execution import ExecutionFeeSchedule
 from tests.test_btc_twap_relative_value_v07_replay import (
     _settlement_state,
@@ -63,7 +63,7 @@ def test_structural_floor_uses_strike_order_to_select_the_only_valid_pair() -> N
             strike_15=D("101"),
         ),
         books=books,
-        config=V07StrategyConfig(pair_risk_usdc=D("5")),
+        pricing_policy=PairPricingPolicy(pair_risk_usdc=D("5")),
     )
     above = validate_structural_floor(
         pair=pair,
@@ -73,7 +73,7 @@ def test_structural_floor_uses_strike_order_to_select_the_only_valid_pair() -> N
             strike_15=D("100"),
         ),
         books=books,
-        config=V07StrategyConfig(pair_risk_usdc=D("5")),
+        pricing_policy=PairPricingPolicy(pair_risk_usdc=D("5")),
     )
 
     assert below.selected_action is PairAction.LONG_5_UP_LONG_15_DOWN
@@ -98,7 +98,7 @@ def test_structural_floor_equal_strikes_compares_both_routes_and_keeps_probe_buf
             strike_15=D("100"),
         ),
         books=books,
-        config=V07StrategyConfig(pair_risk_usdc=D("5")),
+        pricing_policy=PairPricingPolicy(pair_risk_usdc=D("5")),
     )
 
     assert {level.action for level in verdict.depth_ladder} == {
@@ -146,7 +146,7 @@ def test_structural_floor_distinguishes_c_equal_1_from_point_99_probe_buffer() -
                 pair.market_15.down_token_id, ask="0.50"
             ),
         },
-        config=V07StrategyConfig(pair_risk_usdc=D("10")),
+        pricing_policy=PairPricingPolicy(pair_risk_usdc=D("10")),
     )
     at_point_99 = validate_structural_floor(
         pair=pair,
@@ -157,7 +157,7 @@ def test_structural_floor_distinguishes_c_equal_1_from_point_99_probe_buffer() -
                 pair.market_15.down_token_id, ask="0.50"
             ),
         },
-        config=V07StrategyConfig(pair_risk_usdc=D("10")),
+        pricing_policy=PairPricingPolicy(pair_risk_usdc=D("10")),
     )
 
     assert at_one.selected_level is not None
@@ -318,7 +318,7 @@ def test_probe_and_strategy_live_readiness_are_separated_and_fail_closed() -> No
             strike_15=D("101"),
         ),
         books=books,
-        config=V07StrategyConfig(pair_risk_usdc=D("5")),
+        pricing_policy=PairPricingPolicy(pair_risk_usdc=D("5")),
     )
     coverage = tuple(
         validate_cohort_data_coverage(

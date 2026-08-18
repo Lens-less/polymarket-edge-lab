@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -18,6 +19,7 @@ from src.edge_lab.btc_twap_locked_shadow_v08 import (
     initialize_rolling_shadow,
 )
 from src.edge_lab.btc_twap_relative_value_v07 import canonical_expiry_cluster_id
+from src.edge_lab.data_store import canonical_json_bytes
 
 START_MS = 1_800_000_000_000
 
@@ -145,3 +147,59 @@ def test_receipt_tampering_breaks_the_audit_chain(tmp_path: Path) -> None:
     audit = audit_rolling_shadow(root)
     assert audit["valid"] is False
     assert "hash_mismatch_at_2" in audit["errors"]
+
+
+def test_decision_receipt_cannot_predate_decision_time(tmp_path: Path) -> None:
+    root = tmp_path / "journal"
+    initialize_rolling_shadow(root, _policy())
+    admission = _admission(1)
+    admit_rolling_cohort(root, admission)
+    decision_at_ms = admission.expiry_ms - 60_000
+
+    with pytest.raises(ValueError, match="decision receipt cannot precede decision time"):
+        append_rolling_decision(
+            root,
+            RollingDecisionReceipt(
+                common_expiry_id=admission.common_expiry_id,
+                decision_tau_seconds=60,
+                decision_at_ms=decision_at_ms,
+                receipt_received_at_ms=decision_at_ms - 1,
+                monotonic_ns=20,
+                action="no_trade",
+                action_payload_sha256="b" * 64,
+            ),
+        )
+
+
+def test_audit_rejects_tampered_decision_timeline_even_with_recomputed_hash(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "journal"
+    initialize_rolling_shadow(root, _policy())
+    admission = _admission(1)
+    admit_rolling_cohort(root, admission)
+    decision_at_ms = admission.expiry_ms - 60_000
+    append_rolling_decision(
+        root,
+        RollingDecisionReceipt(
+            common_expiry_id=admission.common_expiry_id,
+            decision_tau_seconds=60,
+            decision_at_ms=decision_at_ms,
+            receipt_received_at_ms=decision_at_ms + 1,
+            monotonic_ns=20,
+            action="no_trade",
+            action_payload_sha256="b" * 64,
+        ),
+    )
+
+    decision_receipt = min((root / "receipts").glob("*decision_locked.json"))
+    os.chmod(decision_receipt, 0o600)
+    document = json.loads(decision_receipt.read_text(encoding="utf-8"))
+    document["body"]["decision"]["receipt_received_at_ms"] = decision_at_ms - 1
+    unsigned = {key: value for key, value in document.items() if key != "receipt_sha256"}
+    document["receipt_sha256"] = hashlib.sha256(canonical_json_bytes(unsigned)).hexdigest()
+    decision_receipt.write_text(json.dumps(document), encoding="utf-8")
+
+    audit = audit_rolling_shadow(root)
+    assert audit["valid"] is False
+    assert "decision_invalid_at_3" in audit["errors"]

@@ -10,6 +10,12 @@ from itertools import pairwise
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
+from .btc_twap_pair_pricing import (
+    PairPricingPolicy,
+    joint_quantity_breakpoints,
+    quote_pair_buy,
+    select_healthy_pair_books,
+)
 from .btc_twap_relative_value import (
     OrderBookSnapshot,
     PairAction,
@@ -19,10 +25,6 @@ from .btc_twap_relative_value import (
 from .btc_twap_relative_value_v07 import (
     SharedTerminalPayoffStructure,
     StrikeOrdering,
-    V07StrategyConfig,
-    _healthy_candidate_books,
-    _joint_quantity_breakpoints,
-    _pair_quote_at_quantity,
 )
 
 if TYPE_CHECKING:
@@ -36,7 +38,7 @@ MAXIMUM_RTDS_GAP_MS = 2_000
 MINIMUM_SETTLED_CLUSTERS = 100
 MINIMUM_EXPLAINABLE_ECONOMIC_ATTEMPTS = 100
 MAXIMUM_SINGLE_EXPIRY_PNL_CONCENTRATION = Decimal("0.20")
-DEFAULT_V07_STRATEGY_CONFIG = V07StrategyConfig()
+DEFAULT_PAIR_PRICING_POLICY = PairPricingPolicy()
 
 
 def _outcome_key(*, actual_5_up: bool, actual_15_up: bool) -> str:
@@ -175,7 +177,7 @@ def validate_structural_floor(
     pair: SameExpiryPair,
     settlement_state: PairSettlementState,
     books: Mapping[str, OrderBookSnapshot],
-    config: V07StrategyConfig = DEFAULT_V07_STRATEGY_CONFIG,
+    pricing_policy: PairPricingPolicy = DEFAULT_PAIR_PRICING_POLICY,
     probe_all_in_limit: Decimal = PROBE_ALL_IN_LIMIT,
 ) -> StructuralFloorVerdict:
     if (
@@ -209,11 +211,11 @@ def validate_structural_floor(
     ladder: list[StructuralFloorLevel] = []
     for action in allowed_actions:
         first_token_id, second_token_id = all_specs[action]
-        selected_books = _healthy_candidate_books(
+        selected_books = select_healthy_pair_books(
             first_token_id=first_token_id,
             second_token_id=second_token_id,
             books=books,
-            config=config,
+            policy=pricing_policy,
         )
         if selected_books is None:
             continue
@@ -236,16 +238,16 @@ def validate_structural_floor(
             }
             else pair.market_5
         )
-        quantities = _joint_quantity_breakpoints(
+        quantities = joint_quantity_breakpoints(
             first_book=first_book,
             second_book=second_book,
             first_contract=first_contract,
             second_contract=second_contract,
-            config=config,
+            policy=pricing_policy,
         )
         worst_case_payoff = structure.worst_case_payoff(action)
         for quantity in quantities:
-            quote = _pair_quote_at_quantity(
+            quote = quote_pair_buy(
                 quantity=quantity,
                 first_book=first_book,
                 second_book=second_book,
@@ -308,7 +310,7 @@ class PerfectInformationAttempt:
     books: Mapping[str, OrderBookSnapshot]
     actual_5_up: bool
     actual_15_up: bool
-    config: V07StrategyConfig = DEFAULT_V07_STRATEGY_CONFIG
+    pricing_policy: PairPricingPolicy = DEFAULT_PAIR_PRICING_POLICY
 
 
 @dataclass(frozen=True)
@@ -424,11 +426,11 @@ def evaluate_perfect_information_upper_bound(
         )
         for action, token_ids in _pair_action_specs(attempt.pair).items():
             first_token_id, second_token_id = token_ids
-            selected_books = _healthy_candidate_books(
+            selected_books = select_healthy_pair_books(
                 first_token_id=first_token_id,
                 second_token_id=second_token_id,
                 books=attempt.books,
-                config=attempt.config,
+                policy=attempt.pricing_policy,
             )
             if selected_books is None:
                 per_attempt_best_by_action[action.value] = ZERO
@@ -452,16 +454,16 @@ def evaluate_perfect_information_upper_bound(
                 }
                 else attempt.pair.market_5
             )
-            quantities = _joint_quantity_breakpoints(
+            quantities = joint_quantity_breakpoints(
                 first_book=first_book,
                 second_book=second_book,
                 first_contract=first_contract,
                 second_contract=second_contract,
-                config=attempt.config,
+                policy=attempt.pricing_policy,
             )
             realized_payoff = structure.payoff_by_outcome(action)[outcome]
             for quantity in quantities:
-                quote = _pair_quote_at_quantity(
+                quote = quote_pair_buy(
                     quantity=quantity,
                     first_book=first_book,
                     second_book=second_book,

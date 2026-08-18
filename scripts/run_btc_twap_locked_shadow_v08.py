@@ -13,7 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.edge_lab.btc_twap_locked_shadow_v08 import (  # noqa: E402
+from src.edge_lab.btc_twap_locked_shadow_v08 import (
     RollingCohortAdmission,
     RollingCohortOutcome,
     RollingDecisionReceipt,
@@ -24,7 +24,7 @@ from src.edge_lab.btc_twap_locked_shadow_v08 import (  # noqa: E402
     finalize_rolling_cohort,
     initialize_rolling_shadow,
 )
-from src.edge_lab.data_store import canonical_json_bytes  # noqa: E402
+from src.edge_lab.data_store import canonical_json_bytes
 
 
 def _document(path: Path) -> dict[str, Any]:
