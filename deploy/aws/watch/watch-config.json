@@ -56,6 +56,24 @@
       "maximum_heartbeat_age_seconds": 2700,
       "expected_regime": "chainlink_twap_60s_5m_and_60s_15m.v1",
       "regime_state_path": "/var/lib/poly-mm-rawcap/monitor/regime-latest.json"
+    },
+    {
+      "name": "v08",
+      "kind": "edge_readiness",
+      "lifecycle": "active",
+      "status_path": "/var/lib/poly-mm-v08/data/service/status.json",
+      "health_path": "/var/lib/poly-mm-v08/monitor/edge-readiness-health-latest.json",
+      "capacity_evidence_path": "/var/lib/poly-mm-watch/state/v08-capture-capacity.json",
+      "data_root": "/var/lib/poly-mm-v08/data",
+      "capture_summary_glob": "/var/lib/poly-mm-v08/data/runs/*/*/capture-summary.json",
+      "attempt_receipt_glob": "/var/lib/poly-mm-v08/data/service/attempt-receipts/*.json",
+      "started_receipt_stale_seconds": 1800,
+      "attempt_receipt_recent_window_count": 96,
+      "attempt_receipt_recent_window_hours": 24,
+      "expected_cycle_seconds": 900,
+      "maximum_heartbeat_age_seconds": 90,
+      "expected_regime": "chainlink_twap_60s_5m_and_60s_15m.v1",
+      "regime_state_path": "/var/lib/poly-mm-rawcap/monitor/regime-latest.json"
     }
   ],
   "host": {
@@ -73,6 +91,7 @@
       "v05": 367001600,
       "v06": 367001600,
       "v07": 524288000,
+      "v08": 524288000,
       "rawcap": 262144000
     }
   }

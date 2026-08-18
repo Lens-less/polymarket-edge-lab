@@ -7906,10 +7906,12 @@ def test_receipt_without_finalized_decision_cannot_construct_worker_scope(
 if os.name == "nt":
     _requires_posix_descriptor_traversal = pytest.mark.skip(
         reason=(
-            "requires POSIX dir_fd/O_NOFOLLOW traversal or directory fsync"
+            "requires POSIX dir_fd/O_NOFOLLOW traversal, directory fsync, "
+            "or production-path performance characteristics"
         )
     )
     for _test_name in (
+        "test_recovery_validates_repetitive_book_batches_with_bounded_overhead",
         "test_cached_recovery_binds_all_replay_reads_to_held_run_root_against_swap_back",
         "test_cached_recovery_rejects_replay_subtree_swap_after_bounded_walk",
         "test_cached_recovery_rejects_finalized_pair_added_after_held_view_walk",

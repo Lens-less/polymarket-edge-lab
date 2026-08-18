@@ -27,4 +27,4 @@ mv -f "${HISTORY_TMP}" "${HISTORY_PATH}"
 if [[ "${status}" -ne 0 ]]; then
   printf '%s\n' "edge-readiness capture is unhealthy; ${HISTORY_PATH}" >&2
 fi
-exit 0
+exit "${status}"

@@ -552,6 +552,106 @@ def test_every_capture_targets_an_expiry_with_future_opening(
     assert runner._next_capture_expiry_seconds() == 1_786_534_200
 
 
+def test_attempt_receipt_preserves_terminal_timestamp_on_failed_rewrite(
+    tmp_path: Path,
+) -> None:
+    config = _service_config(tmp_path)
+    receipt = runner._write_attempt_receipt(
+        config,
+        attempt_id="attempt-1",
+        scheduled_expiry_seconds=1,
+        status="started",
+    )
+    failed = runner._write_attempt_receipt(
+        config,
+        attempt_id="attempt-1",
+        scheduled_expiry_seconds=1,
+        status="failed",
+        expiry_seconds=1,
+        error={"error_code": "service_cycle_failed"},
+    )
+    rewritten = runner._write_attempt_receipt(
+        config,
+        attempt_id="attempt-1",
+        scheduled_expiry_seconds=1,
+        status="failed",
+        expiry_seconds=1,
+        error={"error_code": "service_cycle_failed"},
+    )
+
+    assert receipt["status"] == "started"
+    assert failed["terminal_at"] == rewritten["terminal_at"]
+
+
+def test_attempt_receipt_surfaces_posix_directory_fsync_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _service_config(tmp_path)
+    monkeypatch.setattr(runner.os, "name", "posix")
+    monkeypatch.setattr(
+        runner,
+        "_fsync_directory",
+        lambda _path: (_ for _ in ()).throw(OSError("dir fsync failed")),
+    )
+
+    with pytest.raises(OSError, match="dir fsync failed"):
+        runner._write_attempt_receipt(
+            config,
+            attempt_id="attempt-1",
+            scheduled_expiry_seconds=1,
+            status="started",
+        )
+
+
+@pytest.mark.anyio
+async def test_run_service_records_failed_receipt_when_clock_measurement_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _service_config(tmp_path)
+    _write_preregistration(tmp_path)
+
+    class DummySession:
+        def close(self) -> None:
+            return None
+
+    async def stop_after_failure(
+        stop_event: asyncio.Event,
+        seconds: float,
+    ) -> bool:
+        del stop_event, seconds
+        return True
+
+    monkeypatch.setattr(runner, "verify_paper_only_guard", lambda: None)
+    monkeypatch.setattr(runner, "_validate_runtime_identity", lambda config: None)
+    monkeypatch.setattr(runner, "public_session", lambda proxy: DummySession())
+    monkeypatch.setattr(runner, "PublicSourcesClient", lambda **kwargs: object())
+    monkeypatch.setattr(runner, "require_disk_capacity", lambda config: None)
+    monkeypatch.setattr(
+        runner,
+        "_measure_clock_sync",
+        lambda config: (_ for _ in ()).throw(RuntimeError("clock failed")),
+    )
+    monkeypatch.setattr(runner, "_wait_or_stop", stop_after_failure)
+    monkeypatch.setattr(runner, "_attempt_id", lambda: "attempt-1")
+    monkeypatch.setattr(runner, "_next_capture_expiry_seconds", lambda: 123)
+
+    await runner.run_service(
+        config,
+        proxy_url=None,
+        stop_event=asyncio.Event(),
+    )
+
+    receipt_path = (
+        config.data_root / "service" / "attempt-receipts" / "attempt-1.json"
+    )
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["status"] == "failed"
+    assert receipt["scheduled_expiry_seconds"] == 123
+    assert receipt["error"]["error_code"] == "service_cycle_failed"
+
+
 @pytest.mark.anyio
 async def test_run_service_persists_failed_capture_finalization_before_retry(
     tmp_path: Path,

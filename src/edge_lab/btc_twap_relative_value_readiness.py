@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import json
+import stat
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import date, datetime, timezone
 from decimal import Decimal
+from hashlib import sha256
 from itertools import pairwise
+from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .btc_twap_pair_pricing import (
     PairExecutionMode,
@@ -27,6 +32,7 @@ from .btc_twap_relative_value_v07 import (
     SharedTerminalPayoffStructure,
     StrikeOrdering,
 )
+from .data_store import canonical_json_bytes
 
 if TYPE_CHECKING:
     from .btc_twap_relative_value_v07_evaluation import V07LockedOOSEvaluation
@@ -36,11 +42,14 @@ ONE = Decimal(1)
 PROBE_ALL_IN_LIMIT = Decimal("0.99")
 EXPECTED_RTDS_INTERVAL_MS = 1_000
 MAXIMUM_RTDS_GAP_MS = 2_000
-MINIMUM_SETTLED_CLUSTERS = 100
-MINIMUM_EXPLAINABLE_ECONOMIC_ATTEMPTS = 100
+MINIMUM_SETTLED_CLUSTERS = 200
+MINIMUM_EXPLAINABLE_ECONOMIC_ATTEMPTS = 200
 MINIMUM_STRUCTURAL_SHADOW_EXPIRIES = 200
+MINIMUM_CONSECUTIVE_PROFITABLE_UTC_DAYS = 14
+MINIMUM_DAILY_NET_PNL = Decimal(20)
+MAXIMUM_CAPITAL_DEPLOYED = Decimal(2_000)
 MAXIMUM_SINGLE_EXPIRY_PNL_CONCENTRATION = Decimal("0.20")
-MAXIMUM_CAPTURE_FAILURE_RATE = Decimal("0.05")
+CAPTURE_FAILURE_RATE_UPPER_BOUND_EXCLUSIVE = Decimal("0.05")
 MINIMUM_CAPTURE_FREE_DISK_BYTES = 10 * 1024**3
 MAXIMUM_PROJECTED_DAILY_CAPTURE_BYTES = 1024**3
 MINIMUM_CAPTURE_MEMORY_BYTES = 2 * 1024**3
@@ -49,6 +58,181 @@ GATE_0_PAIR_PRICING_POLICY = PairPricingPolicy(
     pair_risk_usdc=None,
     structural_only=True,
 )
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+V08_PREREGISTRATION_PATH = (
+    PROJECT_ROOT
+    / "research"
+    / "btc_5m_15m_edge_readiness_v08_2026-08-18"
+    / "PREREGISTRATION.json"
+)
+STRICT_GATE_0_REPORT_SCHEMA = "btc-5m-15m-gate-0-executable-upper-bound-report.v3"
+STRUCTURAL_SHADOW_REPORT_SCHEMAS = frozenset({"btc_twap_structural_shadow_report.v1"})
+CAPTURE_CAPACITY_ARTIFACT_SCHEMA = "btc-twap-capture-capacity-evidence.v1"
+SERVICE_HEALTH_ARTIFACT_SCHEMA = "btc-twap-service-health-evidence.v1"
+AUTHENTICATED_READ_ARTIFACT_SCHEMA = "btc-twap-authenticated-read-evidence.v1"
+FILL_STREAM_ARTIFACT_SCHEMA = "btc-twap-fill-stream-evidence.v1"
+FAULT_DRILLS_ARTIFACT_SCHEMA = "btc-twap-fault-drills-evidence.v1"
+PROBE_ADAPTER_ARTIFACT_SCHEMA = "btc-twap-probe-adapter-evidence.v1"
+DAILY_LEDGER_ARTIFACT_SCHEMA = "btc-twap-daily-ledger-evidence.v1"
+CAPITAL_LEDGER_ARTIFACT_SCHEMA = "btc-twap-capital-ledger-evidence.v1"
+EXECUTION_RECONCILIATION_ARTIFACT_SCHEMA = (
+    "btc-twap-execution-reconciliation-evidence.v1"
+)
+
+
+def _strict_v08_preregistration() -> tuple[Path, dict[str, Any]]:
+    document = json.loads(V08_PREREGISTRATION_PATH.read_text(encoding="utf-8"))
+    if not isinstance(document, dict):
+        raise TypeError("v0.8 preregistration must be a JSON object")
+    return V08_PREREGISTRATION_PATH, document
+
+
+def _strict_gate_0_parameters() -> dict[str, Any]:
+    prereg_path, prereg = _strict_v08_preregistration()
+    report_config = prereg["gate_0"]["existing_41_attempt_report"]
+    scan_start, scan_end = report_config["scan_ttc_seconds_inclusive"]
+    return {
+        "track_id": prereg["track_id"],
+        "v08_preregistration_path": str(prereg_path),
+        "v08_preregistration_sha256": sha256(prereg_path.read_bytes()).hexdigest(),
+        "expected_clean_attempts": report_config[
+            "expected_unique_common_expiry_attempts"
+        ],
+        "scan_ttc_seconds_inclusive": [scan_start, scan_end],
+        "candidate_ttc_count": scan_start - scan_end + 1,
+        "decision_execution_mode": prereg["gate_0"]["decision_execution_mode"],
+        "minimum_average_best_total_pnl_per_expiry_usdc": prereg["gate_0"][
+            "minimum_average_best_total_pnl_per_expiry_usdc"
+        ],
+        "incomplete_existing_41_evidence_action": prereg["gate_0"][
+            "incomplete_existing_41_evidence_action"
+        ],
+    }
+
+
+def _parse_utc_timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+@dataclass(frozen=True)
+class VerifiedJsonArtifact:
+    path: str
+    sha256: str
+    schema_version: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.path, str) or not self.path:
+            raise ValueError("artifact path must be non-empty")
+        if (
+            not isinstance(self.sha256, str)
+            or len(self.sha256) != 64
+            or any(character not in "0123456789abcdef" for character in self.sha256)
+        ):
+            raise ValueError("artifact sha256 must be a lowercase SHA-256 digest")
+        if not isinstance(self.schema_version, str) or not self.schema_version:
+            raise ValueError("artifact schema_version must be non-empty")
+
+
+def load_verified_json_artifact(path: str | Path) -> VerifiedJsonArtifact:
+    absolute = _artifact_absolute_path(path)
+    if not _artifact_path_is_regular_file(absolute):
+        raise ValueError("artifact path must be an existing regular file")
+    try:
+        document = json.loads(absolute.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("artifact JSON is unreadable or invalid") from exc
+    if not isinstance(document, dict):
+        raise TypeError("artifact JSON must be an object")
+    schema_version = document.get("schema_version")
+    if not isinstance(schema_version, str) or not schema_version:
+        raise ValueError("artifact schema_version must be a non-empty string")
+    return VerifiedJsonArtifact(
+        path=str(absolute),
+        sha256=sha256(absolute.read_bytes()).hexdigest(),
+        schema_version=schema_version,
+    )
+
+
+def _load_bound_artifact_document(
+    artifact: VerifiedJsonArtifact,
+    *,
+    accepted_schema_versions: Sequence[str] | None = None,
+) -> dict[str, Any] | None:
+    absolute = _artifact_absolute_path(artifact.path)
+    if not _artifact_path_is_regular_file(absolute):
+        return None
+    try:
+        current_bytes = absolute.read_bytes()
+    except OSError:
+        return None
+    if sha256(current_bytes).hexdigest() != artifact.sha256:
+        return None
+    try:
+        document = json.loads(current_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(document, dict):
+        return None
+    if document.get("schema_version") != artifact.schema_version:
+        return None
+    if (
+        accepted_schema_versions is not None
+        and artifact.schema_version not in accepted_schema_versions
+    ):
+        return None
+    return document
+
+
+def _artifact_path_is_regular_file(path: Path) -> bool:
+    try:
+        for ancestor in (path, *path.parents):
+            stat_result = ancestor.lstat()
+            if ancestor.is_symlink():
+                return False
+            if hasattr(stat_result, "st_file_attributes") and (
+                stat_result.st_file_attributes
+                & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+            ):
+                return False
+        stat_result = path.lstat()
+    except OSError:
+        return False
+    return path.is_file()
+
+
+def _artifact_absolute_path(path: str | Path) -> Path:
+    candidate = Path(path).expanduser()
+    return candidate if candidate.is_absolute() else (Path.cwd() / candidate)
+
+
+@dataclass(frozen=True)
+class ExecutionProbeEvidenceBundle:
+    gate_0_report_artifact: VerifiedJsonArtifact | None = None
+    structural_shadow_artifact: VerifiedJsonArtifact | None = None
+    capture_capacity_artifact: VerifiedJsonArtifact | None = None
+    service_health_artifact: VerifiedJsonArtifact | None = None
+    authenticated_read_artifact: VerifiedJsonArtifact | None = None
+    fill_stream_artifact: VerifiedJsonArtifact | None = None
+    fault_drills_artifact: VerifiedJsonArtifact | None = None
+    probe_adapter_artifact: VerifiedJsonArtifact | None = None
+
+
+@dataclass(frozen=True)
+class StrategyLiveEvidenceBundle:
+    gate_0_report_artifact: VerifiedJsonArtifact | None = None
+    structural_shadow_artifact: VerifiedJsonArtifact | None = None
+    service_health_artifact: VerifiedJsonArtifact | None = None
+    daily_ledger_artifact: VerifiedJsonArtifact | None = None
+    capital_ledger_artifact: VerifiedJsonArtifact | None = None
+    execution_reconciliation_artifact: VerifiedJsonArtifact | None = None
 
 
 def _outcome_key(*, actual_5_up: bool, actual_15_up: bool) -> str:
@@ -277,6 +461,7 @@ def validate_structural_floor(
                 first_contract=first_contract,
                 second_contract=second_contract,
                 execution_mode=execution_mode,
+                maker_fill_cap_by_token_id=pricing_policy.maker_fill_cap_by_token_id,
             )
             if quote is None:
                 continue
@@ -528,6 +713,9 @@ def evaluate_perfect_information_upper_bound(
                     first_contract=first_contract,
                     second_contract=second_contract,
                     execution_mode=attempt.execution_mode,
+                    maker_fill_cap_by_token_id=(
+                        attempt.pricing_policy.maker_fill_cap_by_token_id
+                    ),
                 )
                 if quote is None:
                     continue
@@ -646,6 +834,612 @@ def evaluate_perfect_information_upper_bound(
     )
 
 
+def _validated_gate_0_report_document(
+    artifact: VerifiedJsonArtifact | None,
+) -> tuple[dict[str, Any] | None, tuple[str, ...]]:
+    if artifact is None:
+        return None, ("gate_0_report_artifact_missing",)
+    report = _load_bound_artifact_document(
+        artifact,
+        accepted_schema_versions=(STRICT_GATE_0_REPORT_SCHEMA,),
+    )
+    if report is None:
+        return None, ("gate_0_report_artifact_invalid",)
+    unsigned = {key: value for key, value in report.items() if key != "report_sha256"}
+    if report.get("report_sha256") != sha256(canonical_json_bytes(unsigned)).hexdigest():
+        return None, ("gate_0_report_hash_invalid",)
+    authority = report.get("authority")
+    if not isinstance(authority, dict):
+        return None, ("gate_0_report_authority_missing",)
+    strict = _strict_gate_0_parameters()
+    if authority.get("track_id") != strict["track_id"]:
+        return None, ("gate_0_report_track_id_mismatch",)
+    if authority.get("v08_preregistration_sha256") != strict["v08_preregistration_sha256"]:
+        return None, ("gate_0_report_preregistration_sha_mismatch",)
+    if authority.get("expected_clean_attempts") != strict["expected_clean_attempts"]:
+        return None, ("gate_0_report_expected_clean_attempts_mismatch",)
+    if authority.get("scan_ttc_seconds_inclusive") != strict["scan_ttc_seconds_inclusive"]:
+        return None, ("gate_0_report_scan_window_mismatch",)
+    if authority.get("candidate_ttc_count") != strict["candidate_ttc_count"]:
+        return None, ("gate_0_report_candidate_ttc_count_mismatch",)
+    if authority.get("decision_execution_mode") != strict["decision_execution_mode"]:
+        return None, ("gate_0_report_execution_mode_mismatch",)
+    if (
+        authority.get("minimum_average_best_total_pnl_per_expiry_usdc")
+        != strict["minimum_average_best_total_pnl_per_expiry_usdc"]
+    ):
+        return None, ("gate_0_report_minimum_average_pnl_mismatch",)
+    strict_identity = {
+        "track_id": authority.get("track_id"),
+        "v08_preregistration_sha256": authority.get("v08_preregistration_sha256"),
+        "expected_clean_attempts": authority.get("expected_clean_attempts"),
+        "scan_ttc_seconds_inclusive": authority.get("scan_ttc_seconds_inclusive"),
+        "candidate_ttc_count": authority.get("candidate_ttc_count"),
+        "decision_execution_mode": authority.get("decision_execution_mode"),
+        "minimum_average_best_total_pnl_per_expiry_usdc": authority.get(
+            "minimum_average_best_total_pnl_per_expiry_usdc"
+        ),
+    }
+    if authority.get("strict_identity_sha256") != sha256(
+        canonical_json_bytes(strict_identity)
+    ).hexdigest():
+        return None, ("gate_0_report_strict_identity_hash_invalid",)
+    if authority.get("requested_expected_clean_attempts") != strict["expected_clean_attempts"]:
+        return None, ("gate_0_report_requested_count_mismatch",)
+    if authority.get("requested_decision_tau_seconds") is not None:
+        return None, ("gate_0_report_requested_tau_override_present",)
+    if authority.get("strict_parameters_match") is not True:
+        return None, ("gate_0_report_not_authorized_for_formal_pass",)
+    if authority.get("strict_fill_volume_bound_complete") is not True:
+        return None, ("gate_0_report_fill_caps_not_manifest_bound",)
+    if report.get("observed_unique_common_expiry_attempts") != strict["expected_clean_attempts"]:
+        return None, ("gate_0_report_observed_count_mismatch",)
+    scan = report.get("scan")
+    if not isinstance(scan, Mapping):
+        return None, ("gate_0_report_scan_invalid",)
+    if (
+        scan.get("ttc_seconds_start") != strict["scan_ttc_seconds_inclusive"][0]
+        or scan.get("ttc_seconds_end") != strict["scan_ttc_seconds_inclusive"][1]
+        or scan.get("candidate_ttc_count") != strict["candidate_ttc_count"]
+        or scan.get("all_expiries_complete") is not True
+    ):
+        return None, ("gate_0_report_scan_invalid",)
+    maker_maker = report.get("execution_modes", {}).get("maker_maker")
+    if not isinstance(maker_maker, Mapping):
+        return None, ("gate_0_report_maker_maker_missing",)
+    if maker_maker.get("evidence_complete") is not True:
+        return None, ("gate_0_report_maker_maker_incomplete",)
+    if maker_maker.get("missing_fill_volume_bound_expiry_ids") != []:
+        return None, ("gate_0_report_fill_caps_missing",)
+    attempts = maker_maker.get("attempts")
+    if not isinstance(attempts, list):
+        return None, ("gate_0_report_maker_maker_attempts_invalid",)
+    if any(
+        not isinstance(item, Mapping)
+        or item.get("fill_volume_bound_source")
+        != "context.future_public_trades_by_token_id"
+        for item in attempts
+        if item.get("selected_level") is not None
+    ):
+        return None, ("gate_0_report_fill_caps_not_manifest_bound",)
+    if report.get("decision") not in {"PASS", "STOP", "RERUN_REQUIRED"}:
+        return None, ("gate_0_report_decision_invalid",)
+    gate_0_passed = report.get("gate_0_passed") is True
+    rerun_required = report.get("rerun_required") is True
+    stop_recommended = report.get("stop_recommended") is True
+    if report.get("decision") == "PASS" and (not gate_0_passed or rerun_required or stop_recommended):
+        return None, ("gate_0_report_decision_inconsistent",)
+    if report.get("decision") == "STOP" and (gate_0_passed or rerun_required or not stop_recommended):
+        return None, ("gate_0_report_decision_inconsistent",)
+    if report.get("decision") == "RERUN_REQUIRED" and (
+        gate_0_passed or stop_recommended or not rerun_required
+    ):
+        return None, ("gate_0_report_decision_inconsistent",)
+    return report, ()
+
+
+def _validated_structural_shadow_document(
+    artifact: VerifiedJsonArtifact | None,
+) -> tuple[dict[str, Any] | None, tuple[str, ...]]:
+    if artifact is None:
+        return None, ("neutral_shadow_artifact_missing",)
+    report = _load_bound_artifact_document(
+        artifact,
+        accepted_schema_versions=tuple(STRUCTURAL_SHADOW_REPORT_SCHEMAS),
+    )
+    if report is None:
+        return None, ("neutral_shadow_artifact_invalid",)
+    unsigned = {key: value for key, value in report.items() if key != "report_sha256"}
+    if report.get("report_sha256") != sha256(canonical_json_bytes(unsigned)).hexdigest():
+        return None, ("neutral_shadow_report_hash_invalid",)
+    authority = report.get("builder_authority")
+    if not isinstance(authority, Mapping):
+        return None, ("neutral_shadow_builder_authority_missing",)
+    if authority.get("issuer") != "btc_twap_structural_shadow.finalized_capture_store_builder":
+        return None, ("neutral_shadow_builder_authority_issuer_invalid",)
+    if authority.get("authority_kind") != "capture_store_finalized":
+        return None, ("neutral_shadow_builder_authority_kind_invalid",)
+    attempts = report.get("attempts")
+    zero_cohorts = report.get("locked_zero_cohorts")
+    if not isinstance(attempts, list) or not isinstance(zero_cohorts, list):
+        return None, ("neutral_shadow_builder_authority_rows_invalid",)
+    authority_payload = {
+        "schema_version": report.get("schema_version"),
+        "issuer": authority.get("issuer"),
+        "source_input_sha256": report.get("source_input_sha256"),
+        "preregistration_sha256": report.get("preregistration_sha256"),
+        "rolling_audit_sha256": report.get("rolling_audit_sha256"),
+        "attempts": [
+            {
+                "attempt_id": item.get("attempt_id"),
+                "expiry_ms": item.get("expiry_ms"),
+                "capture_verification": item.get("capture_verification"),
+                "locked_action_payload_sha256": item.get(
+                    "locked_action_payload_sha256"
+                ),
+                "source_evidence_sha256": item.get("source_evidence_sha256"),
+            }
+            for item in attempts
+            if isinstance(item, Mapping)
+        ],
+        "locked_zero_cohorts": [
+            {
+                "attempt_id": item.get("attempt_id"),
+                "expiry_ms": item.get("expiry_ms"),
+                "outcome": item.get("outcome"),
+                "capture_verification": item.get("capture_verification"),
+                "source_evidence_sha256": item.get("source_evidence_sha256"),
+                "locked_action_payload_sha256": item.get(
+                    "locked_action_payload_sha256"
+                ),
+                "dirty_reason_code": item.get("dirty_reason_code"),
+            }
+            for item in zero_cohorts
+            if isinstance(item, Mapping)
+        ],
+    }
+    if len(authority_payload["attempts"]) != len(attempts) or len(
+        authority_payload["locked_zero_cohorts"]
+    ) != len(zero_cohorts):
+        return None, ("neutral_shadow_builder_authority_rows_invalid",)
+    if authority.get("authority_sha256") != sha256(
+        canonical_json_bytes(authority_payload)
+    ).hexdigest():
+        return None, ("neutral_shadow_builder_authority_hash_invalid",)
+    return report, ()
+
+
+def _artifact_flag(
+    artifact: VerifiedJsonArtifact | None,
+    *,
+    accepted_schema: str,
+    required_flag: str,
+    missing_reason: str,
+    invalid_reason: str,
+    false_reason: str,
+) -> tuple[bool, tuple[str, ...]]:
+    if artifact is None:
+        return False, (missing_reason,)
+    document = _load_bound_artifact_document(
+        artifact,
+        accepted_schema_versions=(accepted_schema,),
+    )
+    if document is None:
+        return False, (invalid_reason,)
+    if document.get(required_flag) is not True:
+        return False, (false_reason,)
+    return True, ()
+
+
+REQUIRED_FAULT_DRILLS = (
+    "partial_fill",
+    "disconnect",
+    "reject",
+    "cancel_race",
+    "duplicate_and_late_fill",
+    "fok_depth_shortfall",
+    "emergency_unwind",
+    "persistent_kill_switch",
+)
+
+
+def _is_sha256_text(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _validated_source_binding(
+    *,
+    path_value: Any,
+    sha_value: Any,
+    accepted_schema_versions: Sequence[str] | None = None,
+    require_json: bool = True,
+) -> bool:
+    if not isinstance(path_value, str) or not path_value or not _is_sha256_text(sha_value):
+        return False
+    absolute = _artifact_absolute_path(path_value)
+    if not _artifact_path_is_regular_file(absolute):
+        return False
+    current_sha = sha256(absolute.read_bytes()).hexdigest()
+    if current_sha != sha_value:
+        return False
+    if not require_json:
+        return True
+    try:
+        artifact = load_verified_json_artifact(absolute)
+    except ValueError:
+        return False
+    return not (
+        accepted_schema_versions is not None
+        and artifact.schema_version not in accepted_schema_versions
+    )
+
+
+def _validated_service_health_artifact(
+    artifact: VerifiedJsonArtifact | None,
+) -> tuple[bool, tuple[str, ...]]:
+    if artifact is None:
+        return False, ("service_health_artifact_missing",)
+    document = _load_bound_artifact_document(
+        artifact,
+        accepted_schema_versions=(SERVICE_HEALTH_ARTIFACT_SCHEMA,),
+    )
+    if document is None:
+        return False, ("service_health_artifact_invalid",)
+    if document.get("service_continuously_healthy") is not True:
+        return False, ("service_continuous_health_unverified",)
+    if not _is_sha256_text(document.get("heartbeat_source_sha256")):
+        return False, ("service_health_heartbeat_source_hash_missing",)
+    if not _validated_source_binding(
+        path_value=document.get("heartbeat_source_path"),
+        sha_value=document.get("heartbeat_source_sha256"),
+    ):
+        return False, ("service_health_heartbeat_source_invalid",)
+    started = document.get("window_started_at_ms")
+    ended = document.get("window_ended_at_ms")
+    if (
+        isinstance(started, bool)
+        or not isinstance(started, int)
+        or isinstance(ended, bool)
+        or not isinstance(ended, int)
+        or started > ended
+    ):
+        return False, ("service_health_window_invalid",)
+    return True, ()
+
+
+def _validated_receipt_artifact(
+    artifact: VerifiedJsonArtifact | None,
+    *,
+    schema: str,
+    required_flag: str,
+    missing_reason: str,
+    invalid_reason: str,
+    false_reason: str,
+    missing_receipt_reason: str,
+) -> tuple[bool, tuple[str, ...]]:
+    if artifact is None:
+        return False, (missing_reason,)
+    document = _load_bound_artifact_document(
+        artifact,
+        accepted_schema_versions=(schema,),
+    )
+    if document is None:
+        return False, (invalid_reason,)
+    if document.get(required_flag) is not True:
+        return False, (false_reason,)
+    if not _validated_source_binding(
+        path_value=document.get("receipt_path"),
+        sha_value=document.get("receipt_sha256"),
+    ):
+        return False, (missing_receipt_reason,)
+    return True, ()
+
+
+def _validated_fault_drills_artifact(
+    artifact: VerifiedJsonArtifact | None,
+) -> tuple[bool, tuple[str, ...]]:
+    if artifact is None:
+        return False, ("fault_drills_artifact_missing",)
+    document = _load_bound_artifact_document(
+        artifact,
+        accepted_schema_versions=(FAULT_DRILLS_ARTIFACT_SCHEMA,),
+    )
+    if document is None:
+        return False, ("fault_drills_artifact_invalid",)
+    passed = document.get("passed_by_drill")
+    receipts = document.get("receipts_by_drill")
+    if not isinstance(passed, Mapping) or not isinstance(receipts, Mapping):
+        return False, ("failure_drills_incomplete",)
+    for drill in REQUIRED_FAULT_DRILLS:
+        receipt = receipts.get(drill)
+        if (
+            passed.get(drill) is not True
+            or not isinstance(receipt, Mapping)
+            or not _validated_source_binding(
+                path_value=receipt.get("path"),
+                sha_value=receipt.get("sha256"),
+            )
+        ):
+            return False, ("failure_drills_incomplete",)
+    if set(passed) != set(REQUIRED_FAULT_DRILLS):
+        return False, ("failure_drills_incomplete",)
+    return True, ()
+
+
+def _validated_probe_adapter_artifact(
+    artifact: VerifiedJsonArtifact | None,
+) -> tuple[bool, tuple[str, ...]]:
+    if artifact is None:
+        return False, ("probe_adapter_artifact_missing",)
+    document = _load_bound_artifact_document(
+        artifact,
+        accepted_schema_versions=(PROBE_ADAPTER_ARTIFACT_SCHEMA,),
+    )
+    if document is None:
+        return False, ("probe_adapter_artifact_invalid",)
+    if document.get("double_maker_probe_implemented") is not True:
+        return False, ("double_maker_probe_not_implemented",)
+    if document.get("full_hedge_depth_verified") is not True:
+        return False, ("full_hedge_depth_unverified",)
+    if not _validated_source_binding(
+        path_value=document.get("code_artifact_path"),
+        sha_value=document.get("code_artifact_sha256"),
+        require_json=False,
+    ):
+        return False, ("probe_adapter_code_digest_missing",)
+    if not _validated_source_binding(
+        path_value=document.get("test_artifact_path"),
+        sha_value=document.get("test_artifact_sha256"),
+        require_json=False,
+    ):
+        return False, ("probe_adapter_test_digest_missing",)
+    for key in ("code_artifact_path", "test_artifact_path"):
+        path_value = document.get(key)
+        if not isinstance(path_value, str) or not str(PROJECT_ROOT) in str(
+            _artifact_absolute_path(path_value)
+        ):
+            return False, ("probe_adapter_artifact_invalid",)
+    return True, ()
+
+
+def _validated_capture_capacity_artifact(
+    artifact: VerifiedJsonArtifact | None,
+) -> tuple[bool, tuple[str, ...]]:
+    if artifact is None:
+        return False, ("capture_capacity_artifact_missing",)
+    document = _load_bound_artifact_document(
+        artifact,
+        accepted_schema_versions=(CAPTURE_CAPACITY_ARTIFACT_SCHEMA,),
+    )
+    if document is None:
+        return False, ("capture_capacity_artifact_invalid",)
+    unsigned = {key: value for key, value in document.items() if key != "artifact_sha256"}
+    if document.get("artifact_sha256") != sha256(
+        canonical_json_bytes(unsigned)
+    ).hexdigest():
+        return False, ("capture_capacity_artifact_invalid",)
+    try:
+        verdict = evaluate_capture_capacity(
+            CaptureCapacityEvidence(
+                capture_attempt_count=int(document["capture_attempt_count"]),
+                capture_failure_count=int(document["capture_failure_count"]),
+                free_disk_bytes=int(document["free_disk_bytes"]),
+                projected_daily_capture_bytes=int(
+                    document["projected_daily_capture_bytes"]
+                ),
+                available_memory_bytes=int(document["available_memory_bytes"]),
+                burstable_cpu_credit_exhausted=document["burstable_cpu_credit_exhausted"],
+            )
+        )
+    except (KeyError, TypeError, ValueError):
+        return False, ("capture_capacity_artifact_invalid",)
+    if verdict.passed is not True:
+        return False, ("capture_capacity_gate_not_passed",)
+    receipts = document.get("attempt_receipts")
+    pending_receipts = document.get("pending_attempt_receipts", [])
+    if (
+        not isinstance(receipts, list)
+        or not receipts
+        or len(receipts) != int(document["capture_attempt_count"])
+        or any(
+            not isinstance(item, Mapping)
+            or not isinstance(item.get("path"), str)
+            or not item.get("path")
+            or not _is_sha256_text(item.get("sha256"))
+            for item in receipts
+        )
+    ):
+        return False, ("capture_capacity_attempt_receipts_missing",)
+    if (
+        not isinstance(pending_receipts, list)
+        or any(
+            not isinstance(item, Mapping)
+            or not isinstance(item.get("path"), str)
+            or not item.get("path")
+            or not _is_sha256_text(item.get("sha256"))
+            for item in pending_receipts
+        )
+        or len(pending_receipts) != int(document.get("pending_attempt_count", 0))
+    ):
+        return False, ("capture_capacity_attempt_receipts_missing",)
+    seen_attempt_ids: set[str] = set()
+    failure_count = 0
+    pending_count = 0
+    for item in receipts:
+        try:
+            receipt_artifact = load_verified_json_artifact(str(item["path"]))
+        except ValueError:
+            return False, ("capture_capacity_attempt_receipts_missing",)
+        if receipt_artifact.sha256 != item["sha256"]:
+            return False, ("capture_capacity_attempt_receipts_missing",)
+        receipt_document = _load_bound_artifact_document(receipt_artifact)
+        if receipt_document is None:
+            return False, ("capture_capacity_attempt_receipts_missing",)
+        attempt_id = receipt_document.get("attempt_id")
+        status = receipt_document.get("status")
+        if (
+            receipt_document.get("schema_version")
+            != "btc-twap-capture-attempt-receipt.v1"
+            or not isinstance(attempt_id, str)
+            or not attempt_id
+            or attempt_id in seen_attempt_ids
+            or status not in {"succeeded", "failed"}
+            or not isinstance(receipt_document.get("created_at"), str)
+            or _parse_utc_timestamp(receipt_document.get("created_at")) is None
+            or not isinstance(receipt_document.get("terminal_at"), str)
+            or _parse_utc_timestamp(receipt_document.get("terminal_at")) is None
+        ):
+            return False, ("capture_capacity_attempt_receipts_missing",)
+        seen_attempt_ids.add(attempt_id)
+        if status == "failed":
+            failure_count += 1
+    for item in pending_receipts:
+        try:
+            receipt_artifact = load_verified_json_artifact(str(item["path"]))
+        except ValueError:
+            return False, ("capture_capacity_attempt_receipts_missing",)
+        if receipt_artifact.sha256 != item["sha256"]:
+            return False, ("capture_capacity_attempt_receipts_missing",)
+        receipt_document = _load_bound_artifact_document(receipt_artifact)
+        if receipt_document is None:
+            return False, ("capture_capacity_attempt_receipts_missing",)
+        attempt_id = receipt_document.get("attempt_id")
+        if (
+            receipt_document.get("schema_version")
+            != "btc-twap-capture-attempt-receipt.v1"
+            or not isinstance(attempt_id, str)
+            or not attempt_id
+            or attempt_id in seen_attempt_ids
+            or receipt_document.get("status") != "started"
+            or not isinstance(receipt_document.get("created_at"), str)
+            or _parse_utc_timestamp(receipt_document.get("created_at")) is None
+        ):
+            return False, ("capture_capacity_attempt_receipts_missing",)
+        seen_attempt_ids.add(attempt_id)
+        pending_count += 1
+    if failure_count != int(document["capture_failure_count"]):
+        return False, ("capture_capacity_artifact_invalid",)
+    if pending_count != int(document.get("pending_attempt_count", 0)):
+        return False, ("capture_capacity_artifact_invalid",)
+    return True, ()
+
+
+def _validated_daily_ledger_artifact(
+    artifact: VerifiedJsonArtifact | None,
+) -> tuple[dict[str, Decimal | int] | None, tuple[str, ...]]:
+    if artifact is None:
+        return None, ("daily_ledger_artifact_missing",)
+    document = _load_bound_artifact_document(
+        artifact,
+        accepted_schema_versions=(DAILY_LEDGER_ARTIFACT_SCHEMA,),
+    )
+    if document is None:
+        return None, ("daily_ledger_artifact_invalid",)
+    rows = document.get("rows")
+    generated_at = document.get("generated_at")
+    if not isinstance(rows, list) or not rows or not isinstance(generated_at, str):
+        return None, ("daily_ledger_artifact_invalid",)
+    try:
+        parsed = sorted(
+            (
+                date.fromisoformat(str(row["utc_date"])),
+                Decimal(str(row["net_pnl"])),
+            )
+            for row in rows
+            if isinstance(row, Mapping)
+        )
+    except (KeyError, ValueError, TypeError):
+        return None, ("daily_ledger_artifact_invalid",)
+    if len(parsed) != len(rows):
+        return None, ("daily_ledger_artifact_invalid",)
+    if len({day for day, _pnl in parsed}) != len(parsed):
+        return None, ("daily_ledger_artifact_invalid",)
+    latest_day = date.fromisoformat(generated_at)
+    tail = parsed[-MINIMUM_CONSECUTIVE_PROFITABLE_UTC_DAYS :]
+    if len(tail) < MINIMUM_CONSECUTIVE_PROFITABLE_UTC_DAYS:
+        return None, ("fewer_than_14_consecutive_profitable_utc_days",)
+    expected_days = [
+        latest_day.toordinal() - offset
+        for offset in range(MINIMUM_CONSECUTIVE_PROFITABLE_UTC_DAYS - 1, -1, -1)
+    ]
+    if [day.toordinal() for day, _pnl in tail] != expected_days:
+        return None, ("fewer_than_14_consecutive_profitable_utc_days",)
+    minimum = min(pnl for _day, pnl in tail)
+    if minimum < MINIMUM_DAILY_NET_PNL:
+        return None, ("minimum_daily_net_pnl_below_20",)
+    return {
+        "consecutive_days": MINIMUM_CONSECUTIVE_PROFITABLE_UTC_DAYS,
+        "minimum_daily_net_pnl": minimum,
+    }, ()
+
+
+def _validated_capital_ledger_artifact(
+    artifact: VerifiedJsonArtifact | None,
+) -> tuple[Decimal | None, tuple[str, ...]]:
+    if artifact is None:
+        return None, ("capital_ledger_artifact_missing",)
+    document = _load_bound_artifact_document(
+        artifact,
+        accepted_schema_versions=(CAPITAL_LEDGER_ARTIFACT_SCHEMA,),
+    )
+    if document is None:
+        return None, ("capital_ledger_artifact_invalid",)
+    rows = document.get("rows")
+    if not isinstance(rows, list) or not rows:
+        return None, ("capital_ledger_artifact_invalid",)
+    try:
+        parsed = [
+            Decimal(str(row["capital_deployed"])) for row in rows if isinstance(row, Mapping)
+        ]
+    except (KeyError, ValueError, TypeError):
+        return None, ("capital_ledger_artifact_invalid",)
+    if len(parsed) != len(rows) or any(not value.is_finite() or value < ZERO for value in parsed):
+        return None, ("capital_ledger_artifact_invalid",)
+    peak = max(parsed)
+    if peak <= ZERO or peak > MAXIMUM_CAPITAL_DEPLOYED:
+        return None, ("peak_capital_deployed_outside_0_to_2000",)
+    return peak, ()
+
+
+def _validated_execution_reconciliation_artifact(
+    artifact: VerifiedJsonArtifact | None,
+    *,
+    expected_cohort_ids: set[str] | None = None,
+) -> tuple[bool, tuple[str, ...]]:
+    if artifact is None:
+        return False, ("execution_reconciliation_artifact_missing",)
+    document = _load_bound_artifact_document(
+        artifact,
+        accepted_schema_versions=(EXECUTION_RECONCILIATION_ARTIFACT_SCHEMA,),
+    )
+    if document is None:
+        return False, ("execution_reconciliation_artifact_invalid",)
+    rows = document.get("terminal_rows")
+    if not isinstance(rows, list) or not rows:
+        return False, ("execution_reconciliation_artifact_invalid",)
+    if not all(isinstance(row, Mapping) for row in rows):
+        return False, ("execution_reconciliation_artifact_invalid",)
+    cohort_ids = []
+    for row in rows:
+        cohort_id = row.get("cohort_id")
+        if not isinstance(cohort_id, str) or not cohort_id:
+            return False, ("execution_reconciliation_artifact_invalid",)
+        cohort_ids.append(cohort_id)
+    if len(cohort_ids) != len(set(cohort_ids)):
+        return False, ("execution_reconciliation_artifact_invalid",)
+    if expected_cohort_ids is not None and set(cohort_ids) != expected_cohort_ids:
+        return False, ("execution_reconciliation_shadow_mismatch",)
+    if not all(row.get("execution_complete") is True for row in rows):
+        return False, ("complete_real_execution_evidence_missing",)
+    if not all(row.get("included_in_pnl_distribution") is True for row in rows):
+        return False, ("locked_no_trade_no_fill_cohorts_missing_from_distribution",)
+    return True, ()
+
+
 @dataclass(frozen=True)
 class CohortCoverageInput:
     cohort_id: str
@@ -743,6 +1537,7 @@ class ExecutionProbePrerequisites:
     gate_0_passed: bool = False
     double_maker_probe_implemented: bool = False
     capture_capacity_gate_passed: bool = False
+    verified_evidence_bundle: ExecutionProbeEvidenceBundle | None = None
 
 
 DEFAULT_PROBE_PREREQUISITES = ExecutionProbePrerequisites()
@@ -787,7 +1582,9 @@ class CaptureCapacityVerdict:
             "passed": self.passed,
             "failure_rate": str(self.failure_rate),
             "reason_codes": list(self.reason_codes),
-            "maximum_capture_failure_rate": str(MAXIMUM_CAPTURE_FAILURE_RATE),
+            "capture_failure_rate_upper_bound_exclusive": str(
+                CAPTURE_FAILURE_RATE_UPPER_BOUND_EXCLUSIVE
+            ),
             "minimum_free_disk_bytes": MINIMUM_CAPTURE_FREE_DISK_BYTES,
             "maximum_projected_daily_capture_bytes": (
                 MAXIMUM_PROJECTED_DAILY_CAPTURE_BYTES
@@ -806,8 +1603,8 @@ def evaluate_capture_capacity(
         evidence.capture_attempt_count
     )
     reasons: list[str] = []
-    if failure_rate > MAXIMUM_CAPTURE_FAILURE_RATE:
-        reasons.append("capture_failure_rate_above_5pct")
+    if failure_rate >= CAPTURE_FAILURE_RATE_UPPER_BOUND_EXCLUSIVE:
+        reasons.append("capture_failure_rate_not_below_5pct")
     if evidence.free_disk_bytes < MINIMUM_CAPTURE_FREE_DISK_BYTES:
         reasons.append("capture_free_disk_below_10gib")
     if (
@@ -877,9 +1674,81 @@ class ExecutionProbeReadiness:
     reason_codes: tuple[str, ...]
 
 
+def _coerce_neutral_shadow_evidence(
+    structural_shadow_report: object | None,
+) -> tuple[NeutralShadowEvidence | None, tuple[str, ...]]:
+    if structural_shadow_report is None:
+        return None, ("neutral_shadow_evidence_unverified",)
+    if hasattr(structural_shadow_report, "neutral_shadow_evidence") and hasattr(
+        structural_shadow_report,
+        "neutral_robustness",
+    ):
+        report_document = structural_shadow_report.to_document()
+        unsigned_report = {
+            key: value for key, value in report_document.items() if key != "report_sha256"
+        }
+        if report_document.get("report_sha256") != sha256(
+            canonical_json_bytes(unsigned_report)
+        ).hexdigest():
+            return None, ("neutral_shadow_report_hash_invalid",)
+        if getattr(structural_shadow_report.neutral_robustness, "passed", False) is not True:
+            return None, ("neutral_shadow_report_robustness_failed",)
+        evidence = structural_shadow_report.neutral_shadow_evidence
+        if not isinstance(evidence, NeutralShadowEvidence):
+            return None, ("neutral_shadow_report_unverified",)
+        return evidence, ()
+    if isinstance(structural_shadow_report, Mapping):
+        document = dict(structural_shadow_report)
+        if document.get("schema_version") not in STRUCTURAL_SHADOW_REPORT_SCHEMAS:
+            return None, ("neutral_shadow_report_unverified",)
+        unsigned = {
+            key: value for key, value in document.items() if key != "report_sha256"
+        }
+        if document.get("report_sha256") != sha256(
+            canonical_json_bytes(unsigned)
+        ).hexdigest():
+            return None, ("neutral_shadow_report_hash_invalid",)
+        robustness = document.get("neutral_robustness")
+        if not isinstance(robustness, Mapping) or robustness.get("passed") is not True:
+            return None, ("neutral_shadow_report_robustness_failed",)
+        evidence_document = document.get("neutral_shadow_evidence")
+        if not isinstance(evidence_document, Mapping):
+            return None, ("neutral_shadow_report_unverified",)
+        try:
+            return (
+                NeutralShadowEvidence(
+                    realized_net_pnl=evidence_document.get("realized_net_pnl"),
+                    receipt_chain_verified=bool(
+                        evidence_document.get("receipt_chain_verified")
+                    ),
+                    all_admitted_cohorts_included=bool(
+                        evidence_document.get("all_admitted_cohorts_included")
+                    ),
+                    scenario=str(evidence_document.get("scenario", "neutral")),
+                    expiry_count=int(evidence_document.get("expiry_count", 0)),
+                    without_best_expiry_net_pnl=evidence_document.get(
+                        "without_best_expiry_net_pnl"
+                    ),
+                    without_best_direction_net_pnl=evidence_document.get(
+                        "without_best_direction_net_pnl"
+                    ),
+                    minimum_rolling_window_net_pnl=evidence_document.get(
+                        "minimum_rolling_window_net_pnl"
+                    ),
+                    max_single_expiry_pnl_concentration=evidence_document.get(
+                        "max_single_expiry_pnl_concentration"
+                    ),
+                ),
+                (),
+            )
+        except (TypeError, ValueError):
+            return None, ("neutral_shadow_report_unverified",)
+    return None, ("neutral_shadow_report_unverified",)
+
+
 def evaluate_execution_probe_readiness(
     *,
-    neutral_shadow_evidence: NeutralShadowEvidence | None,
+    structural_shadow_report: object | None,
     clean_common_terminal_cohort_count: int,
     coverage_results: Sequence[CohortCoverageResult],
     structural_floor: StructuralFloorVerdict | None,
@@ -889,9 +1758,30 @@ def evaluate_execution_probe_readiness(
     unique_complete_cohort_count = len(
         {result.cohort_id for result in coverage_results if result.complete}
     )
-    if neutral_shadow_evidence is None:
-        reasons.append("neutral_shadow_evidence_unverified")
+    bundle = prerequisites.verified_evidence_bundle
+    neutral_shadow_evidence: NeutralShadowEvidence | None = None
+    if bundle is None:
+        reasons.append("probe_verified_evidence_bundle_missing")
+    gate_0_report, gate_0_reasons = _validated_gate_0_report_document(
+        None if bundle is None else bundle.gate_0_report_artifact
+    )
+    reasons.extend(gate_0_reasons)
+    shadow_document = None
+    if bundle is not None and bundle.structural_shadow_artifact is not None:
+        shadow_document, shadow_reasons = _validated_structural_shadow_document(
+            bundle.structural_shadow_artifact
+        )
+        reasons.extend(shadow_reasons)
     else:
+        reasons.append("neutral_shadow_artifact_missing")
+        if structural_shadow_report is not None:
+            reasons.append("neutral_shadow_object_fallback_rejected")
+    if shadow_document is not None:
+        neutral_shadow_evidence, shadow_reasons = _coerce_neutral_shadow_evidence(
+            shadow_document
+        )
+        reasons.extend(shadow_reasons)
+    if neutral_shadow_evidence is not None:
         if (
             neutral_shadow_evidence.realized_net_pnl is None
             or neutral_shadow_evidence.realized_net_pnl <= ZERO
@@ -950,24 +1840,51 @@ def evaluate_execution_probe_readiness(
         is not PairExecutionMode.MAKER_MAKER
     ):
         reasons.append("structural_floor_not_double_maker")
-    if not prerequisites.service_continuously_healthy:
-        reasons.append("service_continuous_health_unverified")
-    if not prerequisites.authenticated_read_verified:
-        reasons.append("authenticated_read_unverified")
-    if not prerequisites.fill_stream_verified:
-        reasons.append("fill_stream_unverified")
-    if not prerequisites.failure_drills_complete:
-        reasons.append("failure_drills_incomplete")
+    _service_ok, service_reasons = _validated_service_health_artifact(
+        None if bundle is None else bundle.service_health_artifact
+    )
+    reasons.extend(service_reasons)
+    _auth_ok, auth_reasons = _validated_receipt_artifact(
+        None if bundle is None else bundle.authenticated_read_artifact,
+        schema=AUTHENTICATED_READ_ARTIFACT_SCHEMA,
+        required_flag="authenticated_read_verified",
+        missing_reason="authenticated_read_artifact_missing",
+        invalid_reason="authenticated_read_artifact_invalid",
+        false_reason="authenticated_read_unverified",
+        missing_receipt_reason="authenticated_read_receipt_missing",
+    )
+    reasons.extend(auth_reasons)
+    _fill_ok, fill_reasons = _validated_receipt_artifact(
+        None if bundle is None else bundle.fill_stream_artifact,
+        schema=FILL_STREAM_ARTIFACT_SCHEMA,
+        required_flag="fill_stream_verified",
+        missing_reason="fill_stream_artifact_missing",
+        invalid_reason="fill_stream_artifact_invalid",
+        false_reason="fill_stream_unverified",
+        missing_receipt_reason="fill_stream_receipt_missing",
+    )
+    reasons.extend(fill_reasons)
+    _drill_ok, drill_reasons = _validated_fault_drills_artifact(
+        None if bundle is None else bundle.fault_drills_artifact
+    )
+    reasons.extend(drill_reasons)
     if not prerequisites.immutable_probe_preregistration_present:
         reasons.append("immutable_probe_preregistration_missing")
-    if not prerequisites.full_hedge_depth_verified:
-        reasons.append("full_hedge_depth_unverified")
-    if not prerequisites.gate_0_passed:
+    _adapter_ok, adapter_reasons = _validated_probe_adapter_artifact(
+        None if bundle is None else bundle.probe_adapter_artifact
+    )
+    reasons.extend(adapter_reasons)
+    _capacity_ok, capacity_reasons = _validated_capture_capacity_artifact(
+        None if bundle is None else bundle.capture_capacity_artifact
+    )
+    reasons.extend(capacity_reasons)
+    if gate_0_report is None:
         reasons.append("gate_0_not_passed")
-    if not prerequisites.double_maker_probe_implemented:
-        reasons.append("double_maker_probe_not_implemented")
-    if not prerequisites.capture_capacity_gate_passed:
-        reasons.append("capture_capacity_gate_not_passed")
+    else:
+        if gate_0_report.get("decision") != "PASS" or gate_0_report.get("gate_0_passed") is not True:
+            reasons.append("gate_0_not_passed")
+        if gate_0_report.get("rerun_required") is True:
+            reasons.append("gate_0_rerun_required")
     return ExecutionProbeReadiness(
         eligible=not reasons,
         clean_common_terminal_cohort_count=unique_complete_cohort_count,
@@ -996,26 +1913,33 @@ class StrategyLiveInputs:
     complete_real_execution_evidence: bool
     all_locked_cohorts_in_pnl_distribution: bool
     service_continuously_healthy: bool
+    consecutive_profitable_utc_days: int
+    minimum_daily_net_pnl: Decimal | None
+    peak_capital_deployed: Decimal | None
+    verified_evidence_bundle: StrategyLiveEvidenceBundle | None = None
 
 
 def evaluate_strategy_live_readiness_inputs(
     inputs: StrategyLiveInputs,
 ) -> StrategyLiveReadiness:
     reasons: list[str] = []
+    bundle = inputs.verified_evidence_bundle
+    if bundle is None:
+        reasons.append("strategy_live_verified_evidence_bundle_missing")
     if not inputs.builder_verified_evidence_chain:
         reasons.append("builder_verified_evidence_chain_missing")
     if not inputs.auditable_prelabel_lock_evidence:
         reasons.append("prelabel_lock_evidence_missing")
     if inputs.clean_prelabeled_common_terminal_cohort_count < MINIMUM_SETTLED_CLUSTERS:
-        reasons.append("fewer_than_100_clean_prelabeled_common_terminal_cohorts")
+        reasons.append("fewer_than_200_clean_prelabeled_common_terminal_cohorts")
     if inputs.structural_settled_expiry_cluster_count < MINIMUM_SETTLED_CLUSTERS:
-        reasons.append("structural_fewer_than_100_distinct_settled_expiry_clusters")
+        reasons.append("structural_fewer_than_200_distinct_settled_expiry_clusters")
     if (
         inputs.structural_explainable_economic_attempt_count
         < MINIMUM_EXPLAINABLE_ECONOMIC_ATTEMPTS
     ):
         reasons.append(
-            "structural_fewer_than_100_explainable_locked_oos_economic_attempts"
+            "structural_fewer_than_200_explainable_locked_oos_economic_attempts"
         )
     if inputs.structural_bootstrap_cluster_mean_lower_95 is None or (
         inputs.structural_bootstrap_cluster_mean_lower_95 <= ZERO
@@ -1033,12 +1957,87 @@ def evaluate_strategy_live_readiness_inputs(
     concentration = inputs.structural_max_single_expiry_pnl_concentration
     if concentration is None or concentration > MAXIMUM_SINGLE_EXPIRY_PNL_CONCENTRATION:
         reasons.append("structural_single_expiry_pnl_concentration_above_20_percent")
+    gate_0_report, gate_0_reasons = _validated_gate_0_report_document(
+        None if bundle is None else bundle.gate_0_report_artifact
+    )
+    reasons.extend(gate_0_reasons)
+    if inputs.structural_gate_0_passed and (
+        gate_0_report is None or gate_0_report.get("decision") != "PASS"
+    ):
+        reasons.append("structural_gate_0_not_passed")
+    shadow_document, shadow_reasons = _validated_structural_shadow_document(
+        None if bundle is None else bundle.structural_shadow_artifact
+    )
+    reasons.extend(shadow_reasons)
+    expected_shadow_cohort_ids: set[str] | None = None
+    if shadow_document is None:
+        reasons.append("structural_shadow_artifact_unverified")
+    else:
+        evidence = shadow_document.get("neutral_shadow_evidence")
+        robustness = shadow_document.get("neutral_robustness")
+        if not isinstance(evidence, Mapping) or not isinstance(robustness, Mapping):
+            reasons.append("structural_shadow_artifact_unverified")
+        else:
+            if evidence.get("expiry_count", 0) < MINIMUM_STRUCTURAL_SHADOW_EXPIRIES:
+                reasons.append("fewer_than_200_neutral_shadow_expiries")
+            if robustness.get("passed") is not True:
+                reasons.append("neutral_shadow_report_robustness_failed")
+            if (
+                evidence.get("max_single_expiry_pnl_concentration") is None
+                or Decimal(str(evidence["max_single_expiry_pnl_concentration"]))
+                > MAXIMUM_SINGLE_EXPIRY_PNL_CONCENTRATION
+            ):
+                reasons.append("structural_single_expiry_pnl_concentration_above_20_percent")
+            if (
+                evidence.get("realized_net_pnl") is None
+                or Decimal(str(evidence["realized_net_pnl"])) <= ZERO
+            ):
+                reasons.append("structural_qualified_net_pnl_not_positive")
+        expected_shadow_cohort_ids = {
+            str(item.get("attempt_id"))
+            for key in ("attempts", "locked_zero_cohorts")
+            for item in shadow_document.get(key, [])
+            if isinstance(item, Mapping) and isinstance(item.get("attempt_id"), str)
+        }
+    if not inputs.service_continuously_healthy:
+        reasons.append("service_continuous_health_unverified")
+    if (
+        inputs.consecutive_profitable_utc_days
+        < MINIMUM_CONSECUTIVE_PROFITABLE_UTC_DAYS
+    ):
+        reasons.append("fewer_than_14_consecutive_profitable_utc_days")
+    if (
+        inputs.minimum_daily_net_pnl is None
+        or inputs.minimum_daily_net_pnl < MINIMUM_DAILY_NET_PNL
+    ):
+        reasons.append("minimum_daily_net_pnl_below_20")
+    if (
+        inputs.peak_capital_deployed is None
+        or inputs.peak_capital_deployed <= ZERO
+        or inputs.peak_capital_deployed > MAXIMUM_CAPITAL_DEPLOYED
+    ):
+        reasons.append("peak_capital_deployed_outside_0_to_2000")
     if not inputs.complete_real_execution_evidence:
         reasons.append("complete_real_execution_evidence_missing")
     if not inputs.all_locked_cohorts_in_pnl_distribution:
         reasons.append("locked_no_trade_no_fill_cohorts_missing_from_distribution")
-    if not inputs.service_continuously_healthy:
-        reasons.append("service_continuous_health_unverified")
+    _service_ok, service_reasons = _validated_service_health_artifact(
+        None if bundle is None else bundle.service_health_artifact
+    )
+    reasons.extend(service_reasons)
+    _daily_metrics, daily_reasons = _validated_daily_ledger_artifact(
+        None if bundle is None else bundle.daily_ledger_artifact
+    )
+    reasons.extend(daily_reasons)
+    _peak_capital, capital_reasons = _validated_capital_ledger_artifact(
+        None if bundle is None else bundle.capital_ledger_artifact
+    )
+    reasons.extend(capital_reasons)
+    _reconciliation_ok, reconciliation_reasons = _validated_execution_reconciliation_artifact(
+        None if bundle is None else bundle.execution_reconciliation_artifact,
+        expected_cohort_ids=expected_shadow_cohort_ids,
+    )
+    reasons.extend(reconciliation_reasons)
     return StrategyLiveReadiness(
         eligible=not reasons,
         reason_codes=tuple(dict.fromkeys(reasons)),
@@ -1078,22 +2077,25 @@ def evaluate_strategy_live_readiness(
             complete_real_execution_evidence=False,
             all_locked_cohorts_in_pnl_distribution=False,
             service_continuously_healthy=False,
+            consecutive_profitable_utc_days=0,
+            minimum_daily_net_pnl=None,
+            peak_capital_deployed=None,
         )
     )
 
 
 __all__ = [
-    "CaptureCapacityEvidence",
-    "CaptureCapacityVerdict",
     "EXPECTED_RTDS_INTERVAL_MS",
     "MAXIMUM_RTDS_GAP_MS",
     "MINIMUM_STRUCTURAL_SHADOW_EXPIRIES",
-    "NeutralShadowEvidence",
     "PROBE_ALL_IN_LIMIT",
+    "CaptureCapacityEvidence",
+    "CaptureCapacityVerdict",
     "CohortCoverageInput",
     "CohortCoverageResult",
     "ExecutionProbePrerequisites",
     "ExecutionProbeReadiness",
+    "NeutralShadowEvidence",
     "PerfectInformationAttempt",
     "PerfectInformationAttemptUpperBound",
     "PerfectInformationBreakpoint",
@@ -1102,8 +2104,8 @@ __all__ = [
     "StrategyLiveReadiness",
     "StructuralFloorLevel",
     "StructuralFloorVerdict",
-    "evaluate_execution_probe_readiness",
     "evaluate_capture_capacity",
+    "evaluate_execution_probe_readiness",
     "evaluate_perfect_information_upper_bound",
     "evaluate_strategy_live_readiness",
     "evaluate_strategy_live_readiness_inputs",

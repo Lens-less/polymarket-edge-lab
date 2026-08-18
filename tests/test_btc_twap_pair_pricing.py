@@ -44,6 +44,10 @@ def test_pair_buy_quote_reports_all_three_execution_cost_shapes() -> None:
         first_contract=first_contract,
         second_contract=second_contract,
         execution_mode=PairExecutionMode.MAKER_TAKER,
+        maker_fill_cap_by_token_id={
+            first_contract.up_token_id: D("1"),
+            second_contract.down_token_id: D("1"),
+        },
     )
     maker_maker = quote_pair_buy(
         quantity=D("1"),
@@ -52,6 +56,10 @@ def test_pair_buy_quote_reports_all_three_execution_cost_shapes() -> None:
         first_contract=first_contract,
         second_contract=second_contract,
         execution_mode=PairExecutionMode.MAKER_MAKER,
+        maker_fill_cap_by_token_id={
+            first_contract.up_token_id: D("1"),
+            second_contract.down_token_id: D("1"),
+        },
     )
 
     assert taker_taker is not None
@@ -80,6 +88,10 @@ def test_maker_taker_cost_includes_the_taker_leg_fee() -> None:
         first_contract=pair.market_5,
         second_contract=pair.market_15,
         execution_mode=PairExecutionMode.MAKER_TAKER,
+        maker_fill_cap_by_token_id={
+            pair.market_5.up_token_id: D("1"),
+            pair.market_15.down_token_id: D("1"),
+        },
     )
 
     assert quote is not None
@@ -106,7 +118,11 @@ def test_structural_maker_taker_accepts_only_the_sides_it_will_use() -> None:
         tick_size=pair.market_5.tick_size,
         minimum_order_size=pair.market_5.minimum_order_size,
     )
-    policy = PairPricingPolicy(structural_only=True, pair_risk_usdc=None)
+    policy = PairPricingPolicy(
+        structural_only=True,
+        pair_risk_usdc=None,
+        maker_fill_cap_by_token_id={maker_book.token_id: D("8")},
+    )
 
     selected = select_healthy_pair_books(
         first_token_id=maker_book.token_id,
@@ -135,6 +151,7 @@ def test_structural_maker_taker_accepts_only_the_sides_it_will_use() -> None:
         first_contract=pair.market_15,
         second_contract=pair.market_5,
         execution_mode=PairExecutionMode.MAKER_TAKER,
+        maker_fill_cap_by_token_id={maker_book.token_id: D("8")},
     )
     assert quote is not None
     assert quote.maker_token_ids == (maker_book.token_id,)
@@ -156,7 +173,14 @@ def test_structural_double_maker_needs_bids_but_not_asks() -> None:
             (pair.market_5.down_token_id, D("0.01"), pair.market_5),
         )
     )
-    policy = PairPricingPolicy(structural_only=True, pair_risk_usdc=None)
+    policy = PairPricingPolicy(
+        structural_only=True,
+        pair_risk_usdc=None,
+        maker_fill_cap_by_token_id={
+            books[0].token_id: D("7"),
+            books[1].token_id: D("7"),
+        },
+    )
 
     assert select_healthy_pair_books(
         first_token_id=books[0].token_id,
@@ -176,3 +200,44 @@ def test_structural_double_maker_needs_bids_but_not_asks() -> None:
         second_contract=pair.market_5,
         execution_mode=PairExecutionMode.TAKER_TAKER,
     ) is None
+
+
+def test_double_maker_requires_future_public_fill_cap_instead_of_bid_depth() -> None:
+    pair = _v07_pair()
+    books = tuple(
+        OrderBookSnapshot.from_tuples(
+            token_id,
+            bids=((price, D("50")),),
+            asks=(),
+            timestamp_ms=1_000,
+            tick_size=contract.tick_size,
+            minimum_order_size=contract.minimum_order_size,
+        )
+        for token_id, price, contract in (
+            (pair.market_15.up_token_id, D("0.98"), pair.market_15),
+            (pair.market_5.down_token_id, D("0.01"), pair.market_5),
+        )
+    )
+
+    assert (
+        quote_pair_buy(
+            quantity=D("1"),
+            first_book=books[0],
+            second_book=books[1],
+            first_contract=pair.market_15,
+            second_contract=pair.market_5,
+            execution_mode=PairExecutionMode.MAKER_MAKER,
+        )
+        is None
+    )
+    assert (
+        joint_quantity_breakpoints(
+            first_book=books[0],
+            second_book=books[1],
+            first_contract=pair.market_15,
+            second_contract=pair.market_5,
+            policy=PairPricingPolicy(structural_only=True, pair_risk_usdc=None),
+            execution_mode=PairExecutionMode.MAKER_MAKER,
+        )
+        == ()
+    )

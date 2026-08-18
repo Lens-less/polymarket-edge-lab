@@ -5,7 +5,7 @@ Description=Paper track progress watcher
 Type=oneshot
 User=polybotwatch
 Group=polybotwatch
-SupplementaryGroups=polybotv06 polybotv07 polybotraw
+SupplementaryGroups=polybotv06 polybotv07 polybotv08 polybotraw
 WorkingDirectory=/opt/poly-mm-watch
 Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=-/etc/polymm-watch.env
@@ -25,6 +25,7 @@ ReadOnlyPaths=/var/lib/poly-mm
 ReadOnlyPaths=/var/lib/poly-mm-v05
 ReadOnlyPaths=/var/lib/poly-mm-v06
 ReadOnlyPaths=/var/lib/poly-mm-v07
+ReadOnlyPaths=/var/lib/poly-mm-v08
 ReadOnlyPaths=/var/lib/poly-mm-rawcap
 ReadWritePaths=/var/lib/poly-mm-watch
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

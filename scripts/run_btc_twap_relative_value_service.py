@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import errno
 import json
 import os
 import signal
@@ -90,6 +91,196 @@ def _read_json(path: Path) -> dict[str, Any] | None:
     except (OSError, UnicodeError, json.JSONDecodeError):
         return None
     return value if isinstance(value, dict) else None
+
+
+ATTEMPT_RECEIPT_SCHEMA = "btc-twap-capture-attempt-receipt.v1"
+_TERMINAL_ATTEMPT_RECEIPT_STATUSES = frozenset({"succeeded", "failed"})
+_ATTEMPT_RECEIPT_TRANSITIONS = {
+    "started": frozenset({"started", "succeeded", "failed"}),
+    "succeeded": frozenset({"succeeded"}),
+    "failed": frozenset({"failed"}),
+}
+
+
+def _attempt_receipts_dir(config: ContinuousServiceConfig) -> Path:
+    return (config.data_root / "service" / "attempt-receipts").resolve()
+
+
+def _attempt_receipt_path(
+    config: ContinuousServiceConfig,
+    *,
+    attempt_id: str,
+) -> Path:
+    return _attempt_receipts_dir(config) / f"{attempt_id}.json"
+
+
+def _fsync_directory(path: Path) -> None:
+    try:
+        descriptor = os.open(path, os.O_RDONLY)
+    except OSError as exc:
+        if os.name == "nt" and exc.errno in {
+            errno.EACCES,
+            errno.EINVAL,
+            errno.ENOTSUP,
+        }:
+            return
+        raise
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _write_attempt_receipt_file(
+    path: Path,
+    document: Mapping[str, Any],
+    *,
+    require_new: bool,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    encoded = json.dumps(dict(document), indent=2, sort_keys=True).encode("utf-8") + b"\n"
+    if require_new:
+        temporary_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        temporary: Path | None = temporary_path
+        try:
+            descriptor = os.open(
+                temporary_path,
+                os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                0o644,
+            )
+            try:
+                with os.fdopen(descriptor, "wb", closefd=False) as handle:
+                    handle.write(encoded)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+            finally:
+                os.close(descriptor)
+            os.link(temporary_path, path)
+            _fsync_directory(path.parent)
+            temporary.unlink(missing_ok=True)
+            temporary = None
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+        return
+    temporary_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    temporary: Path | None = temporary_path
+    try:
+        descriptor = os.open(
+            temporary_path,
+            os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+            0o644,
+        )
+        try:
+            with os.fdopen(descriptor, "wb", closefd=False) as handle:
+                handle.write(encoded)
+                handle.flush()
+                os.fsync(handle.fileno())
+        finally:
+            os.close(descriptor)
+        os.replace(temporary_path, path)
+        temporary = None
+        _fsync_directory(path.parent)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def _attempt_receipt_base(
+    *,
+    config: ContinuousServiceConfig,
+    attempt_id: str,
+    scheduled_expiry_seconds: int,
+    created_at: str,
+) -> dict[str, Any]:
+    return {
+        "schema_version": ATTEMPT_RECEIPT_SCHEMA,
+        "attempt_id": attempt_id,
+        "track_id": config.evidence_track_id,
+        "created_at": created_at,
+        "started_at": created_at,
+        "scheduled_expiry_seconds": scheduled_expiry_seconds,
+    }
+
+
+def _validate_attempt_receipt_update(
+    *,
+    existing: Mapping[str, Any] | None,
+    updated: Mapping[str, Any],
+) -> None:
+    status = updated.get("status")
+    if status not in _ATTEMPT_RECEIPT_TRANSITIONS:
+        raise ValueError("attempt receipt status is invalid")
+    if existing is None:
+        if status != "started":
+            raise ValueError("new attempt receipts must begin in started status")
+        return
+    existing_status = existing.get("status")
+    if existing_status not in _ATTEMPT_RECEIPT_TRANSITIONS:
+        raise ValueError("existing attempt receipt status is invalid")
+    if status not in _ATTEMPT_RECEIPT_TRANSITIONS[str(existing_status)]:
+        raise ValueError("attempt receipt status transition is invalid")
+    for key in (
+        "schema_version",
+        "attempt_id",
+        "track_id",
+        "created_at",
+        "started_at",
+        "scheduled_expiry_seconds",
+    ):
+        if updated.get(key) != existing.get(key):
+            raise ValueError(f"attempt receipt {key} cannot be rewritten")
+
+
+def _write_attempt_receipt(
+    config: ContinuousServiceConfig,
+    *,
+    attempt_id: str,
+    scheduled_expiry_seconds: int,
+    status: str,
+    created_at: str | None = None,
+    expiry_seconds: int | None = None,
+    capture_root: Path | None = None,
+    error: Mapping[str, Any] | None = None,
+    completed_report_count: int | None = None,
+) -> dict[str, Any]:
+    path = _attempt_receipt_path(config, attempt_id=attempt_id)
+    existing = _read_json(path)
+    if existing is None:
+        if created_at is None:
+            created_at = _utc_now()
+        document = _attempt_receipt_base(
+            config=config,
+            attempt_id=attempt_id,
+            scheduled_expiry_seconds=scheduled_expiry_seconds,
+            created_at=created_at,
+        )
+    else:
+        document = dict(existing)
+    document["status"] = status
+    document["updated_at"] = _utc_now()
+    if expiry_seconds is not None:
+        document["expiry_seconds"] = expiry_seconds
+    if capture_root is not None:
+        document["capture_root"] = str(capture_root.resolve())
+    if completed_report_count is not None:
+        document["completed_report_count"] = completed_report_count
+    if status in _TERMINAL_ATTEMPT_RECEIPT_STATUSES:
+        if existing is not None and existing.get("status") == status:
+            document["terminal_at"] = existing.get("terminal_at")
+        else:
+            document["terminal_at"] = document["updated_at"]
+    if error is not None:
+        document["error"] = dict(error)
+    elif status != "failed":
+        document.pop("error", None)
+    _validate_attempt_receipt_update(existing=existing, updated=document)
+    _write_attempt_receipt_file(
+        path,
+        document,
+        require_new=existing is None,
+    )
+    return document
 
 
 def _report_paths(config: ContinuousServiceConfig) -> tuple[Path, ...]:
@@ -368,7 +559,15 @@ async def run_service(
     try:
         while not stop_event.is_set():
             plan = None
+            attempt_id = _attempt_id()
+            scheduled_expiry_seconds = _next_capture_expiry_seconds()
             try:
+                _write_attempt_receipt(
+                    config,
+                    attempt_id=attempt_id,
+                    scheduled_expiry_seconds=scheduled_expiry_seconds,
+                    status="started",
+                )
                 require_disk_capacity(config)
                 _emit_status(config, phase="measuring_clock")
                 clock_sync = await asyncio.to_thread(_measure_clock_sync, config)
@@ -379,9 +578,17 @@ async def run_service(
                     source_client=sources,
                     config=config,
                     now_ms=_epoch_ms(),
-                    attempt_id=_attempt_id(),
+                    attempt_id=attempt_id,
                     clock_sync=clock_sync,
-                    expiry_seconds=_next_capture_expiry_seconds(),
+                    expiry_seconds=scheduled_expiry_seconds,
+                )
+                _write_attempt_receipt(
+                    config,
+                    attempt_id=attempt_id,
+                    scheduled_expiry_seconds=scheduled_expiry_seconds,
+                    status="started",
+                    expiry_seconds=plan.expiry_seconds,
+                    capture_root=plan.capture_root,
                 )
                 plan.capture_root.mkdir(parents=True, exist_ok=False)
                 write_json_document(plan.capture_config_path, plan.capture_config)
@@ -403,6 +610,15 @@ async def run_service(
                     write_json_document(
                         plan.capture_root / "capture-summary.json",
                         exc.summary,
+                    )
+                    _write_attempt_receipt(
+                        config,
+                        attempt_id=attempt_id,
+                        scheduled_expiry_seconds=scheduled_expiry_seconds,
+                        status="failed",
+                        expiry_seconds=plan.expiry_seconds,
+                        capture_root=plan.capture_root,
+                        error=exc.summary.get("capture_error"),
                     )
                     raise
                 if refreshed_clock_sync is not None:
@@ -444,11 +660,33 @@ async def run_service(
                         report,
                     )
                 await asyncio.to_thread(_rebuild_summary, config)
+                _write_attempt_receipt(
+                    config,
+                    attempt_id=attempt_id,
+                    scheduled_expiry_seconds=scheduled_expiry_seconds,
+                    status="succeeded",
+                    expiry_seconds=plan.expiry_seconds,
+                    capture_root=plan.capture_root,
+                    completed_report_count=len(_generated_report_paths(config)),
+                )
                 _emit_status(config, phase="cycle_complete", plan=plan)
             except ServiceStopRequested:
                 break
             except BaseException as exc:
                 error = safe_error_details(exc, code="service_cycle_failed")
+                _write_attempt_receipt(
+                    config,
+                    attempt_id=attempt_id,
+                    scheduled_expiry_seconds=scheduled_expiry_seconds,
+                    status="failed",
+                    expiry_seconds=(
+                        scheduled_expiry_seconds
+                        if plan is None
+                        else plan.expiry_seconds
+                    ),
+                    capture_root=None if plan is None else plan.capture_root,
+                    error=error,
+                )
                 _emit_status(
                     config,
                     phase="error_wait",

@@ -49,36 +49,17 @@ def installed_version(distribution: str) -> Optional[str]:
 def assert_new_orders_disabled(
     audit: Mapping[str, Any] | None = None,
 ) -> None:
-    """Reject new orders unless one complete eight-check audit is supplied.
+    """Unconditionally reject new orders until Track C owns this boundary.
 
-    The historical name is retained for callers that already fail closed here.
-    Passing an incomplete, malformed, or stale-in-shape audit never weakens the
-    stop.  A caller that intentionally enables live submission must first run
-    :func:`compatibility_audit`, attach independently verified authenticated
-    evidence, and pass that exact result into this boundary.
+    A plain mapping of booleans is diagnostic evidence, not a release
+    capability: it has no freshness, host, credential, adapter, or probe
+    provenance.  The parameter remains only for source compatibility and is
+    deliberately unable to weaken the stop.
     """
-    checks = audit.get("checks") if isinstance(audit, Mapping) else None
-    valid_checks = isinstance(checks, Mapping) and set(checks) == set(
-        REQUIRED_LIVE_CHECKS
-    )
-    if valid_checks and isinstance(checks, Mapping):
-        blocking = [
-            label
-            for label in REQUIRED_LIVE_CHECKS
-            if checks.get(label) is not True
-        ]
-    else:
-        blocking = list(REQUIRED_LIVE_CHECKS)
-    if (
-        valid_checks
-        and not blocking
-        and isinstance(audit, Mapping)
-        and audit.get("new_live_orders_ready") is True
-    ):
-        return
+    del audit
     raise LiveExecutionBlocked(
-        "CLOB V2/unified live readiness is blocked; all eight checks must pass. "
-        f"Blocking checks: {', '.join(blocking)}"
+        "CLOB V2/unified live readiness is blocked: no verified production "
+        "double-maker venue adapter owns the release boundary"
     )
 
 
@@ -180,7 +161,9 @@ def compatibility_audit(
     checks = {
         "legacy_v1_dependency_absent": legacy_version is None,
         "current_sdk_installed": bool(v2_version or unified_version),
-        "repository_v2_adapter_implemented": unified_version is not None,
+        # Installing an SDK does not create or verify the strategy-specific
+        # production ProbeVenue required by Track C.
+        "repository_v2_adapter_implemented": False,
         "pusd_balance_and_allowance_reconciled": supplied_evidence.get(
             "pusd_balance_and_allowance_reconciled", False
         ),
@@ -202,7 +185,7 @@ def compatibility_audit(
         "geoblock": geoblock,
         "checks": checks,
         "read_only_research_ready": True,
-        "new_live_orders_ready": all(checks.values()),
+        "new_live_orders_ready": False,
         "blocking_reasons": [
             label for label, passed in checks.items() if not passed
         ],

@@ -35,14 +35,12 @@ logger = logging.getLogger(__name__)
 
 
 def _write_frame(path: Path, df: pd.DataFrame) -> None:
-    if pa is not None and pq is not None:
-        pq.write_table(pa.Table.from_pandas(df), str(path))
-        return
-    logger.warning(
-        "pyarrow is unavailable; writing line-delimited JSON fallback to %s",
-        path,
-    )
-    path.write_text(df.to_json(orient="records", lines=True), encoding="utf-8")
+    if pa is None or pq is None:
+        raise RuntimeError(
+            "Parquet export requires pyarrow; refusing to write JSON bytes "
+            f"with a .parquet suffix: {path}"
+        )
+    pq.write_table(pa.Table.from_pandas(df), str(path))
 
 
 @dataclass
@@ -395,7 +393,12 @@ class SQLiteStore:
     def export_to_parquet(self, output_dir: str,
                           start_time: Optional[float] = None,
                           end_time: Optional[float] = None):
-        """Export all data to Parquet files."""
+        """Export all data to real Parquet files or fail explicitly."""
+        if pa is None or pq is None:
+            raise RuntimeError(
+                "Parquet export requires pyarrow; no output was written"
+            )
+
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
 
@@ -406,29 +409,23 @@ class SQLiteStore:
         tables_with_time = ['snapshots', 'trades', 'positions', 'markout_metrics']
 
         for table in tables_with_time:
-            try:
-                cursor = self._conn.execute(f"""
-                    SELECT * FROM {table}
-                    WHERE timestamp >= ? AND timestamp <= ?
-                """, (start_time, end_time))
-                rows = cursor.fetchall()
-                if rows:
-                    df = pd.DataFrame(rows, columns=[c[0] for c in cursor.description])
-                    _write_frame(output_path / f"{table}.parquet", df)
-                    logger.info(f"Exported {len(rows)} rows to {table}.parquet")
-            except Exception as e:
-                logger.error(f"Failed to export {table}: {e}")
-
-        # market_metadata doesn't have timestamp, export all
-        try:
-            cursor = self._conn.execute("SELECT * FROM market_metadata")
+            cursor = self._conn.execute(f"""
+                SELECT * FROM {table}
+                WHERE timestamp >= ? AND timestamp <= ?
+            """, (start_time, end_time))
             rows = cursor.fetchall()
             if rows:
                 df = pd.DataFrame(rows, columns=[c[0] for c in cursor.description])
-                _write_frame(output_path / "market_metadata.parquet", df)
-                logger.info(f"Exported {len(rows)} rows to market_metadata.parquet")
-        except Exception as e:
-            logger.error(f"Failed to export market_metadata: {e}")
+                _write_frame(output_path / f"{table}.parquet", df)
+                logger.info(f"Exported {len(rows)} rows to {table}.parquet")
+
+        # market_metadata doesn't have timestamp, export all
+        cursor = self._conn.execute("SELECT * FROM market_metadata")
+        rows = cursor.fetchall()
+        if rows:
+            df = pd.DataFrame(rows, columns=[c[0] for c in cursor.description])
+            _write_frame(output_path / "market_metadata.parquet", df)
+            logger.info(f"Exported {len(rows)} rows to market_metadata.parquet")
 
     def close(self):
         """Close database connection."""
@@ -624,8 +621,7 @@ class PersistentDataStore:
         from src.feed.data_store import DataStore
 
         self._data_store = DataStore(stale_threshold=stale_threshold)
-        self._persistence = DataStorePersistenceMixin()
-        self._persistence.__init__(
+        self._persistence = DataStorePersistenceMixin(
             db_path=db_path,
             snapshot_interval=snapshot_interval,
             enable_snapshots=enable_snapshots,

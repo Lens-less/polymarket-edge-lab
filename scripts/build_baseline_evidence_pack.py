@@ -32,6 +32,9 @@ SCHEMA = "polymarket-edge-lab/baseline-evidence-pack-v1"
 PACK_RELATIVE_PATH = Path(
     "research/edge_discovery_2026-07-24/BASELINE_EVIDENCE_PACK.json"
 )
+REBUILT_PACK_RELATIVE_PATH = Path(
+    "research/edge_discovery_2026-07-24/BASELINE_EVIDENCE_PACK_REBUILT.json"
+)
 OLD_RESEARCH_RELATIVE_PATH = Path("research/profit_redesign_2026-07-24")
 REQUIRED_METRICS = (
     "initial_capital",
@@ -1494,6 +1497,8 @@ def _current_snapshot_evidence(
 
 
 def _frozen_evidence_set(repo_root: Path, evidence_id: str) -> dict[str, Any]:
+    """Read one evidence set from the immutable checked-in seed pack."""
+
     frozen_pack_path = repo_root / PACK_RELATIVE_PATH
     if not frozen_pack_path.is_file():
         raise FileNotFoundError("missing frozen baseline evidence pack")
@@ -1513,6 +1518,7 @@ def _frozen_evidence_set(repo_root: Path, evidence_id: str) -> dict[str, Any]:
         raise ValueError(f"frozen baseline lacks {evidence_id}")
     result.setdefault("details", {})["source_artifacts_missing_from_checkout"] = True
     result["details"]["fallback_source"] = PACK_RELATIVE_PATH.as_posix()
+    result["details"]["fallback_source_role"] = "immutable_seed_not_builder_output"
     return result
 
 
@@ -1731,8 +1737,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     output = (
         args.output.resolve()
         if args.output is not None
-        else repo_root / PACK_RELATIVE_PATH
+        else repo_root / REBUILT_PACK_RELATIVE_PATH
     )
+    seed_path = (repo_root / PACK_RELATIVE_PATH).resolve()
+    if output == seed_path:
+        raise ValueError(
+            "refusing to overwrite the immutable baseline seed pack; choose "
+            f"{REBUILT_PACK_RELATIVE_PATH.as_posix()} or --output"
+        )
     _write_json_atomic(output, build_pack(repo_root))
     print(output)
     return 0

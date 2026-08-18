@@ -583,17 +583,15 @@ class CompactRecorderSink:
             best_ask = self._decimal(change.get("best_ask"))
             if (
                 token_id not in self.allowed_asset_ids
-                or best_bid is None
-                or best_ask is None
+                or (best_bid is None and best_ask is None)
             ):
                 continue
-            retained.append(
-                {
-                    "asset_id": str(token_id),
-                    "best_bid": str(best_bid),
-                    "best_ask": str(best_ask),
-                }
-            )
+            item: dict[str, str | None] = {"asset_id": str(token_id)}
+            if best_bid is not None:
+                item["best_bid"] = str(best_bid)
+            if best_ask is not None:
+                item["best_ask"] = str(best_ask)
+            retained.append(item)
         if not retained:
             return None
         top_payload = {
@@ -1314,7 +1312,7 @@ def load_service_config(path: Path) -> ContinuousServiceConfig:
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
                 raise ValueError(f"pair_capture.{name} must be positive")
         expected_capacity_gate = {
-            "maximum_capture_failure_rate",
+            "capture_failure_rate_upper_bound_exclusive",
             "minimum_free_disk_bytes",
             "maximum_projected_daily_capture_bytes",
             "minimum_memory_bytes",
@@ -1332,7 +1330,13 @@ def load_service_config(path: Path) -> ContinuousServiceConfig:
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
                 raise ValueError(f"capacity_gate.{name} must be positive")
         if (
-            Decimal(str(capacity_gate_raw.get("maximum_capture_failure_rate")))
+            Decimal(
+                str(
+                    capacity_gate_raw.get(
+                        "capture_failure_rate_upper_bound_exclusive"
+                    )
+                )
+            )
             != Decimal("0.05")
             or capacity_gate_raw.get("burstable_cpu_credit_exhaustion_allowed")
             is not False

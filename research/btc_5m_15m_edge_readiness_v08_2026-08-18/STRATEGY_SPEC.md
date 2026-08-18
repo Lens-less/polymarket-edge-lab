@@ -48,7 +48,12 @@ counts; actual fills must be established by the neutral queue replay.
 
 The local repository does not contain the deployed 41 capture trees. Runtime
 generation must use the exact-count command in `PREREGISTRATION.json`; any
-observed count other than 41 aborts instead of silently changing the claim.
+observed count other than 41 produces `RERUN_REQUIRED`, not an economic stop,
+and aborts instead of silently changing the claim. Only a complete 41-expiry
+report may return the economic `PASS` or `STOP` verdict. A fixed
+`--decision-tau-seconds` override or any precomputed maker fill-cap summary is
+diagnostic-only: it may emit a report, but that report remains
+`RERUN_REQUIRED` and cannot authorize a formal Gate 0 pass.
 
 ## Capture and cohort policy
 
@@ -65,7 +70,23 @@ replace it. Dirty, no-trade, causal no-fill, partial, and failed outcomes remain
 in the denominator. There is no 102-case ceiling and tau aliases do not count as
 independent samples.
 
-Capture capacity is itself a promotion gate. Failure rate must be at most 5%,
+Every actionable decision receipt also locks the canonical structural-action
+payload: primary/supporting capture roots, pair and rule-bound strikes, action,
+quantity, submission time, book-age limit, initial cash, and all four causal
+decision books. A clean no-fill therefore remains a replayed action row; it
+cannot be relabeled as an omitted case. No-trade and dirty rows are explicit
+zero-PnL rows and remain in the same denominator.
+
+Post-settlement shadow input is not trusted as evidence. The report builder
+recomputes canonical raw-record IDs, manifest counts/checksums, immutable tree
+hashes, exact RTDS boundaries/gaps, causal rule/fee state, official resolution,
+latest full-depth decision books, every post-decision book update, and the
+complete 5-second public taker-trade polling stream. Caller-omitted or invented
+books/trades/outcomes are rejected. Overlapping finalized capture roots may
+support the K15-to-close RTDS window; each supporting tree hash is committed to
+the final report.
+
+Capture capacity is itself a promotion gate. Failure rate must be below 5%,
 free disk at least 10 GiB, projected retained data at most 1 GiB/day, available
 memory at least 2 GiB, and burstable CPU credits must not be exhausted. The
 v0.8 compact policy retains only the paired four tokens, 30-second full-depth
@@ -83,7 +104,9 @@ If only one leg fills, the preregistered paper replay accounts three policies
 separately: keep waiting passively, cancel and buy the missing leg as an FOK
 taker (including the captured 250 ms delay and fee), or cancel and flatten the
 filled leg with FAK. These are scenario diagnostics, not interchangeable rows.
-No maker+FOK result can authorize live trading.
+The preregistered neutral decision row is `passive_wait`; the FOK and FAK rows
+are sensitivity diagnostics and cannot be selected after seeing outcomes. No
+maker+FOK result can authorize live trading.
 
 The existing live harness still models one maker plus FOK and has no production
 adapter. It is therefore intentionally ineligible for this revised double-maker
@@ -93,7 +116,7 @@ route and cannot submit a real order as shipped.
 
 At least 200 unique common expiries are required in neutral double-maker shadow.
 Total PnL, PnL without the best expiry, PnL without the best direction, and every
-registered rolling-window minimum must remain positive; single-expiry
+registered 20-expiry rolling-window minimum must remain positive; single-expiry
 concentration must be at most 20%. Four fresh complete cohorts are still needed
 for a later metered probe, but cannot substitute for the 200-expiry shadow gate.
 Health, Gate 0, authenticated read, user fill stream, all failure drills,
@@ -103,7 +126,9 @@ mandatory.
 Strategy live requires at least 200 clean prelabel common-expiry cohorts, at
 least 200 explainable structural economic attempts, complete actual execution
 costs/reconciliation, no more than 20% single-expiry PnL concentration, and a
-one-sided 95% common-expiry cluster-bootstrap mean lower bound above zero. The
+one-sided 95% common-expiry cluster-bootstrap mean lower bound above zero. It
+also requires 14 consecutive UTC days with at least 20 USDC net PnL each day
+and no more than 2,000 USDC peak deployed capital. The
 Oracle basis/split-probability model stays action-disabled in a separate research
 namespace and can never act as an automatic fallback or contribute counts to
 the structural gate.

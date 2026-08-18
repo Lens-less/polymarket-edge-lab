@@ -5,23 +5,30 @@ from __future__ import annotations
 
 import argparse
 import glob
+import hashlib
 import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation, ROUND_CEILING
 from pathlib import Path
 from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in os.sys.path:
-    os.sys.path.insert(0, str(PROJECT_ROOT))
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from scripts.build_btc_regime_candidate_scoreboard import (  # noqa: E402
     build_candidate_scoreboard,
+)
+from src.edge_lab.btc_twap_relative_value_readiness import (  # noqa: E402
+    CaptureCapacityEvidence,
+    evaluate_capture_capacity,
 )
 
 
@@ -117,9 +124,10 @@ class AwsCliSnsPublisher(Publisher):
             raise ValueError("invalid SNS topic ARN")
         self.topic_arn = topic_arn
         self.region = topic_arn.split(":", 5)[3]
-        self.aws = shutil.which("aws")
-        if self.aws is None:
+        aws = shutil.which("aws")
+        if aws is None:
             raise RuntimeError("AWS CLI is required for SNS publishing")
+        self.aws = aws
 
     def publish(self, alert: AlertRecord) -> None:
         subprocess.run(
@@ -169,11 +177,16 @@ class TrackConfig:
     name: str
     status_path: Path
     health_path: Path | None = None
+    capacity_evidence_path: Path | None = None
     data_root: Path | None = None
     kind: str = "paper"
     capture_summary_glob: str = ""
     expected_cycle_seconds: int = 900
     maximum_heartbeat_age_seconds: int = 60
+    attempt_receipt_glob: str = ""
+    started_receipt_stale_seconds: int = 1800
+    attempt_receipt_recent_window_count: int = 96
+    attempt_receipt_recent_window_hours: int = 24
     expected_regime: str | None = None
     regime_state_path: Path | None = None
     lifecycle: str = "active"
@@ -189,12 +202,31 @@ class TrackConfig:
             or self.maximum_heartbeat_age_seconds <= 0
         ):
             raise ValueError("maximum_heartbeat_age_seconds must be positive")
+        if (
+            isinstance(self.started_receipt_stale_seconds, bool)
+            or not isinstance(self.started_receipt_stale_seconds, int)
+            or self.started_receipt_stale_seconds <= 0
+        ):
+            raise ValueError("started_receipt_stale_seconds must be positive")
+        for name in (
+            "attempt_receipt_recent_window_count",
+            "attempt_receipt_recent_window_hours",
+        ):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(f"{name} must be positive")
         object.__setattr__(self, "status_path", self.status_path.expanduser().resolve())
         if self.health_path is not None:
             object.__setattr__(
                 self,
                 "health_path",
                 self.health_path.expanduser().resolve(),
+            )
+        if self.capacity_evidence_path is not None:
+            object.__setattr__(
+                self,
+                "capacity_evidence_path",
+                self.capacity_evidence_path.expanduser().resolve(),
             )
         if self.data_root is not None:
             object.__setattr__(self, "data_root", self.data_root.expanduser().resolve())
@@ -380,6 +412,369 @@ def _latest_capture_timestamp(pattern: str) -> str | None:
     return None if latest_generated_at is None else _utc_text(latest_generated_at)
 
 
+def _attempt_receipt_paths(track: TrackConfig) -> tuple[Path, ...]:
+    if not track.attempt_receipt_glob:
+        return ()
+    return tuple(
+        sorted(
+            Path(path).resolve() for path in glob.glob(track.attempt_receipt_glob)
+        )
+    )
+
+
+def _receipt_capture_summary_path(
+    receipt: Mapping[str, Any],
+    *,
+    data_root: Path,
+) -> Path | None:
+    root_value = receipt.get("capture_root")
+    if not isinstance(root_value, str) or not root_value:
+        return None
+    summary_path = Path(root_value).expanduser().resolve() / "capture-summary.json"
+    try:
+        summary_path.relative_to(data_root)
+    except ValueError:
+        return None
+    return summary_path
+
+
+def _capture_capacity_snapshot(
+    track: TrackConfig,
+    *,
+    now: datetime,
+    host_status: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Evaluate the v0.8 capacity contract from durable public artifacts."""
+
+    if track.kind != "edge_readiness":
+        return None
+    if track.data_root is None:
+        return {
+            "passed": False,
+            "reason_codes": ["capture_capacity_data_root_unconfigured"],
+            "capture_attempt_count": 0,
+        }
+    data_root = track.data_root.resolve()
+    receipt_paths = _attempt_receipt_paths(track)
+    if not receipt_paths:
+        return {
+            "passed": False,
+            "reason_codes": [
+                "capture_capacity_evidence_unavailable"
+                if track.attempt_receipt_glob
+                else "capture_attempt_receipts_unconfigured"
+            ],
+            "capture_attempt_count": 0,
+        }
+    failures = 0
+    successes = 0
+    pending = 0
+    total_duration_ms = 0
+    capture_roots: set[Path] = set()
+    extra_reasons: list[str] = []
+    seen_attempt_ids: set[str] = set()
+    summary_paths: list[Path] = []
+    indexed_receipts: list[tuple[Path, dict[str, Any], datetime]] = []
+    for receipt_path in receipt_paths:
+        try:
+            receipt_path.relative_to(data_root)
+        except ValueError:
+            failures += 1
+            continue
+        document = _read_object(receipt_path)
+        if document is None:
+            failures += 1
+            continue
+        attempt_id = document.get("attempt_id")
+        if not isinstance(attempt_id, str) or not attempt_id:
+            failures += 1
+            continue
+        if receipt_path.stem != attempt_id:
+            failures += 1
+            extra_reasons.append("attempt_receipt_filename_mismatch")
+            continue
+        if attempt_id in seen_attempt_ids:
+            failures += 1
+            extra_reasons.append("duplicate_attempt_receipt_id")
+            continue
+        seen_attempt_ids.add(attempt_id)
+        created_at = _parse_utc(
+            document.get("created_at")
+            if isinstance(document.get("created_at"), str)
+            else None
+        )
+        if created_at is None:
+            failures += 1
+            extra_reasons.append("attempt_receipt_timestamp_invalid")
+            continue
+        indexed_receipts.append((receipt_path, document, created_at))
+    recent_cutoff = now - timedelta(hours=track.attempt_receipt_recent_window_hours)
+    selected_receipts = [
+        item for item in indexed_receipts if item[2] >= recent_cutoff
+    ]
+    selected_receipts.sort(key=lambda item: (item[2], item[0].name), reverse=True)
+    selected_receipts = selected_receipts[: track.attempt_receipt_recent_window_count]
+    if not selected_receipts:
+        return {
+            "passed": False,
+            "reason_codes": ["capture_capacity_terminal_evidence_unavailable"],
+            "capture_attempt_count": 0,
+            "capture_failure_count": 0,
+            "successful_attempt_count": 0,
+            "pending_attempt_count": 0,
+            "receipt_count": len(indexed_receipts),
+            "selection_rule": {
+                "created_at_not_before": _utc_text(recent_cutoff),
+                "maximum_receipts": track.attempt_receipt_recent_window_count,
+            },
+        }
+    seen_capture_roots: set[Path] = set()
+    seen_summary_paths: set[Path] = set()
+    terminal_receipt_paths: list[Path] = []
+    pending_receipt_paths: list[Path] = []
+    for _receipt_path, document, _created_at in selected_receipts:
+        status = document.get("status")
+        if status == "failed":
+            terminal_receipt_paths.append(_receipt_path)
+            failures += 1
+            continue
+        if status == "started":
+            marker = _parse_utc(
+                document.get("updated_at")
+                if isinstance(document.get("updated_at"), str)
+                else document.get("created_at")
+            )
+            if marker is None:
+                failures += 1
+                extra_reasons.append("attempt_receipt_timestamp_invalid")
+            elif now - marker >= timedelta(seconds=track.started_receipt_stale_seconds):
+                terminal_receipt_paths.append(_receipt_path)
+                failures += 1
+                extra_reasons.append("stale_started_attempt_receipt")
+            else:
+                pending_receipt_paths.append(_receipt_path)
+                pending += 1
+            continue
+        if status != "succeeded":
+            failures += 1
+            extra_reasons.append("attempt_receipt_status_invalid")
+            continue
+        terminal_receipt_paths.append(_receipt_path)
+        capture_root_value = document.get("capture_root")
+        if not isinstance(capture_root_value, str) or not capture_root_value:
+            failures += 1
+            extra_reasons.append("attempt_receipt_capture_root_missing")
+            continue
+        capture_root = Path(capture_root_value).expanduser().resolve()
+        try:
+            capture_root.relative_to(data_root)
+        except ValueError:
+            failures += 1
+            extra_reasons.append("attempt_receipt_capture_root_out_of_scope")
+            continue
+        if capture_root in seen_capture_roots:
+            failures += 1
+            extra_reasons.append("duplicate_capture_root_in_recent_window")
+            continue
+        summary_path = _receipt_capture_summary_path(document, data_root=data_root)
+        if summary_path is None:
+            failures += 1
+            extra_reasons.append("attempt_receipt_capture_root_missing")
+            continue
+        if summary_path in seen_summary_paths:
+            failures += 1
+            extra_reasons.append("duplicate_capture_summary_in_recent_window")
+            continue
+        seen_capture_roots.add(capture_root)
+        seen_summary_paths.add(summary_path)
+        summary_paths.append(summary_path)
+    for summary_path in summary_paths:
+        document = _read_object(summary_path)
+        if document is None:
+            failures += 1
+            extra_reasons.append("capture_summary_missing_for_success_receipt")
+            continue
+        if (
+            document.get("schema_version")
+            != "btc-twap-compact-forward-capture-summary.v1"
+            or document.get("data_root") != str(summary_path.parent.resolve())
+        ):
+            failures += 1
+            extra_reasons.append("capture_summary_identity_mismatch")
+            continue
+        capture_roots.add(summary_path.parent)
+        integrity = document.get("integrity")
+        integrity_failed = (
+            not isinstance(integrity, Mapping)
+            or any(bool(value) for value in integrity.values())
+        )
+        recorder_failures = document.get("recorder_leg_failures")
+        if (
+            document.get("capture_error") is not None
+            or integrity_failed
+            or not isinstance(recorder_failures, list)
+            or bool(recorder_failures)
+        ):
+            failures += 1
+            continue
+        successes += 1
+        try:
+            duration = Decimal(str(document.get("duration_seconds")))
+        except (InvalidOperation, ValueError):
+            duration = Decimal(0)
+        if duration.is_finite() and duration > 0:
+            total_duration_ms += int(
+                (duration * Decimal(1_000)).to_integral_value(
+                    rounding=ROUND_CEILING
+                )
+            )
+        else:
+            extra_reasons.append("capture_duration_evidence_invalid")
+    total_capture_bytes = 0
+    for capture_root in capture_roots:
+        for path in capture_root.rglob("*"):
+            if path.is_symlink():
+                extra_reasons.append("capture_tree_contains_symlink")
+                continue
+            if path.is_file():
+                try:
+                    total_capture_bytes += path.stat().st_size
+                except OSError:
+                    extra_reasons.append("capture_tree_size_unreadable")
+    projected_daily_bytes = (
+        1024**3 + 1
+        if total_duration_ms <= 0
+        else (
+            total_capture_bytes * 86_400_000 + total_duration_ms - 1
+        )
+        // total_duration_ms
+    )
+    try:
+        free_disk_bytes = shutil.disk_usage(data_root).free
+    except OSError:
+        free_disk_bytes = 0
+        extra_reasons.append("capture_free_disk_unavailable")
+    available_memory = host_status.get("mem_available_bytes")
+    if (
+        isinstance(available_memory, bool)
+        or not isinstance(available_memory, int)
+        or available_memory < 0
+    ):
+        available_memory = 0
+        extra_reasons.append("capture_memory_telemetry_unavailable")
+    cpu_balance = host_status.get("cpu_credit_balance")
+    if (
+        isinstance(cpu_balance, bool)
+        or not isinstance(cpu_balance, (int, float))
+        or host_status.get("cpu_credit_telemetry_unavailable") is not None
+    ):
+        cpu_exhausted = True
+        extra_reasons.append("cpu_credit_telemetry_unavailable")
+    else:
+        cpu_exhausted = float(cpu_balance) <= 0
+    terminal_attempt_count = successes + failures
+    if terminal_attempt_count == 0:
+        return {
+            "passed": False,
+            "reason_codes": list(
+                dict.fromkeys(
+                    (
+                        *extra_reasons,
+                        "capture_capacity_terminal_evidence_unavailable",
+                        *(("capture_attempts_pending",) if pending else ()),
+                    )
+                )
+            ),
+            "capture_attempt_count": 0,
+            "capture_failure_count": 0,
+            "successful_attempt_count": successes,
+            "pending_attempt_count": pending,
+            "receipt_count": len(indexed_receipts),
+            "selection_rule": {
+                "created_at_not_before": _utc_text(recent_cutoff),
+                "maximum_receipts": track.attempt_receipt_recent_window_count,
+            },
+        }
+    evidence = CaptureCapacityEvidence(
+        capture_attempt_count=terminal_attempt_count,
+        capture_failure_count=min(failures, terminal_attempt_count),
+        free_disk_bytes=free_disk_bytes,
+        projected_daily_capture_bytes=projected_daily_bytes,
+        available_memory_bytes=available_memory,
+        burstable_cpu_credit_exhausted=cpu_exhausted,
+    )
+    verdict = evaluate_capture_capacity(evidence)
+    reasons = tuple(
+        dict.fromkeys(
+            (
+                *verdict.reason_codes,
+                *extra_reasons,
+                *(("capture_attempts_pending",) if pending else ()),
+            )
+        )
+    )
+    unsigned = {
+        "schema_version": "btc-twap-capture-capacity-evidence.v1",
+        "generated_at": _utc_text(now),
+        "track": track.name,
+        "attempt_receipts": [
+            {
+                "path": str(path),
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            }
+            for path in terminal_receipt_paths
+            if path.is_file()
+        ],
+        "pending_attempt_receipts": [
+            {
+                "path": str(path),
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            }
+            for path in pending_receipt_paths
+            if path.is_file()
+        ],
+        "host_metrics": {
+            "mem_available_bytes": host_status.get("mem_available_bytes"),
+            "cpu_credit_balance": host_status.get("cpu_credit_balance"),
+            "cpu_credit_telemetry_unavailable": host_status.get(
+                "cpu_credit_telemetry_unavailable"
+            ),
+        },
+        "verdict": {
+            **verdict.to_document(),
+            "passed": verdict.passed and not extra_reasons and pending == 0,
+            "reason_codes": list(reasons),
+            "capture_attempt_count": evidence.capture_attempt_count,
+            "capture_failure_count": evidence.capture_failure_count,
+            "successful_attempt_count": successes,
+            "pending_attempt_count": pending,
+            "receipt_count": len(indexed_receipts),
+            "free_disk_bytes": evidence.free_disk_bytes,
+            "projected_daily_capture_bytes": evidence.projected_daily_capture_bytes,
+            "available_memory_bytes": evidence.available_memory_bytes,
+            "burstable_cpu_credit_exhausted": (
+                evidence.burstable_cpu_credit_exhausted
+            ),
+            "selection_rule": {
+                "created_at_not_before": _utc_text(recent_cutoff),
+                "maximum_receipts": track.attempt_receipt_recent_window_count,
+            },
+        },
+    }
+    artifact_sha256 = hashlib.sha256(
+        json.dumps(unsigned, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    return {
+        **unsigned["verdict"],
+        "schema_version": unsigned["schema_version"],
+        "generated_at": unsigned["generated_at"],
+        "attempt_receipts": unsigned["attempt_receipts"],
+        "pending_attempt_receipts": unsigned["pending_attempt_receipts"],
+        "host_metrics": unsigned["host_metrics"],
+        "artifact_sha256": artifact_sha256,
+    }
+
+
 def evaluate_watch(
     config: WatchConfig,
     *,
@@ -393,7 +788,11 @@ def evaluate_watch(
     state_tracks: dict[str, Any] = {}
     for track in config.tracks:
         status = _read_object(track.status_path) or {}
-        health = _read_object(track.health_path) or {}
+        health = (
+            _read_object(track.health_path) or {}
+            if track.health_path is not None
+            else {}
+        )
         latest_capture_timestamp = _latest_capture_timestamp(track.capture_summary_glob)
         track_alerts, next_state = evaluate_track(
             track=TrackSpec(
@@ -455,10 +854,25 @@ def watch_once(
                 kind=str(track.get("kind", "paper")),
                 status_path=Path(str(track["status_path"])),
                 health_path=Path(str(track.get("health_path", track["status_path"]))),
+                capacity_evidence_path=(
+                    Path(str(track["capacity_evidence_path"]))
+                    if track.get("capacity_evidence_path")
+                    else None
+                ),
                 capture_summary_glob=str(track.get("capture_summary_glob", "")),
                 expected_cycle_seconds=int(track.get("expected_cycle_seconds", 900)),
                 maximum_heartbeat_age_seconds=int(
                     track.get("maximum_heartbeat_age_seconds", 60)
+                ),
+                attempt_receipt_glob=str(track.get("attempt_receipt_glob", "")),
+                started_receipt_stale_seconds=int(
+                    track.get("started_receipt_stale_seconds", 1800)
+                ),
+                attempt_receipt_recent_window_count=int(
+                    track.get("attempt_receipt_recent_window_count", 96)
+                ),
+                attempt_receipt_recent_window_hours=int(
+                    track.get("attempt_receipt_recent_window_hours", 24)
                 ),
             )
             for track in config.get("tracks", [])
@@ -515,6 +929,11 @@ def _load_watch_config(path: Path) -> WatchConfig:
                 if track.get("health_path")
                 else None
             ),
+            capacity_evidence_path=(
+                Path(str(track["capacity_evidence_path"]))
+                if track.get("capacity_evidence_path")
+                else None
+            ),
             data_root=(
                 Path(str(track["data_root"]))
                 if track.get("data_root")
@@ -525,6 +944,16 @@ def _load_watch_config(path: Path) -> WatchConfig:
             expected_cycle_seconds=int(track.get("expected_cycle_seconds", 900)),
             maximum_heartbeat_age_seconds=int(
                 track.get("maximum_heartbeat_age_seconds", 60)
+            ),
+            attempt_receipt_glob=str(track.get("attempt_receipt_glob", "")),
+            started_receipt_stale_seconds=int(
+                track.get("started_receipt_stale_seconds", 1800)
+            ),
+            attempt_receipt_recent_window_count=int(
+                track.get("attempt_receipt_recent_window_count", 96)
+            ),
+            attempt_receipt_recent_window_hours=int(
+                track.get("attempt_receipt_recent_window_hours", 24)
             ),
             expected_regime=(
                 str(track["expected_regime"])
@@ -919,10 +1348,9 @@ def _host_alerts_and_state(
                 body={"mem_available_bytes": memory},
             )
     refresh_attempted = bool(host.get("cpu_credit_refresh_attempted"))
+    unavailable_value = host.get("cpu_credit_telemetry_unavailable")
     unavailable = (
-        dict(host.get("cpu_credit_telemetry_unavailable"))
-        if isinstance(host.get("cpu_credit_telemetry_unavailable"), Mapping)
-        else None
+        dict(unavailable_value) if isinstance(unavailable_value, Mapping) else None
     )
     if refresh_attempted:
         for field in (
@@ -1065,6 +1493,11 @@ def run_watch_cycle(
 ) -> None:
     state_path = config.state_path
     _refresh_local_host_status(config, now=now)
+    host_status = (
+        _read_object(config.host.status_path) or {}
+        if config.host is not None and config.host.status_path is not None
+        else {}
+    )
     state = _read_object(state_path) or {
         "schema_version": "polymm-paper-track-watch-state.v1",
         "alerts": {},
@@ -1097,12 +1530,25 @@ def run_watch_cycle(
         status = status_document or {}
         health = health_document or {}
         regime = regime_document or {}
+        capture_capacity = _capture_capacity_snapshot(
+            track,
+            now=now,
+            host_status=host_status,
+        )
+        if (
+            track.kind == "edge_readiness"
+            and track.capacity_evidence_path is not None
+            and capture_capacity is not None
+        ):
+            _write_object_atomic(track.capacity_evidence_path, capture_capacity)
         unavailable_sources = []
         for kind, path, document in (
             ("status", track.status_path, status_document),
             ("health", track.health_path, health_document),
             ("regime", track.regime_state_path, regime_document),
         ):
+            if track.kind == "edge_readiness" and kind == "health":
+                continue
             if path is not None and document is None:
                 unavailable_sources.append(
                     {
@@ -1232,6 +1678,17 @@ def run_watch_cycle(
                 subject=f"{track.name} health gate failed",
                 body={**body, "failures": material_health_failures},
             )
+        if (
+            runtime_monitored
+            and capture_capacity is not None
+            and capture_capacity.get("passed") is not True
+        ):
+            active_alerts[f"{track.name}:capture_capacity"] = AlertRecord(
+                key=f"{track.name}:capture_capacity",
+                severity="page",
+                subject=f"{track.name} capture capacity gate failed",
+                body={**body, "capture_capacity": capture_capacity},
+            )
         quarantine_count = regime.get("quarantine_count", 0)
         result_tracks[track.name] = {
             "last_completed_report_count": report_count,
@@ -1257,6 +1714,7 @@ def run_watch_cycle(
             "last_quarantine_count": (
                 quarantine_count if isinstance(quarantine_count, int) else 0
             ),
+            "capture_capacity": capture_capacity,
         }
     active_alerts.update(
         _regime_alerts(

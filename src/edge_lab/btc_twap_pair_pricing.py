@@ -6,8 +6,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import ROUND_CEILING, ROUND_DOWN, Decimal
 from enum import Enum
+from types import MappingProxyType
 
-from .btc_twap_relative_value import BookLevel, OrderBookSnapshot, TwapMarketContract
+from .btc_twap_relative_value import OrderBookSnapshot, TwapMarketContract
 
 ZERO = Decimal(0)
 ONE = Decimal(1)
@@ -31,6 +32,7 @@ class PairPricingPolicy:
     maximum_market_price: Decimal = Decimal("0.95")
     pair_risk_usdc: Decimal | None = Decimal(25)
     structural_only: bool = False
+    maker_fill_cap_by_token_id: Mapping[str, Decimal] | None = None
 
     def __post_init__(self) -> None:
         for name in (
@@ -61,6 +63,30 @@ class PairPricingPolicy:
             raise ValueError("pair_risk_usdc must be positive")
         if not isinstance(self.structural_only, bool):
             raise TypeError("structural_only must be bool")
+        if self.maker_fill_cap_by_token_id is not None:
+            if not isinstance(self.maker_fill_cap_by_token_id, Mapping):
+                raise TypeError("maker_fill_cap_by_token_id must be a mapping or None")
+            normalized: dict[str, Decimal] = {}
+            for token_id, value in self.maker_fill_cap_by_token_id.items():
+                if not isinstance(token_id, str) or not token_id:
+                    raise ValueError(
+                        "maker_fill_cap_by_token_id keys must be non-empty strings"
+                    )
+                if isinstance(value, (bool, float)):
+                    raise TypeError(
+                        "maker_fill_cap_by_token_id values must be exact decimals"
+                    )
+                parsed = value if isinstance(value, Decimal) else Decimal(str(value))
+                if not parsed.is_finite() or parsed < ZERO:
+                    raise ValueError(
+                        "maker_fill_cap_by_token_id values must be finite non-negative decimals"
+                    )
+                normalized[token_id] = parsed
+            object.__setattr__(
+                self,
+                "maker_fill_cap_by_token_id",
+                MappingProxyType(dict(normalized)),
+            )
 
 
 @dataclass(frozen=True)
@@ -88,6 +114,7 @@ def quote_book_buy(
     quantity: Decimal,
     contract: TwapMarketContract,
     maker: bool = False,
+    maker_fill_cap: Decimal | None = None,
 ) -> BookBuyQuote | None:
     """Price a taker buy from asks or a hypothetical resting buy at best bid."""
 
@@ -96,10 +123,7 @@ def quote_book_buy(
     if maker:
         if book.best_bid is None:
             return None
-        # A resting bid is not immediately executable.  Gate 0 therefore uses
-        # captured same-side displayed depth as a finite, reproducible sizing
-        # envelope; actual fills remain a separate queue-replay question.
-        if sum((level.size for level in book.bids), ZERO) < quantity:
+        if maker_fill_cap is None or maker_fill_cap < quantity:
             return None
         return BookBuyQuote(
             notional=quantity * book.best_bid,
@@ -128,6 +152,7 @@ def quote_pair_buy(
     first_contract: TwapMarketContract,
     second_contract: TwapMarketContract,
     execution_mode: PairExecutionMode = PairExecutionMode.TAKER_TAKER,
+    maker_fill_cap_by_token_id: Mapping[str, Decimal] | None = None,
 ) -> PairBuyQuote | None:
     """Return exact two-leg all-in cost at one common executable quantity."""
 
@@ -143,12 +168,22 @@ def quote_pair_buy(
             quantity=quantity,
             contract=first_contract,
             maker=first_maker,
+            maker_fill_cap=(
+                None
+                if not first_maker or maker_fill_cap_by_token_id is None
+                else maker_fill_cap_by_token_id.get(first_book.token_id)
+            ),
         )
         second_quote = quote_book_buy(
             second_book,
             quantity=quantity,
             contract=second_contract,
             maker=second_maker,
+            maker_fill_cap=(
+                None
+                if not second_maker or maker_fill_cap_by_token_id is None
+                else maker_fill_cap_by_token_id.get(second_book.token_id)
+            ),
         )
         if first_quote is None or second_quote is None:
             return None
@@ -242,12 +277,16 @@ def select_healthy_pair_books(
         ):
             return None
     if policy.structural_only:
-        feasible_side_pairs = _execution_side_pairs(
-            first_book=first_book,
-            second_book=second_book,
-            execution_mode=mode,
-        )
-        if not any(first_levels and second_levels for first_levels, second_levels in feasible_side_pairs):
+        if not any(
+            _orientation_has_required_sides(
+                first_book=first_book,
+                second_book=second_book,
+                first_maker=orientation[0],
+                second_maker=orientation[1],
+                maker_fill_cap_by_token_id=policy.maker_fill_cap_by_token_id,
+            )
+            for orientation in _execution_role_orientations(mode)
+        ):
             return None
         return first_book, second_book
 
@@ -287,6 +326,7 @@ def _maximum_affordable_quantity(
     second_contract: TwapMarketContract,
     pair_risk_usdc: Decimal,
     execution_mode: PairExecutionMode,
+    maker_fill_cap_by_token_id: Mapping[str, Decimal] | None,
 ) -> Decimal | None:
     minimum_units = _quantity_units_ceiling(minimum_quantity)
     maximum_units = _quantity_units_floor(maximum_depth_quantity)
@@ -301,6 +341,7 @@ def _maximum_affordable_quantity(
             first_contract=first_contract,
             second_contract=second_contract,
             execution_mode=execution_mode,
+            maker_fill_cap_by_token_id=maker_fill_cap_by_token_id,
         )
         if quote is not None and quote.total_cost <= pair_risk_usdc:
             affordable_units = middle_units
@@ -336,23 +377,33 @@ def joint_quantity_breakpoints(
         second_contract.minimum_order_size,
     )
     minimum_quantity = Decimal(_quantity_units_ceiling(minimum_quantity)) * SIZE_QUANTUM
-    feasible_side_pairs = tuple(
-        (first_levels, second_levels)
-        for first_levels, second_levels in _execution_side_pairs(
+    orientations = tuple(
+        orientation
+        for orientation in _execution_role_orientations(mode)
+        if _orientation_has_required_sides(
             first_book=first_book,
             second_book=second_book,
-            execution_mode=mode,
+            first_maker=orientation[0],
+            second_maker=orientation[1],
+            maker_fill_cap_by_token_id=policy.maker_fill_cap_by_token_id,
         )
-        if first_levels and second_levels
     )
-    if not feasible_side_pairs:
+    if not orientations:
         return ()
     maximum_depth = max(
         min(
-            sum((level.size for level in first_levels), ZERO),
-            sum((level.size for level in second_levels), ZERO),
+            _available_fill_capacity(
+                book=first_book,
+                maker=first_maker,
+                maker_fill_cap_by_token_id=policy.maker_fill_cap_by_token_id,
+            ),
+            _available_fill_capacity(
+                book=second_book,
+                maker=second_maker,
+                maker_fill_cap_by_token_id=policy.maker_fill_cap_by_token_id,
+            ),
         )
-        for first_levels, second_levels in feasible_side_pairs
+        for first_maker, second_maker in orientations
     )
     if maximum_depth < minimum_quantity:
         return ()
@@ -368,41 +419,95 @@ def joint_quantity_breakpoints(
             second_contract=second_contract,
             pair_risk_usdc=policy.pair_risk_usdc,
             execution_mode=mode,
+            maker_fill_cap_by_token_id=policy.maker_fill_cap_by_token_id,
         )
     )
     if maximum_affordable is None:
         return ()
     candidates = {minimum_quantity, maximum_affordable}
-    for levels in {
-        id(levels): levels
-        for pair in feasible_side_pairs
-        for levels in pair
-    }.values():
-        cumulative = ZERO
-        for level in levels:
-            cumulative += level.size
-            quantity = Decimal(_quantity_units_floor(cumulative)) * SIZE_QUANTUM
-            if minimum_quantity <= quantity <= maximum_affordable:
-                candidates.add(quantity)
+    for first_maker, second_maker in orientations:
+        for book, maker in (
+            (first_book, first_maker),
+            (second_book, second_maker),
+        ):
+            if maker:
+                cap = _available_fill_capacity(
+                    book=book,
+                    maker=True,
+                    maker_fill_cap_by_token_id=policy.maker_fill_cap_by_token_id,
+                )
+                quantity = Decimal(_quantity_units_floor(cap)) * SIZE_QUANTUM
+                if minimum_quantity <= quantity <= maximum_affordable:
+                    candidates.add(quantity)
+                continue
+            cumulative = ZERO
+            for level in book.asks:
+                cumulative += level.size
+                quantity = Decimal(_quantity_units_floor(cumulative)) * SIZE_QUANTUM
+                if minimum_quantity <= quantity <= maximum_affordable:
+                    candidates.add(quantity)
     return tuple(sorted(candidates))
 
 
-def _execution_side_pairs(
+def _execution_role_orientations(
+    execution_mode: PairExecutionMode,
+) -> tuple[tuple[bool, bool], ...]:
+    if execution_mode is PairExecutionMode.TAKER_TAKER:
+        return ((False, False),)
+    if execution_mode is PairExecutionMode.MAKER_MAKER:
+        return ((True, True),)
+    return ((True, False), (False, True))
+
+
+def _available_fill_capacity(
+    *,
+    book: OrderBookSnapshot,
+    maker: bool,
+    maker_fill_cap_by_token_id: Mapping[str, Decimal] | None,
+) -> Decimal:
+    if maker:
+        if maker_fill_cap_by_token_id is None:
+            return ZERO
+        return maker_fill_cap_by_token_id.get(book.token_id, ZERO)
+    return sum((level.size for level in book.asks), ZERO)
+
+
+def _orientation_has_required_sides(
     *,
     first_book: OrderBookSnapshot,
     second_book: OrderBookSnapshot,
-    execution_mode: PairExecutionMode,
-) -> tuple[tuple[tuple[BookLevel, ...], tuple[BookLevel, ...]], ...]:
-    """Return the first/second depth sides for every feasible orientation."""
-
-    if execution_mode is PairExecutionMode.TAKER_TAKER:
-        return ((first_book.asks, second_book.asks),)
-    if execution_mode is PairExecutionMode.MAKER_MAKER:
-        return ((first_book.bids, second_book.bids),)
-    return (
-        (first_book.bids, second_book.asks),
-        (first_book.asks, second_book.bids),
+    first_maker: bool,
+    second_maker: bool,
+    maker_fill_cap_by_token_id: Mapping[str, Decimal] | None,
+) -> bool:
+    return _leg_has_required_side(
+        book=first_book,
+        maker=first_maker,
+        maker_fill_cap_by_token_id=maker_fill_cap_by_token_id,
+    ) and _leg_has_required_side(
+        book=second_book,
+        maker=second_maker,
+        maker_fill_cap_by_token_id=maker_fill_cap_by_token_id,
     )
+
+
+def _leg_has_required_side(
+    *,
+    book: OrderBookSnapshot,
+    maker: bool,
+    maker_fill_cap_by_token_id: Mapping[str, Decimal] | None,
+) -> bool:
+    if maker:
+        return (
+            book.best_bid is not None
+            and _available_fill_capacity(
+                book=book,
+                maker=True,
+                maker_fill_cap_by_token_id=maker_fill_cap_by_token_id,
+            )
+            > ZERO
+        )
+    return bool(book.asks)
 
 
 __all__ = [

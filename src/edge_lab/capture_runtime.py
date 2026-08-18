@@ -496,6 +496,8 @@ class PublicSourcesSnapshotClient:
         condition_ids: Sequence[str] = (),
         reward_page_limit: int = 500,
         reward_max_pages: int = 1,
+        trade_page_limit: int = 1_000,
+        trade_max_pages: int = 100,
         rule_market_ids: Sequence[str] = (),
     ) -> None:
         if (
@@ -522,6 +524,18 @@ class PublicSourcesSnapshotClient:
             or reward_max_pages < 1
         ):
             raise ValueError("reward_max_pages must be at least one")
+        if (
+            isinstance(trade_page_limit, bool)
+            or not isinstance(trade_page_limit, int)
+            or not 1 <= trade_page_limit <= 1_000
+        ):
+            raise ValueError("trade_page_limit must be between 1 and 1000")
+        if (
+            isinstance(trade_max_pages, bool)
+            or not isinstance(trade_max_pages, int)
+            or trade_max_pages < 1
+        ):
+            raise ValueError("trade_max_pages must be at least one")
         self.source_client = source_client
         self.gamma_page_limit = gamma_page_limit
         self.gamma_max_pages = gamma_max_pages
@@ -530,6 +544,8 @@ class PublicSourcesSnapshotClient:
         )
         self.reward_page_limit = reward_page_limit
         self.reward_max_pages = reward_max_pages
+        self.trade_page_limit = trade_page_limit
+        self.trade_max_pages = trade_max_pages
         self.rule_market_ids = _normalize_identifiers(
             rule_market_ids, label="rule_market_ids"
         )
@@ -726,16 +742,31 @@ class PublicSourcesSnapshotClient:
                 )
         elif kind == "trades":
             for condition_id in self.condition_ids:
-                capture_resource(
-                    "data_api_trades",
-                    lambda condition_id=condition_id: self.source_client.data_trades(
-                        condition_id,
-                        taker_only=True,
-                        limit=1_000,
-                        offset=0,
-                    ),
-                    request_key=condition_id,
-                )
+                for page_number in range(1, self.trade_max_pages + 1):
+                    offset = (page_number - 1) * self.trade_page_limit
+                    fetched = capture_resource(
+                        "data_api_trades",
+                        lambda condition_id=condition_id, offset=offset: self.source_client.data_trades(
+                            condition_id,
+                            taker_only=True,
+                            limit=self.trade_page_limit,
+                            offset=offset,
+                        ),
+                        page_number=page_number,
+                        request_key=condition_id,
+                    )
+                    if fetched is None:
+                        break
+                    rows = fetched.value
+                    if not isinstance(rows, Sequence):
+                        raise PublicSourceError(
+                            "data_api_trades response is not sequence-shaped",
+                            raw=fetched.raw,
+                        )
+                    if len(rows) < self.trade_page_limit:
+                        break
+                    if page_number == self.trade_max_pages:
+                        truncated_resources.add("data_api_trades")
         snapshot = {
             "schema_version": "edge-lab-public-snapshot.v1",
             "snapshot_kind": kind,

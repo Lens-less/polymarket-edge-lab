@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from types import MappingProxyType
 from typing import Any
@@ -60,12 +60,15 @@ def _epoch_ms(value: Any) -> int | None:
         return None
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         return None
-    return int(parsed.astimezone(timezone.utc).timestamp() * 1_000)
+    return int(parsed.astimezone(UTC).timestamp() * 1_000)
 
 
 def _source_ms(payload: Mapping[str, Any]) -> int | None:
+    raw_value = payload.get("timestamp")
+    if raw_value is None:
+        return None
     try:
-        value = int(payload.get("timestamp"))
+        value = int(raw_value)
     except (TypeError, ValueError):
         return None
     return value if value >= 0 else None
@@ -317,7 +320,7 @@ def _snapshot(
     *,
     source_at_ms: int,
 ) -> OrderBookSnapshot | None:
-    if not state.bids or not state.asks:
+    if not state.bids and not state.asks:
         return None
     return OrderBookSnapshot.from_tuples(
         token.token_id,
@@ -335,16 +338,11 @@ def _top_matches(
 ) -> bool:
     expected_bid = {_decimal(item.get("best_bid")) for item in changes}
     expected_ask = {_decimal(item.get("best_ask")) for item in changes}
-    if (
-        None in expected_bid
-        or None in expected_ask
-        or len(expected_bid) != 1
-        or len(expected_ask) != 1
-        or not state.bids
-        or not state.asks
-    ):
+    if len(expected_bid) != 1 or len(expected_ask) != 1:
         return False
-    return max(state.bids) == next(iter(expected_bid)) and min(state.asks) == next(
+    actual_bid = max(state.bids) if state.bids else None
+    actual_ask = min(state.asks) if state.asks else None
+    return actual_bid == next(iter(expected_bid)) and actual_ask == next(
         iter(expected_ask)
     )
 
@@ -386,9 +384,7 @@ class CausalBookReplay:
                 "price_change",
                 "clob_snapshot",
                 "resnapshot",
-            } or not isinstance(
-                payload, Mapping
-            ):
+            } or not isinstance(payload, Mapping):
                 continue
             raw_received_at_ms = _epoch_ms(record.get("received_at"))
             received_at_ms = (
@@ -454,7 +450,7 @@ class CausalBookReplay:
                     continue
                 bids = _levels(payload.get("bids"))
                 asks = _levels(payload.get("asks"))
-                if bids is None or asks is None or not bids or not asks:
+                if bids is None or asks is None or (not bids and not asks):
                     states.pop(token_id, None)
                     full_depth_by_token.pop(token_id, None)
                     invalid.add(token_id)
@@ -471,8 +467,7 @@ class CausalBookReplay:
                 states[token_id] = state
                 depth_policy = payload.get("depth_policy")
                 full_depth_by_token[token_id] = not (
-                    isinstance(depth_policy, str)
-                    and depth_policy.startswith("top_5")
+                    isinstance(depth_policy, str) and depth_policy.startswith("top_5")
                 )
                 invalid.discard(token_id)
                 observations[token_id].append(
@@ -497,8 +492,8 @@ class CausalBookReplay:
                 if token_id in frozen_tokens:
                     by_token.setdefault(token_id, []).append(item)
             for token_id, changes in by_token.items():
-                state = states.get(token_id)
-                if state is None or token_id in invalid:
+                current_state = states.get(token_id)
+                if current_state is None or token_id in invalid:
                     continue
                 coherent = True
                 for change in changes:
@@ -514,17 +509,17 @@ class CausalBookReplay:
                     ):
                         coherent = False
                         break
-                    levels = state.bids if side == "BUY" else state.asks
+                    levels = current_state.bids if side == "BUY" else current_state.asks
                     if size == 0:
                         levels.pop(price, None)
                     else:
                         levels[price] = size
-                if not coherent or not _top_matches(state, changes):
+                if not coherent or not _top_matches(current_state, changes):
                     invalid.add(token_id)
                     full_depth_by_token.pop(token_id, None)
                     continue
                 snapshot = _snapshot(
-                    frozen_tokens[token_id], state, source_at_ms=source_at_ms
+                    frozen_tokens[token_id], current_state, source_at_ms=source_at_ms
                 )
                 if snapshot is None:
                     invalid.add(token_id)

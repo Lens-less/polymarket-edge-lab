@@ -1495,10 +1495,13 @@ def _report_summary(
             complete_real_execution_evidence=False,
             all_locked_cohorts_in_pnl_distribution=False,
             service_continuously_healthy=False,
+            consecutive_profitable_utc_days=0,
+            minimum_daily_net_pnl=None,
+            peak_capital_deployed=None,
         )
     )
     probe_readiness = evaluate_execution_probe_readiness(
-        neutral_shadow_evidence=None,
+        structural_shadow_report=None,
         clean_common_terminal_cohort_count=len(projected),
         coverage_results=(),
         structural_floor=None,

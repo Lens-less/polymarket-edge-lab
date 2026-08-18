@@ -62,11 +62,14 @@
     "execution_modes_reported": ["taker_taker", "maker_taker", "maker_maker"],
     "decision_execution_mode": "maker_maker",
     "minimum_average_best_total_pnl_per_expiry_usdc": "0.5",
+    "tau_override_is_diagnostic_only": true,
+    "precomputed_fill_caps_are_diagnostic_only": true,
     "implicit_split_probability_curve_persisted": true,
     "negative_implicit_split_probability_count_persisted": true,
     "non_floor_direction_is_diagnostic_only": true,
     "no_trade_is_zero": true,
     "aggregate_upper_bound_not_positive_action": "stop_route",
+    "incomplete_existing_41_evidence_action": "rerun_required_not_stop",
     "counts_as_locked_oos_evidence": false,
     "can_authorize_live": false
   },
@@ -99,14 +102,28 @@
     "split_or_index_cannot_be_recomputed_after_outcome": true,
     "dirty_no_trade_no_fill_and_failed_cohorts_remain_in_denominator": true,
     "no_fixed_maximum_case_cap": true,
-    "local_hash_chain_is_not_external_signature": true
+    "local_hash_chain_is_not_external_signature": true,
+    "decision_payload_schema": "btc_twap_structural_locked_action.v1",
+    "decision_payload_must_lock": [
+      "capture_root_and_supporting_history_roots",
+      "pair_and_rule_bound_settlement_state",
+      "action_quantity_and_submission_time",
+      "maximum_book_age_initial_cash_and_all_four_decision_books"
+    ],
+    "post_settlement_source_evidence_schema": "btc_twap_structural_source_evidence.v1",
+    "replay_inputs_must_be_rederived_from_finalized_capture_manifests": true,
+    "caller_supplied_book_trade_or_outcome_omission_policy": "reject",
+    "clean_causal_no_fill_requires_predecision_action_plan": true,
+    "dirty_and_no_trade_rows_contribute_zero_pnl_and_remain_in_denominator": true
   },
   "execution_probe_gate": {
     "minimum_complete_common_expiry_cohorts": 4,
     "minimum_neutral_shadow_expiries": 200,
+    "neutral_shadow_single_leg_disposition": "passive_wait",
     "neutral_shadow_realized_net_pnl_must_be_positive": true,
     "neutral_shadow_without_best_expiry_must_be_positive": true,
     "neutral_shadow_without_best_direction_must_be_positive": true,
+    "neutral_shadow_rolling_window_expiries": 20,
     "neutral_shadow_rolling_windows_must_be_positive": true,
     "neutral_shadow_maximum_single_expiry_pnl_concentration": "0.20",
     "double_maker_probe_implementation_required": true,
@@ -114,7 +131,7 @@
     "gate_0_must_pass": true,
     "continuous_service_health_required": true,
     "capture_capacity_gate_required": {
-      "maximum_failure_rate": "0.05",
+      "failure_rate_upper_bound_exclusive": "0.05",
       "minimum_free_disk_bytes": 10737418240,
       "maximum_projected_daily_capture_bytes": 1073741824,
       "minimum_available_memory_bytes": 2147483648,
@@ -149,6 +166,9 @@
     "one_sided_cluster_bootstrap_confidence": "95%",
     "cluster_bootstrap_mean_lower_bound_must_be_above_zero": true,
     "maximum_single_expiry_pnl_concentration": "0.20",
+    "minimum_consecutive_profitable_utc_days": 14,
+    "minimum_daily_net_pnl_usdc": "20",
+    "maximum_peak_capital_deployed_usdc": "2000",
     "complete_real_execution_cost_and_reconciliation_required": true,
     "structural_gate_0_must_pass": true,
     "predictive_gate_cannot_authorize_structural_live": true

@@ -50,9 +50,13 @@ def test_watch_service_is_read_only_to_strategy_roots() -> None:
     assert "ReadOnlyPaths=/var/lib/poly-mm-v05" in text
     assert "ReadOnlyPaths=/var/lib/poly-mm-v06" in text
     assert "ReadOnlyPaths=/var/lib/poly-mm-v07" in text
+    assert "ReadOnlyPaths=/var/lib/poly-mm-v08" in text
     assert "ReadOnlyPaths=/var/lib/poly-mm-rawcap" in text
     assert "ReadWritePaths=/var/lib/poly-mm-watch" in text
-    assert "SupplementaryGroups=polybotv06 polybotv07 polybotraw" in text
+    assert (
+        "SupplementaryGroups=polybotv06 polybotv07 polybotv08 polybotraw"
+        in text
+    )
     assert "polybotv05" not in text
     assert (
         "ExecStart=/opt/poly-mm-watch/.venv/bin/python "
@@ -77,6 +81,8 @@ def test_watch_timer_and_bootstrap_match_staged_manual_start() -> None:
     assert 'RUNTIME_CONFIG_PATH="${RUNTIME_CONFIG_PATH:-/etc/polymm-watch-config.json}"' in bootstrap_text
     assert 'WATCH_REGION_VALUE="${POLYMM_WATCH_AWS_REGION:-}"' in bootstrap_text
     assert 'WATCH_INSTANCE_ID_VALUE="${POLYMM_WATCH_INSTANCE_ID:-}"' in bootstrap_text
+    assert 'getent group polybotv08' in bootstrap_text
+    assert "Required group polybotv08 must already exist" in bootstrap_text
     assert "latest/dynamic/instance-identity/document" in bootstrap_text
     assert 'host["cpu_credit_region"] = region' in bootstrap_text
     assert 'host["cpu_credit_instance_id"] = instance_id' in bootstrap_text
@@ -93,7 +99,7 @@ def test_watch_timer_and_bootstrap_match_staged_manual_start() -> None:
     assert "polymm-btc-twap-paper-v04.service" not in bootstrap_text
 
 
-def test_watch_config_tracks_v05_v06_v07_and_rawcap() -> None:
+def test_watch_config_tracks_v05_v06_v07_v08_and_rawcap() -> None:
     document = json.loads((DEPLOY_ROOT / "watch-config.json").read_text(encoding="utf-8"))
 
     assert document["schema_version"] == "polymm-paper-track-watch-config.v1"
@@ -103,6 +109,7 @@ def test_watch_config_tracks_v05_v06_v07_and_rawcap() -> None:
         "v05",
         "v06",
         "v07",
+        "v08",
         "rawcap",
     }
     lifecycle_by_track = {
@@ -113,10 +120,26 @@ def test_watch_config_tracks_v05_v06_v07_and_rawcap() -> None:
         "v05": "retired",
         "v06": "active",
         "v07": "active",
+        "v08": "active",
         "rawcap": "maintenance",
     }
     v07 = next(track for track in document["tracks"] if track["name"] == "v07")
     assert v07["maximum_heartbeat_age_seconds"] == 2700
+    v08 = next(track for track in document["tracks"] if track["name"] == "v08")
+    assert v08["kind"] == "edge_readiness"
+    assert v08["maximum_heartbeat_age_seconds"] == 90
+    assert v08["capacity_evidence_path"] == (
+        "/var/lib/poly-mm-watch/state/v08-capture-capacity.json"
+    )
+    assert v08["attempt_receipt_glob"].endswith(
+        "/data/service/attempt-receipts/*.json"
+    )
+    assert v08["started_receipt_stale_seconds"] == 1800
+    assert v08["attempt_receipt_recent_window_count"] == 96
+    assert v08["attempt_receipt_recent_window_hours"] == 24
+    assert v08["health_path"].endswith(
+        "/monitor/edge-readiness-health-latest.json"
+    )
     paper_tracks = {
         track["name"]: track
         for track in document["tracks"]

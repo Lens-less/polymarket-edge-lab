@@ -39,7 +39,7 @@
     "single_recorder_leg_failure_policy": "dirty"
   },
   "capacity_gate": {
-    "maximum_capture_failure_rate": 0.05,
+    "capture_failure_rate_upper_bound_exclusive": 0.05,
     "minimum_free_disk_bytes": 10737418240,
     "maximum_projected_daily_capture_bytes": 1073741824,
     "minimum_memory_bytes": 2147483648,

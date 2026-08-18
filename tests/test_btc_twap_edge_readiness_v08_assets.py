@@ -45,23 +45,62 @@ def test_v08_preregistration_is_structural_only_fail_closed_and_no_go() -> None:
         ]
         is True
     )
-    assert (
-        preregistration["gate_0"]["existing_41_attempt_report"][
-            "scan_ttc_seconds_inclusive"
-        ]
-        == [300, 0]
-    )
+    assert preregistration["gate_0"]["existing_41_attempt_report"][
+        "scan_ttc_seconds_inclusive"
+    ] == [300, 0]
     assert preregistration["gate_0"]["decision_execution_mode"] == "maker_maker"
-    assert preregistration["execution_probe_gate"]["minimum_neutral_shadow_expiries"] == 200
+    assert (
+        preregistration["gate_0"]["incomplete_existing_41_evidence_action"]
+        == "rerun_required_not_stop"
+    )
+    assert (
+        preregistration["execution_probe_gate"]["minimum_neutral_shadow_expiries"]
+        == 200
+    )
+    assert (
+        preregistration["execution_probe_gate"]["neutral_shadow_single_leg_disposition"]
+        == "passive_wait"
+    )
+    assert (
+        preregistration["execution_probe_gate"][
+            "neutral_shadow_rolling_window_expiries"
+        ]
+        == 20
+    )
     assert preregistration["execution_probe_gate"]["maker_submissions_max"] == 2
     assert (
-        preregistration["execution_probe_gate"]["capture_capacity_gate_required"]
-        ["maximum_failure_rate"]
+        preregistration["strategy_live_gate"]["minimum_consecutive_profitable_utc_days"]
+        == 14
+    )
+    assert preregistration["strategy_live_gate"]["minimum_daily_net_pnl_usdc"] == "20"
+    assert (
+        preregistration["strategy_live_gate"]["maximum_peak_capital_deployed_usdc"]
+        == "2000"
+    )
+    assert (
+        preregistration["execution_probe_gate"]["capture_capacity_gate_required"][
+            "failure_rate_upper_bound_exclusive"
+        ]
         == "0.05"
     )
     assert (
         preregistration["rolling_locked_shadow"][
             "dirty_no_trade_no_fill_and_failed_cohorts_remain_in_denominator"
+        ]
+        is True
+    )
+    assert preregistration["rolling_locked_shadow"]["decision_payload_schema"] == (
+        "btc_twap_structural_locked_action.v1"
+    )
+    assert (
+        preregistration["rolling_locked_shadow"][
+            "post_settlement_source_evidence_schema"
+        ]
+        == "btc_twap_structural_source_evidence.v1"
+    )
+    assert (
+        preregistration["rolling_locked_shadow"][
+            "replay_inputs_must_be_rederived_from_finalized_capture_manifests"
         ]
         is True
     )
@@ -77,7 +116,9 @@ def test_v08_preregistration_is_structural_only_fail_closed_and_no_go() -> None:
     assert service["pair_capture"]["persist_raw_clob_frames"] is False
     assert service["pair_capture"]["persist_reconstructed_full_depth_frames"] is False
     assert service["pair_capture"]["full_clob_snapshot_interval_seconds"] == 30
-    assert service["capacity_gate"]["maximum_capture_failure_rate"] == 0.05
+    assert (
+        service["capacity_gate"]["capture_failure_rate_upper_bound_exclusive"] == 0.05
+    )
     assert service["capacity_gate"]["minimum_free_disk_bytes"] >= 10 * 1024**3
 
     runtime = load_service_config(RESEARCH / "SERVICE_CONFIG.json")
@@ -114,8 +155,11 @@ def test_v08_deployment_installs_capture_health_but_no_probe_unit() -> None:
         encoding="utf-8"
     )
     unit_names = {path.name for path in DEPLOY.iterdir() if path.is_file()}
-    pair_capture = (
-        DEPLOY / "polymm-btc-twap-edge-readiness-v08.service"
+    pair_capture = (DEPLOY / "polymm-btc-twap-edge-readiness-v08.service").read_text(
+        encoding="utf-8"
+    )
+    pair_healthcheck = (
+        DEPLOY / "polymm-btc-twap-edge-readiness-v08-healthcheck.sh"
     ).read_text(encoding="utf-8")
 
     assert "--validate-only" in service
@@ -126,4 +170,6 @@ def test_v08_deployment_installs_capture_health_but_no_probe_unit() -> None:
     assert "--validate-only" in pair_capture
     assert "ReadWritePaths=/var/lib/poly-mm-v08" in pair_capture
     assert "IPAddressDeny=any" in health
+    assert 'exit "${status}"' in pair_healthcheck
+    assert "exit 0" not in pair_healthcheck
     assert not any("probe" in name for name in unit_names)

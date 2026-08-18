@@ -4,7 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from scripts.build_baseline_evidence_pack import build_pack, main
+from scripts.build_baseline_evidence_pack import (
+    PACK_RELATIVE_PATH,
+    REBUILT_PACK_RELATIVE_PATH,
+    build_pack,
+    main,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -167,3 +172,16 @@ def test_builder_rejects_a_repo_root_that_does_not_own_the_loaded_methods(
 ):
     with pytest.raises(ValueError, match="same checkout"):
         build_pack(tmp_path)
+
+
+def test_default_rebuild_never_overwrites_the_immutable_seed() -> None:
+    assert REBUILT_PACK_RELATIVE_PATH != PACK_RELATIVE_PATH
+    with pytest.raises(ValueError, match="immutable baseline seed"):
+        main(
+            [
+                "--repo-root",
+                str(REPO_ROOT),
+                "--output",
+                str(REPO_ROOT / PACK_RELATIVE_PATH),
+            ]
+        )

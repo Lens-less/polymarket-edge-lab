@@ -21,6 +21,10 @@ if ! grep -q '^ID="\?amzn"\?$' /etc/os-release; then
 fi
 
 dnf install -y git python3.11 python3.11-pip
+if ! getent group polybotv08 >/dev/null 2>&1; then
+  echo "Required group polybotv08 must already exist before installing the watch unit." >&2
+  exit 1
+fi
 if ! getent group "${SERVICE_GROUP}" >/dev/null 2>&1; then
   groupadd --system "${SERVICE_GROUP}"
 fi

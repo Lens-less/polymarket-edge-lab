@@ -255,6 +255,50 @@ def test_replay_uses_causal_http_full_book_anchor_without_top_five_truncation() 
     assert signal["token"].source_event_id == "http-full-book:clob_book:0"
 
 
+def test_replay_retains_a_one_sided_full_depth_anchor() -> None:
+    token = BookReplayToken(
+        token_id="extreme-token",
+        tick_size=D("0.001"),
+        minimum_order_size=D("5"),
+    )
+    replay = CausalBookReplay.from_records(
+        (
+            _record(
+                event_type="clob_snapshot",
+                received_at="1970-01-01T00:01:39.950Z",
+                record_id="one-sided-http-book",
+                payload={
+                    "snapshot_kind": "clob",
+                    "responses": [
+                        {
+                            "resource": "clob_book",
+                            "request_key": "extreme-token",
+                            "raw_json": {
+                                "asset_id": "extreme-token",
+                                "timestamp": "99900",
+                                "bids": [{"price": "0.999", "size": "10"}],
+                                "asks": [],
+                            },
+                        }
+                    ],
+                },
+            ),
+        ),
+        tokens={"extreme-token": token},
+    )
+
+    signal = replay.signal_books(
+        token_ids=("extreme-token",),
+        decision_at_ms=100_000,
+        maximum_age_ms=750,
+        require_full_depth=True,
+    )
+
+    assert signal["extreme-token"].snapshot.best_bid == D("0.999")
+    assert signal["extreme-token"].snapshot.best_ask is None
+    assert signal["extreme-token"].full_depth_available is True
+
+
 def test_replay_does_not_label_a_legacy_top_five_anchor_as_full_depth() -> None:
     token = BookReplayToken(
         token_id="token",

@@ -78,20 +78,14 @@ def test_client_factory_constructs_official_public_and_secure_clients(
     assert isinstance(secure_args["credentials"], FakeCreds)
 
 
-def test_live_order_boundary_requires_exactly_all_eight_checks() -> None:
+def test_live_order_boundary_cannot_be_released_by_a_boolean_mapping() -> None:
     complete = {label: True for label in compatibility.REQUIRED_LIVE_CHECKS}
-    compatibility.assert_new_orders_disabled(
-        {"checks": complete, "new_live_orders_ready": True}
-    )
-
-    incomplete = dict(complete)
-    incomplete["trade_terminal_status_reconciled"] = False
     with pytest.raises(
         compatibility.LiveExecutionBlocked,
-        match="trade_terminal_status_reconciled",
+        match="no verified production double-maker venue adapter",
     ):
         compatibility.assert_new_orders_disabled(
-            {"checks": incomplete, "new_live_orders_ready": False}
+            {"checks": complete, "new_live_orders_ready": True}
         )
 
 
@@ -124,10 +118,10 @@ def test_compatibility_audit_accepts_only_explicit_authenticated_evidence(
         },
     )
 
-    assert audit["new_live_orders_ready"] is True
-    assert audit["checks"] == {
-        label: True for label in compatibility.REQUIRED_LIVE_CHECKS
-    }
+    assert audit["new_live_orders_ready"] is False
+    assert audit["checks"]["current_sdk_installed"] is True
+    assert audit["checks"]["repository_v2_adapter_implemented"] is False
+    assert set(audit["blocking_reasons"]) == {"repository_v2_adapter_implemented"}
 
     with pytest.raises(ValueError, match="unsupported authenticated evidence"):
         compatibility.compatibility_audit(

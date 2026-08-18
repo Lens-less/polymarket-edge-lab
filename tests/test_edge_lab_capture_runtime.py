@@ -592,6 +592,60 @@ def test_trade_snapshot_persists_public_taker_only_trades_for_both_markets() -> 
     assert snapshot["responses"][0]["provenance"]["source"] == "data_api_trades"
 
 
+def test_trade_snapshot_paginates_until_short_final_page() -> None:
+    class PagedSources(FakePublicSources):
+        def data_trades(
+            self,
+            condition_id: str,
+            *,
+            taker_only: bool,
+            limit: int,
+            offset: int,
+        ) -> Fetched[tuple[Mapping[str, Any], ...]]:
+            self.calls.append(
+                ("data_trades", condition_id, taker_only, limit, offset)
+            )
+            page_size = 1_000 if offset == 0 else 1
+            raw_json = [
+                {
+                    "conditionId": condition_id,
+                    "asset": "yes-token",
+                    "side": "BUY",
+                    "size": "2",
+                    "price": "0.42",
+                    "timestamp": 1721808000 + index,
+                    "transactionHash": f"0x{offset + index + 1:x}",
+                    "proxyWallet": "0x2",
+                    "outcomeIndex": 0,
+                }
+                for index in range(page_size)
+            ]
+            body = json.dumps(raw_json, separators=(",", ":")).encode("utf-8")
+            return _fetched(
+                body,
+                tuple(raw_json),
+                source="data_api_trades",
+                url="https://data-api.polymarket.com/trades",
+                request_params={
+                    "market": condition_id,
+                    "takerOnly": "true",
+                    "limit": limit,
+                    "offset": offset,
+                },
+            )
+
+    snapshot = PublicSourcesSnapshotClient(
+        PagedSources(),
+        condition_ids=("condition-5m",),
+    ).fetch_snapshot("trades")
+
+    assert [item["page_number"] for item in snapshot["responses"]] == [1, 2]
+    assert [item["raw_json"][0]["conditionId"] for item in snapshot["responses"]] == [
+        "condition-5m",
+        "condition-5m",
+    ]
+
+
 def test_clob_snapshot_preserves_successes_and_sanitizes_resource_errors() -> None:
     secret = "do-not-persist"
 
