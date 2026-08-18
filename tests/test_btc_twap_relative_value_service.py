@@ -220,6 +220,11 @@ def test_capture_plan_targets_the_next_same_expiry_pair(tmp_path: Path) -> None:
         "crypto_prices_twap_sixty",
     ]
     assert plan.capture_config["checkpoint_every_records"] == 10_000
+    assert plan.capture_config["snapshot_intervals"] == {
+        "clob": 5,
+        "trades": 30,
+        "rules": 30,
+    }
     assert plan.capture_config["capture_started_at_ms"] == now_seconds * 1_000
     assert plan.capture_config["evidence_track_id"] == "paper-v05"
     assert plan.capture_config["clock_sync"] == {
@@ -669,7 +674,7 @@ async def test_compact_sink_keeps_target_top_five_book_without_duplicate_frame(
 
 
 @pytest.mark.asyncio
-async def test_compact_sink_drops_redundant_and_unrelated_records(
+async def test_compact_sink_keeps_causal_clob_snapshots_and_drops_unrelated_records(
     tmp_path: Path,
 ) -> None:
     from src.edge_lab.btc_twap_relative_value_service import CompactRecorderSink
@@ -687,11 +692,47 @@ async def test_compact_sink_drops_redundant_and_unrelated_records(
         "sequence": None,
         "session_id": "session-1",
         "connection_id": "connection-1",
+        "monotonic_ns": 123_456_789,
         "frame_hash": "a" * 64,
         "payload_hash": "b" * 64,
     }
     assert await sink.emit({**base, "source": "gamma_http"}) is None
-    assert await sink.emit({**base, "source": "clob_http"}) is None
+    assert (
+        await sink.emit(
+            {
+                **base,
+                "source": "clob_http",
+                "event_type": "snapshot",
+                "payload": {
+                    "snapshot_kind": "clob",
+                    "responses": [
+                        {
+                            "resource": "clob_server_time",
+                            "raw_json": 1_786_896_000,
+                        },
+                        {
+                            "resource": "clob_book",
+                            "request_key": "token",
+                            "raw_json": {
+                                "asset_id": "token",
+                                "timestamp": "1786896000000",
+                                "bids": [{"price": "0.49", "size": "50"}],
+                                "asks": [{"price": "0.50", "size": "50"}],
+                            },
+                        },
+                        {
+                            "resource": "clob_market",
+                            "raw_json": {
+                                "condition_id": "condition",
+                                "fd": {"r": "0.07", "e": 1, "to": True},
+                            },
+                        },
+                    ],
+                },
+            }
+        )
+        is not None
+    )
     assert (
         await sink.emit(
             {
@@ -709,7 +750,13 @@ async def test_compact_sink_drops_redundant_and_unrelated_records(
         is None
     )
     await sink.close()
-    assert not tuple((tmp_path / "capture" / "raw").rglob("*.jsonl"))
+    raw_files = tuple((tmp_path / "capture" / "raw" / "clob_http").glob("*.jsonl"))
+    assert len(raw_files) == 1
+    stored = json.loads(raw_files[0].read_text(encoding="utf-8"))
+    assert stored["payload"]["monotonic_ns"] == 123_456_789
+    assert stored["payload"]["payload"]["responses"][1]["raw_json"]["asks"] == [
+        {"price": "0.50", "size": "50"}
+    ]
 
 
 @pytest.mark.asyncio

@@ -20,7 +20,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in os.sys.path:
     os.sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts.build_btc_regime_candidate_scoreboard import build_candidate_scoreboard
+from scripts.build_btc_regime_candidate_scoreboard import (  # noqa: E402
+    build_candidate_scoreboard,
+)
 
 
 def _parse_utc(value: str | None) -> datetime | None:
@@ -171,6 +173,7 @@ class TrackConfig:
     kind: str = "paper"
     capture_summary_glob: str = ""
     expected_cycle_seconds: int = 900
+    maximum_heartbeat_age_seconds: int = 60
     expected_regime: str | None = None
     regime_state_path: Path | None = None
     lifecycle: str = "active"
@@ -180,6 +183,12 @@ class TrackConfig:
         if lifecycle not in {"active", "maintenance", "retired"}:
             raise ValueError(f"unsupported track lifecycle: {lifecycle}")
         object.__setattr__(self, "lifecycle", lifecycle)
+        if (
+            isinstance(self.maximum_heartbeat_age_seconds, bool)
+            or not isinstance(self.maximum_heartbeat_age_seconds, int)
+            or self.maximum_heartbeat_age_seconds <= 0
+        ):
+            raise ValueError("maximum_heartbeat_age_seconds must be positive")
         object.__setattr__(self, "status_path", self.status_path.expanduser().resolve())
         if self.health_path is not None:
             object.__setattr__(
@@ -448,6 +457,9 @@ def watch_once(
                 health_path=Path(str(track.get("health_path", track["status_path"]))),
                 capture_summary_glob=str(track.get("capture_summary_glob", "")),
                 expected_cycle_seconds=int(track.get("expected_cycle_seconds", 900)),
+                maximum_heartbeat_age_seconds=int(
+                    track.get("maximum_heartbeat_age_seconds", 60)
+                ),
             )
             for track in config.get("tracks", [])
             if isinstance(track, Mapping)
@@ -511,6 +523,9 @@ def _load_watch_config(path: Path) -> WatchConfig:
             kind=str(track.get("kind", "paper")),
             capture_summary_glob=str(track.get("capture_summary_glob", "")),
             expected_cycle_seconds=int(track.get("expected_cycle_seconds", 900)),
+            maximum_heartbeat_age_seconds=int(
+                track.get("maximum_heartbeat_age_seconds", 60)
+            ),
             expected_regime=(
                 str(track["expected_regime"])
                 if track.get("expected_regime")
@@ -1157,7 +1172,9 @@ def run_watch_cycle(
             )
         heartbeat_at = _parse_utc(status.get("heartbeat_at"))
         if runtime_monitored and status_document is not None and (
-            heartbeat_at is None or now - heartbeat_at > timedelta(seconds=60)
+            heartbeat_at is None
+            or now - heartbeat_at
+            > timedelta(seconds=track.maximum_heartbeat_age_seconds)
         ):
             active_alerts[f"{track.name}:heartbeat_stale"] = AlertRecord(
                 key=f"{track.name}:heartbeat_stale",

@@ -9,6 +9,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from contextlib import contextmanager
@@ -16,7 +17,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any
+from types import TracebackType
+from typing import Any, Self
 
 from scripts.build_btc_twap_relative_value_pilot_report import (
     _pair_from_capture_targets,
@@ -26,6 +28,16 @@ from scripts.build_btc_twap_relative_value_v07_counterfactual import (
     MANIFEST_SCHEMA_VERSION,
     CaseDataQualityError,
     build_counterfactual_report,
+)
+from src.edge_lab.btc_twap_execution_probe import (
+    MAX_ALL_IN_COST,
+    MAX_BUY_NOTIONAL,
+    MAX_ISOLATED_BALANCE,
+)
+from src.edge_lab.btc_twap_relative_value_readiness import (
+    StrategyLiveInputs,
+    evaluate_execution_probe_readiness,
+    evaluate_strategy_live_readiness_inputs,
 )
 from src.edge_lab.btc_twap_relative_value_v07 import canonical_event_cluster_id
 from src.edge_lab.capture_cli import (
@@ -830,14 +842,19 @@ def _validate_source_status(config: V07ShadowConfig) -> str:
 
 
 def _validate_runtime_inputs(
-    config: V07ShadowConfig, *, validate_only: bool
+    config: V07ShadowConfig,
+    *,
+    validate_only: bool,
+    check_source_status: bool = True,
 ) -> dict[str, Any]:
     _verify_live_order_guard()
     _ensure_reflink_available()
     runtime_root = _validate_path_layout(config)
     if config.source_runs_root.is_symlink() or not config.source_runs_root.is_dir():
         raise ValueError("source_runs_root must exist")
-    source_heartbeat_at = _validate_source_status(config)
+    source_heartbeat_at = (
+        _validate_source_status(config) if check_source_status else None
+    )
     if not config.preregistration_path.is_file():
         raise ValueError("preregistration_path must exist")
     if not config.deployment_spec_path.is_file():
@@ -900,7 +917,9 @@ class _SourceScanResult:
     summary_file_count: int
     post_cutoff_attempt_count: int
     finalized_clean_count: int
+    rejected_count: int
     rejected_capture_error_count: int
+    rejected_recorder_leg_failure_count: int
     latest_rejected_attempts: tuple[Mapping[str, Any], ...]
 
 
@@ -1014,6 +1033,7 @@ def _select_source_captures(
     post_cutoff_attempt_count = 0
     finalized_count = 0
     rejected_capture_error_count = 0
+    rejected_recorder_leg_failure_count = 0
     rejected_attempts: list[Mapping[str, Any]] = []
     resolved_source_root = config.source_runs_root.resolve()
     rejected_cache_entries = _load_rejected_source_cache(config)
@@ -1151,10 +1171,10 @@ def _select_source_captures(
             raise ValueError("post-cutoff source capture misses earliest decision")
         post_cutoff_attempt_count += 1
         capture_error = _validated_source_capture_error(summary.get("capture_error"))
-        if capture_error is not None:
-            recorder_leg_failures = _validated_recorder_leg_failures(
-                summary.get("recorder_leg_failures")
-            )
+        recorder_leg_failures = _validated_recorder_leg_failures(
+            summary.get("recorder_leg_failures")
+        )
+        if capture_error is not None or recorder_leg_failures:
             # A failed attempt is still untrusted source input. Reuse the prior
             # full tree identity only when the config/summary digests and a cheap
             # inventory token still prove the tree is unchanged.
@@ -1166,12 +1186,19 @@ def _select_source_captures(
                 cache_entries=rejected_cache_entries,
             )
             rejected_cache_dirty = rejected_cache_dirty or cache_updated
-            rejected_capture_error_count += 1
+            if capture_error is not None:
+                rejected_capture_error_count += 1
+            else:
+                rejected_recorder_leg_failure_count += 1
             rejected_attempts.append(
                 {
                     "capture_started_at_ms": capture_started_at_ms,
                     "expiry_ms": pair.expires_at_ms,
-                    "rejection_code": "source_capture_error",
+                    "rejection_code": (
+                        "source_capture_error"
+                        if capture_error is not None
+                        else "source_recorder_leg_failure"
+                    ),
                     "recorder_leg_failures": list(recorder_leg_failures),
                     "source_capture_root": str(resolved_root),
                     "source_capture_summary_sha256": _sha256(resolved_summary_path),
@@ -1221,7 +1248,13 @@ def _select_source_captures(
         summary_file_count=summary_file_count,
         post_cutoff_attempt_count=post_cutoff_attempt_count,
         finalized_clean_count=finalized_count,
+        rejected_count=(
+            rejected_capture_error_count + rejected_recorder_leg_failure_count
+        ),
         rejected_capture_error_count=rejected_capture_error_count,
+        rejected_recorder_leg_failure_count=(
+            rejected_recorder_leg_failure_count
+        ),
         latest_rejected_attempts=tuple(rejected_attempts[-5:]),
     )
 
@@ -1398,6 +1431,88 @@ def _report_summary(
     # No pre-label journal exists on this deployment track. Keep the user gate
     # fail-closed even if a malformed upstream report claims otherwise.
     positive_100_trade_check = False
+    shadow_net_decimal = None
+    for candidate in (structural_pnl, net_pnl, predictive_pnl):
+        if candidate is None:
+            continue
+        try:
+            shadow_net_decimal = _decimal(candidate, label="shadow_net_pnl")
+        except (TypeError, ValueError):
+            shadow_net_decimal = None
+        else:
+            break
+    builder_verified = evaluation.get("builder_verified_evidence")
+    if not isinstance(builder_verified, Mapping):
+        builder_verified = {}
+    try:
+        structural_bootstrap = _decimal(
+            basis_metric(
+                "structural",
+                "bootstrap_mean_lower_95",
+                "structural_bootstrap_cluster_mean_lower_95",
+            ),
+            label="structural bootstrap",
+        )
+    except (TypeError, ValueError):
+        structural_bootstrap = None
+    strategy_live = evaluate_strategy_live_readiness_inputs(
+        StrategyLiveInputs(
+            builder_verified_evidence_chain=(
+                builder_verified.get("verified_chain_present") is True
+            ),
+            auditable_prelabel_lock_evidence=(
+                evaluation.get("auditable_prelabel_manifest_prediction_decision_lock")
+                is True
+            ),
+            clean_prelabeled_common_terminal_cohort_count=0,
+            structural_settled_expiry_cluster_count=int(
+                basis_metric(
+                    "structural",
+                    "settled_expiry_clusters",
+                    "structural_settled_expiry_cluster_count",
+                )
+                or 0
+            ),
+            structural_explainable_economic_attempt_count=structural_attempts,
+            structural_bootstrap_cluster_mean_lower_95=structural_bootstrap,
+            structural_true_edge_gate_satisfied=(
+                basis_metric(
+                    "structural",
+                    "true_edge_gate_satisfied",
+                    "structural_true_edge_gate_satisfied",
+                )
+                is True
+            ),
+            structural_qualified_net_pnl=(
+                None
+                if basis_metric(
+                    "structural",
+                    "qualified_net_pnl",
+                    "structural_qualified_net_pnl",
+                )
+                is None
+                else _decimal(
+                    basis_metric(
+                        "structural",
+                        "qualified_net_pnl",
+                        "structural_qualified_net_pnl",
+                    ),
+                    label="structural qualified pnl",
+                )
+            ),
+            structural_gate_0_passed=False,
+            structural_max_single_expiry_pnl_concentration=None,
+            complete_real_execution_evidence=False,
+            all_locked_cohorts_in_pnl_distribution=False,
+            service_continuously_healthy=False,
+        )
+    )
+    probe_readiness = evaluate_execution_probe_readiness(
+        shadow_net_pnl=shadow_net_decimal,
+        clean_common_terminal_cohort_count=len(projected),
+        coverage_results=(),
+        structural_floor=None,
+    )
     heartbeat_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     train_count = min(len(projected), config.train_case_count)
     validation_count = min(
@@ -1424,9 +1539,12 @@ def _report_summary(
         ),
         "source_finalized_count": source_scan.finalized_clean_count,
         "source_finalized_clean_count": source_scan.finalized_clean_count,
-        "source_rejected_count": source_scan.rejected_capture_error_count,
+        "source_rejected_count": source_scan.rejected_count,
         "source_rejected_capture_error_count": (
             source_scan.rejected_capture_error_count
+        ),
+        "source_rejected_recorder_leg_failure_count": (
+            source_scan.rejected_recorder_leg_failure_count
         ),
         "latest_rejected_attempts": [
             dict(attempt) for attempt in source_scan.latest_rejected_attempts
@@ -1438,7 +1556,7 @@ def _report_summary(
         "selection_denominator_count": source_scan.finalized_clean_count,
         "cohort_admission_count": len(projected),
         "data_quality_complete": (
-            source_scan.rejected_capture_error_count == 0
+            source_scan.rejected_count == 0
             and not data_quality_rejections
         ),
         "source_eligible_count": len(selected),
@@ -1488,6 +1606,19 @@ def _report_summary(
         "true_edge_gate": False,
         "positive_100_trade_check": positive_100_trade_check,
         "positive_100_trade_pnl_check": positive_100_trade_check,
+        "execution_probe_eligible": probe_readiness.eligible,
+        "execution_probe_reason_codes": list(probe_readiness.reason_codes),
+        "strategy_live_eligible": strategy_live.eligible,
+        "strategy_live_reason_codes": list(strategy_live.reason_codes),
+        "predictive_live_fallback_allowed": False,
+        "probe_policy": {
+            "isolated_balance_max_usdc": _decimal_text(MAX_ISOLATED_BALANCE),
+            "cumulative_buy_notional_max_usdc": _decimal_text(MAX_BUY_NOTIONAL),
+            "all_in_cost_limit_per_pair": _decimal_text(MAX_ALL_IN_COST),
+            "one_maker_only": True,
+            "one_fok_hedge_only": True,
+            "at_most_one_emergency_unwind": True,
+        },
         "orders_submitted": 0,
         "orders": 0,
         "authenticated_endpoints_used": 0,
@@ -1549,12 +1680,150 @@ def _write_runtime_status(config: V07ShadowConfig, document: Mapping[str, Any]) 
     _write_history_json(config.history_dir, "performance", document)
 
 
-def run_shadow_refresh(config: V07ShadowConfig) -> dict[str, Any]:
-    _validate_runtime_inputs(config, validate_only=False)
-    config.data_root.mkdir(parents=True, exist_ok=True)
-    config.research_root.mkdir(parents=True, exist_ok=True)
+def _refresh_progress_document(
+    config: V07ShadowConfig,
+    *,
+    step: str,
+) -> dict[str, Any]:
+    previous: dict[str, Any] = {}
+    if config.status_path.is_file():
+        try:
+            candidate = _load_json(config.status_path, label="shadow runtime status")
+        except (OSError, TypeError, ValueError):
+            candidate = {}
+        if (
+            candidate.get("schema_version") == STATUS_SCHEMA_VERSION
+            and candidate.get("mode") == MODE
+            and candidate.get("paper_only") is True
+            and candidate.get("public_only") is True
+            and candidate.get("new_orders_disabled") is True
+            and candidate.get("live") is False
+            and candidate.get("orders_submitted") == 0
+            and candidate.get("authenticated_endpoints_used") == 0
+        ):
+            previous = candidate
+    heartbeat_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    defaults: dict[str, Any] = {
+        "schema_version": STATUS_SCHEMA_VERSION,
+        "mode": MODE,
+        "track_id": config.track_id,
+        "source_post_cutoff_attempt_count": 0,
+        "source_finalized_clean_count": 0,
+        "source_rejected_count": 0,
+        "source_rejected_capture_error_count": 0,
+        "source_rejected_recorder_leg_failure_count": 0,
+        "selection_denominator_count": 0,
+        "cohort_admission_count": 0,
+        "case_count": 0,
+        "data_quality_complete": True,
+        "latest_rejected_attempts": [],
+        "qualified_net_pnl": None,
+        "true_edge": False,
+        "true_edge_gate": False,
+        "positive_100_trade_check": False,
+        "positive_100_trade_pnl_check": False,
+        "prelabel_lock_journal": False,
+        "prelabel": False,
+        "orders_submitted": 0,
+        "authenticated_endpoints_used": 0,
+        "live_execution": False,
+        "live": False,
+        "paper_only": True,
+        "public_only": True,
+        "new_orders_disabled": True,
+    }
+    defaults.update(previous)
+    defaults.update(
+        {
+            "generated_at": heartbeat_at,
+            "heartbeat_at": heartbeat_at,
+            "phase": "refreshing",
+            "refresh_step": step,
+            "last_error": None,
+            "qualified_net_pnl": None,
+            "true_edge": False,
+            "true_edge_gate": False,
+            "positive_100_trade_check": False,
+            "positive_100_trade_pnl_check": False,
+            "orders_submitted": 0,
+            "authenticated_endpoints_used": 0,
+            "live_execution": False,
+            "live": False,
+            "prelabel_lock_journal": False,
+            "prelabel": False,
+            "paper_only": True,
+            "public_only": True,
+            "new_orders_disabled": True,
+        }
+    )
+    return defaults
+
+
+class _RefreshHeartbeat:
+    """Keep the status lease fresh while a synchronous refresh is running."""
+
+    def __init__(self, config: V07ShadowConfig, *, interval_seconds: float = 60.0):
+        self._config = config
+        self._interval_seconds = interval_seconds
+        self._stop = threading.Event()
+        self._lock = threading.Lock()
+        self._step = "source_scan"
+        self._error: BaseException | None = None
+        self._thread = threading.Thread(
+            target=self._run,
+            name="v07-shadow-status-heartbeat",
+            daemon=True,
+        )
+
+    def _emit(self) -> None:
+        with self._lock:
+            step = self._step
+        document = _refresh_progress_document(self._config, step=step)
+        _atomic_write_json(self._config.status_path, document)
+        _atomic_write_json(self._config.performance_path, document)
+
+    def _run(self) -> None:
+        while not self._stop.wait(self._interval_seconds):
+            try:
+                self._emit()
+            except BaseException as exc:  # noqa: BLE001 - surfaced on join
+                self._error = exc
+                self._stop.set()
+
+    def set_step(self, step: str) -> None:
+        if not isinstance(step, str) or not step:
+            raise ValueError("refresh heartbeat step must be non-empty")
+        with self._lock:
+            self._step = step
+        self._emit()
+        if self._error is not None:
+            raise RuntimeError("refresh status heartbeat failed") from self._error
+
+    def __enter__(self) -> Self:
+        self._emit()
+        self._thread.start()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self._stop.set()
+        self._thread.join(timeout=max(1.0, min(5.0, self._interval_seconds)))
+        if exc is None and self._error is not None:
+            raise RuntimeError("refresh status heartbeat failed") from self._error
+
+
+def _run_validated_shadow_refresh(
+    config: V07ShadowConfig,
+    *,
+    heartbeat: _RefreshHeartbeat,
+) -> dict[str, Any]:
     with _exclusive_lock(config.data_root):
         source_scan = _select_source_captures(config)
+        heartbeat.set_step("capture_projection")
         projected_candidates = [
             (selection, _project_capture(config, selection))
             for selection in source_scan.selected
@@ -1569,6 +1838,7 @@ def run_shadow_refresh(config: V07ShadowConfig) -> dict[str, Any]:
                 projected = projected_candidates[1 : config.maximum_cases + 1]
             else:
                 projected = projected_candidates[: config.maximum_cases]
+        heartbeat.set_step("manifest_and_report")
         manifest_root = config.research_root / "manifests"
         manifest_path = manifest_root / "manifest-latest.json"
         minimum_cases = config.train_case_count + config.validation_case_count + 1
@@ -1666,8 +1936,17 @@ def run_shadow_refresh(config: V07ShadowConfig) -> dict[str, Any]:
             manifest_path=manifest_path,
             report_path=report_path,
         )
-        _write_runtime_status(config, document)
         return document
+
+
+def run_shadow_refresh(config: V07ShadowConfig) -> dict[str, Any]:
+    _validate_runtime_inputs(config, validate_only=False)
+    config.data_root.mkdir(parents=True, exist_ok=True)
+    config.research_root.mkdir(parents=True, exist_ok=True)
+    with _RefreshHeartbeat(config) as heartbeat:
+        document = _run_validated_shadow_refresh(config, heartbeat=heartbeat)
+    _write_runtime_status(config, document)
+    return document
 
 
 def run_once(config: V07ShadowConfig) -> dict[str, Any]:
@@ -1680,16 +1959,27 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--validate-only", action="store_true")
+    parser.add_argument(
+        "--check-source",
+        action="store_true",
+        help="include the mutable source heartbeat/runtime in validation",
+    )
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     config = load_shadow_config(args.config.resolve())
+    if args.check_source and not args.validate_only:
+        raise ValueError("--check-source requires --validate-only")
     if args.validate_only:
         print(
             json.dumps(
-                _validate_runtime_inputs(config, validate_only=True),
+                _validate_runtime_inputs(
+                    config,
+                    validate_only=True,
+                    check_source_status=args.check_source,
+                ),
                 indent=2,
                 sort_keys=True,
             )
@@ -1714,12 +2004,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             "source_finalized_clean_count": 0,
             "source_rejected_count": 0,
             "source_rejected_capture_error_count": 0,
+            "source_rejected_recorder_leg_failure_count": 0,
             "latest_rejected_attempts": [],
             "source_data_quality_rejected_count": 0,
             "latest_data_quality_rejections": [],
             "selection_denominator_count": 0,
             "cohort_admission_count": 0,
-            "data_quality_complete": False,
+            "case_count": 0,
+            "data_quality_complete": True,
             "projected_count": 0,
             "train_case_count": 0,
             "validation_case_count": 0,

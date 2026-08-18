@@ -1,0 +1,42 @@
+[Unit]
+Description=Continuous public-only official BTC 60s TWAP RTDS capture
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=polybotv08
+Group=polybotv08
+WorkingDirectory=/opt/poly-mm-v08
+Environment=PYTHONUNBUFFERED=1
+Environment=AWS_EC2_METADATA_DISABLED=true
+ExecStartPre=/opt/poly-mm-v08/.venv/bin/python /opt/poly-mm-v08/scripts/run_btc_twap_continuous_rtds.py --data-root /var/lib/poly-mm-v08/data/continuous-rtds --validate-only
+ExecStart=/opt/poly-mm-v08/.venv/bin/python /opt/poly-mm-v08/scripts/run_btc_twap_continuous_rtds.py --data-root /var/lib/poly-mm-v08/data/continuous-rtds
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+Nice=10
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ReadOnlyPaths=/opt/poly-mm-v08
+ReadWritePaths=/var/lib/poly-mm-v08
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

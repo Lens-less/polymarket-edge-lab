@@ -309,6 +309,46 @@ def test_unreadable_status_reports_telemetry_gap_not_stale_heartbeat(
     assert "v05:heartbeat_stale" not in alerts
 
 
+def test_track_specific_heartbeat_lease_avoids_false_pages_for_slow_shadow(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 8, 18, 12, 0, tzinfo=UTC)
+    status_path = _write_json(
+        tmp_path / "v07" / "service" / "status.json",
+        {
+            "phase": "ok",
+            "heartbeat_at": (now - timedelta(minutes=20))
+            .isoformat()
+            .replace("+00:00", "Z"),
+        },
+    )
+    config_path = _write_json(
+        tmp_path / "watch-config.json",
+        {
+            "schema_version": "polymm-paper-track-watch-config.v1",
+            "state_path": str(tmp_path / "watch" / "state.json"),
+            "tracks": [
+                {
+                    "name": "v07",
+                    "kind": "paper",
+                    "status_path": str(status_path),
+                    "expected_cycle_seconds": 1800,
+                    "maximum_heartbeat_age_seconds": 2700,
+                }
+            ],
+        },
+    )
+    publisher = CollectingPublisher()
+
+    run_watch_cycle(
+        _load_watch_config(config_path),
+        publisher=publisher,
+        now=now,
+    )
+
+    assert "v07:heartbeat_stale" not in {alert.key for alert in publisher.alerts}
+
+
 def test_retired_track_suppresses_runtime_and_telemetry_alerts(
     tmp_path: Path,
     monkeypatch,

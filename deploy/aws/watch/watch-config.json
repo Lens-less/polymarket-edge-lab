@@ -43,6 +43,19 @@
       "capture_summary_glob": "/var/lib/poly-mm-rawcap/data/runs/*/*/capture-summary.json",
       "expected_cycle_seconds": 900,
       "regime_state_path": "/var/lib/poly-mm-rawcap/monitor/regime-latest.json"
+    },
+    {
+      "name": "v07",
+      "kind": "paper",
+      "lifecycle": "active",
+      "status_path": "/var/lib/poly-mm-v07/data/btc_5m_15m_relative_value_paper_v07_shadow_2026-08-16/service/status.json",
+      "health_path": "/var/lib/poly-mm-v07/monitor/health-latest.json",
+      "data_root": "/var/lib/poly-mm-v07/data/btc_5m_15m_relative_value_paper_v07_shadow_2026-08-16",
+      "capture_summary_glob": "/var/lib/poly-mm-v07/monitor/history/status-*.json",
+      "expected_cycle_seconds": 1800,
+      "maximum_heartbeat_age_seconds": 2700,
+      "expected_regime": "chainlink_twap_60s_5m_and_60s_15m.v1",
+      "regime_state_path": "/var/lib/poly-mm-rawcap/monitor/regime-latest.json"
     }
   ],
   "host": {
@@ -59,6 +72,7 @@
     "process_rss_budgets_bytes": {
       "v05": 367001600,
       "v06": 367001600,
+      "v07": 524288000,
       "rawcap": 262144000
     }
   }

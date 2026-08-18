@@ -669,7 +669,10 @@ class CompactRecorderSink:
 
     async def emit(self, record: Mapping[str, Any]) -> Any:
         async with self._operation_lock:
-            if record.get("source") in {"gamma_http", "clob_http"}:
+            # Gamma universe snapshots are unrelated high-volume discovery data.
+            # CLOB snapshots are causal execution evidence: they retain the
+            # server clock, full four-token L2 anchors, and raw fee/market rules.
+            if record.get("source") == "gamma_http":
                 return None
             compact = {
                 key: record[key]
@@ -680,6 +683,7 @@ class CompactRecorderSink:
                     "event_at",
                     "event_type",
                     "kind",
+                    "monotonic_ns",
                     "sequence",
                     "session_id",
                     "connection_id",
@@ -1412,7 +1416,10 @@ def build_capture_plan(
                 "filters": '{"symbol":"btc/usd"}',
             },
         ],
-        "snapshot_intervals": {"gamma": 30, "clob": 5, "rules": 30},
+        # Pair discovery has already frozen the two targets.  Avoid repeatedly
+        # fetching unrelated Gamma pages; spend that budget on causal full-book,
+        # trade, fee, rule, and clock evidence instead.
+        "snapshot_intervals": {"clob": 5, "trades": 30, "rules": 30},
         # The upstream CLOB stream can exceed 300 events/second even though
         # only the frozen 100-500ms replay surface is retained.  Checkpoint on
         # upstream count infrequently to avoid thousands of tiny manifests;

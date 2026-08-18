@@ -49,9 +49,10 @@ def test_watch_service_is_read_only_to_strategy_roots() -> None:
     assert "ReadOnlyPaths=/var/lib/poly-mm" in text
     assert "ReadOnlyPaths=/var/lib/poly-mm-v05" in text
     assert "ReadOnlyPaths=/var/lib/poly-mm-v06" in text
+    assert "ReadOnlyPaths=/var/lib/poly-mm-v07" in text
     assert "ReadOnlyPaths=/var/lib/poly-mm-rawcap" in text
     assert "ReadWritePaths=/var/lib/poly-mm-watch" in text
-    assert "SupplementaryGroups=polybotv06 polybotraw" in text
+    assert "SupplementaryGroups=polybotv06 polybotv07 polybotraw" in text
     assert "polybotv05" not in text
     assert (
         "ExecStart=/opt/poly-mm-watch/.venv/bin/python "
@@ -88,13 +89,18 @@ def test_watch_timer_and_bootstrap_match_staged_manual_start() -> None:
     assert "polymm-btc-twap-paper-v04.service" not in bootstrap_text
 
 
-def test_watch_config_tracks_v05_v06_and_rawcap() -> None:
+def test_watch_config_tracks_v05_v06_v07_and_rawcap() -> None:
     document = json.loads((DEPLOY_ROOT / "watch-config.json").read_text(encoding="utf-8"))
 
     assert document["schema_version"] == "polymm-paper-track-watch-config.v1"
     assert document["state_path"] == "/var/lib/poly-mm-watch/state/watch-state.json"
     assert document["digest_interval_seconds"] == 3600
-    assert {track["name"] for track in document["tracks"]} == {"v05", "v06", "rawcap"}
+    assert {track["name"] for track in document["tracks"]} == {
+        "v05",
+        "v06",
+        "v07",
+        "rawcap",
+    }
     lifecycle_by_track = {
         track["name"]: track.get("lifecycle")
         for track in document["tracks"]
@@ -102,8 +108,11 @@ def test_watch_config_tracks_v05_v06_and_rawcap() -> None:
     assert lifecycle_by_track == {
         "v05": "retired",
         "v06": "active",
+        "v07": "active",
         "rawcap": "maintenance",
     }
+    v07 = next(track for track in document["tracks"] if track["name"] == "v07")
+    assert v07["maximum_heartbeat_age_seconds"] == 2700
     paper_tracks = {
         track["name"]: track
         for track in document["tracks"]

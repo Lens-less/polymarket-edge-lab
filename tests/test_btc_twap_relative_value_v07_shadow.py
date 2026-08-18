@@ -392,6 +392,65 @@ def test_source_status_staleness_fails_closed(
         shadow_module._validate_runtime_inputs(config, validate_only=True)
 
 
+def test_static_validate_only_does_not_deadlock_on_stale_source_status(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = _service_config_path(tmp_path)
+    config = shadow_module.load_shadow_config(config_path)
+    status = _load_json(config.source_status_path)
+    status["heartbeat_at"] = "2026-08-01T00:00:00Z"
+    status.pop("status_sha256")
+    status["status_sha256"] = hashlib.sha256(
+        canonical_json_bytes(status)
+    ).hexdigest()
+    _write_json(config.source_status_path, status)
+    monkeypatch.setattr(shadow_module, "_ensure_reflink_available", lambda: None)
+
+    exit_code = shadow_module.main(["--config", str(config_path), "--validate-only"])
+
+    assert exit_code == 0
+    assert json.loads(capsys.readouterr().out)["valid"] is True
+    with pytest.raises(ValueError, match="heartbeat is stale"):
+        shadow_module.main(
+            [
+                "--config",
+                str(config_path),
+                "--validate-only",
+                "--check-source",
+            ]
+        )
+
+
+def test_refresh_writes_in_progress_heartbeat_before_scanning(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = shadow_module.load_shadow_config(_service_config_path(tmp_path))
+    observed: dict[str, Any] = {}
+
+    monkeypatch.setattr(
+        shadow_module,
+        "_validate_runtime_inputs",
+        lambda *_args, **_kwargs: {"valid": True},
+    )
+
+    def fail_after_observing_progress(_config: shadow_module.V07ShadowConfig) -> Any:
+        observed.update(_load_json(config.status_path))
+        raise RuntimeError("scan stopped for test")
+
+    monkeypatch.setattr(shadow_module, "_select_source_captures", fail_after_observing_progress)
+
+    with pytest.raises(RuntimeError, match="scan stopped for test"):
+        shadow_module.run_shadow_refresh(config)
+
+    assert observed["phase"] == "refreshing"
+    assert observed["refresh_step"] == "source_scan"
+    assert observed["orders_submitted"] == 0
+    assert observed["authenticated_endpoints_used"] == 0
+
+
 def test_cutoff_and_latest_success_per_expiry_are_selected(
     tmp_path: Path,
     fake_copy: list[tuple[Path, Path]],
@@ -551,6 +610,7 @@ def test_post_cutoff_capture_error_is_visibly_rejected_without_blocking_clean_da
     assert result["source_finalized_clean_count"] == 1
     assert result["source_rejected_count"] == 1
     assert result["source_rejected_capture_error_count"] == 1
+    assert result["source_rejected_recorder_leg_failure_count"] == 0
     assert result["selection_denominator_count"] == 1
     assert result["cohort_admission_count"] == 1
     assert result["data_quality_complete"] is False
@@ -579,6 +639,40 @@ def test_post_cutoff_capture_error_is_visibly_rejected_without_blocking_clean_da
     assert (
         config.data_root / "captures" / "1786896900000" / clean_root.name
     ).is_dir()
+
+
+def test_single_recorder_leg_failure_cannot_be_counted_as_clean(
+    tmp_path: Path,
+) -> None:
+    config = shadow_module.load_shadow_config(_service_config_path(tmp_path))
+    expiry_ms = 1_786_896_000_000
+    root = _make_source_attempt(
+        config.source_runs_root,
+        expiry_ms=expiry_ms,
+        attempt_name="degraded-one-leg",
+        capture_started_at_ms=expiry_ms - 960_000,
+    )
+    summary_path = root / "capture-summary.json"
+    summary = _load_json(summary_path)
+    assert summary["capture_error"] is None
+    summary["recorder_leg_failures"] = [
+        {
+            "error_type": "TimeoutError",
+            "error_code": "persistence_sink_timeout",
+        }
+    ]
+    _write_json(summary_path, summary)
+
+    result = shadow_module._select_source_captures(config)
+
+    assert result.finalized_clean_count == 0
+    assert result.rejected_count == 1
+    assert result.rejected_capture_error_count == 0
+    assert result.rejected_recorder_leg_failure_count == 1
+    assert result.selected == ()
+    assert result.latest_rejected_attempts[0]["rejection_code"] == (
+        "source_recorder_leg_failure"
+    )
 
 
 def test_rejected_capture_error_reuses_cached_tree_identity_when_unchanged(

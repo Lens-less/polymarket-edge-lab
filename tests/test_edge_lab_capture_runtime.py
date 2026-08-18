@@ -181,6 +181,36 @@ class FakePublicSources:
             request_params={"token_id": token_id},
         )
 
+    def data_trades(
+        self,
+        condition_id: str,
+        *,
+        taker_only: bool,
+        limit: int,
+        offset: int,
+    ) -> Fetched[tuple[Mapping[str, Any], ...]]:
+        self.calls.append(
+            ("data_trades", condition_id, taker_only, limit, offset)
+        )
+        body = (
+            '[{"conditionId":"' + condition_id + '","asset":"yes-token",'
+            '"side":"BUY","size":"2","price":"0.42",'
+            '"timestamp":1721808000,"transactionHash":"0x1",'
+            '"proxyWallet":"0x2","outcomeIndex":0}]'
+        ).encode()
+        return _fetched(
+            body,
+            (),
+            source="data_api_trades",
+            url="https://data-api.polymarket.com/trades",
+            request_params={
+                "market": condition_id,
+                "takerOnly": "true",
+                "limit": limit,
+                "offset": offset,
+            },
+        )
+
     def current_reward_pages(
         self,
         *,
@@ -537,6 +567,29 @@ def test_clob_snapshot_captures_public_server_clock_probe() -> None:
         "ordering_role": "coarse_drift_diagnostic_only",
         "cross_source_reordering_allowed": False,
     }
+
+
+def test_trade_snapshot_persists_public_taker_only_trades_for_both_markets() -> None:
+    sources = FakePublicSources()
+    snapshot = PublicSourcesSnapshotClient(
+        sources,
+        condition_ids=("condition-5m", "condition-15m"),
+    ).fetch_snapshot("trades")
+
+    assert sources.calls == [
+        ("data_trades", "condition-5m", True, 1_000, 0),
+        ("data_trades", "condition-15m", True, 1_000, 0),
+    ]
+    assert [item["resource"] for item in snapshot["responses"]] == [
+        "data_api_trades",
+        "data_api_trades",
+    ]
+    assert [item["request_key"] for item in snapshot["responses"]] == [
+        "condition-5m",
+        "condition-15m",
+    ]
+    assert snapshot["responses"][0]["raw_json"][0]["price"] == "0.42"
+    assert snapshot["responses"][0]["provenance"]["source"] == "data_api_trades"
 
 
 def test_clob_snapshot_preserves_successes_and_sanitizes_resource_errors() -> None:

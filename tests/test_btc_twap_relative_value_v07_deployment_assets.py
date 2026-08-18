@@ -135,6 +135,7 @@ def test_v07_performance_service_and_timer_are_hardened() -> None:
     assert "TimeoutStartSec=25min" in service_text
     assert "EnvironmentFile=" not in service_text
     assert "--validate-only" in service_text
+    assert "--check-source" not in service_text
     assert (
         "/opt/poly-mm-v07/research/"
         "btc_5m_15m_relative_value_paper_v07_shadow_2026-08-16/"
@@ -313,25 +314,16 @@ def test_v07_health_service_timer_and_script_are_read_only() -> None:
     assert '"systemctl",' in script_text
     assert '"show",' in script_text
     assert "unit," in script_text
-    assert "source_v06_active" in script_text
-    assert "disk_below_minimum" in script_text
-    assert "mode_mismatch" in script_text
-    assert "orders_submitted_nonzero" in script_text
-    assert "authenticated_endpoints_used_nonzero" in script_text
-    assert "shadow_validate_failed" in script_text
-    assert "status_phase_unhealthy" in script_text
-    assert "source_accounting_invalid" in script_text
-    assert "source_accounting_inconsistent" in script_text
-    assert "source_attempt_capture_error_present" in script_text
-    assert "source_acl_service_failed" in script_text
-    assert "no_clean_post_cutoff_source_attempts_yet" in script_text
-    assert '"warnings": warnings' in script_text
-    assert "qualified_pnl_must_be_null" in script_text
-    assert "true_edge_guard_invalid" in script_text
-    assert "positive_100_trade_guard_invalid" in script_text
-    assert "prelabel_guard_invalid" in script_text
-    assert "heartbeat_age_seconds < -60" in script_text
-    assert "status_stale" in script_text
+    assert "source_active=source_active" in script_text
+    assert (
+        "from src.edge_lab.btc_twap_relative_value_v07_health "
+        "import evaluate_shadow_health"
+    ) in script_text
+    assert "payload = evaluate_shadow_health(" in script_text
+    assert "shadow_config_returncode=shadow_config_validation.returncode" in script_text
+    assert "source_runtime_returncode=source_runtime_validation.returncode" in script_text
+    assert '"--check-source",' in script_text
+    assert "shadow_validate_failed" not in script_text
     assert "mv -f \"${TMP_PATH}\" \"${OUTPUT_PATH}\"" in script_text
     assert "cp \"${OUTPUT_PATH}\" \"${HISTORY_TMP}\"" in script_text
 

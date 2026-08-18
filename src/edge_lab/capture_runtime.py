@@ -544,13 +544,13 @@ class PublicSourcesSnapshotClient:
     def _fetch_snapshot_locked(
         self, kind: str, *, asset_ids: Sequence[str]
     ) -> dict[str, Any] | SnapshotEnvelope:
-        supported = {"gamma", "clob", "full_book", "rewards", "rules"}
+        supported = {"gamma", "clob", "full_book", "rewards", "rules", "trades"}
         if kind not in supported:
             raise ValueError(f"unsupported public snapshot kind: {kind}")
         requested_asset_ids = _normalize_identifiers(
             asset_ids, label="asset_ids"
         )
-        if kind in {"gamma", "rewards", "rules"} and requested_asset_ids:
+        if kind in {"gamma", "rewards", "rules", "trades"} and requested_asset_ids:
             raise ValueError(f"{kind} snapshot does not accept asset_ids")
         if kind == "full_book" and not requested_asset_ids:
             raise ValueError("full_book snapshot requires asset_ids")
@@ -564,6 +564,8 @@ class PublicSourcesSnapshotClient:
             )
         if kind == "rules" and not self.rule_market_ids:
             raise ValueError("rules snapshot requires rule_market_ids")
+        if kind == "trades" and not self.condition_ids:
+            raise ValueError("trades snapshot requires condition_ids")
         responses: list[dict[str, Any]] = []
         truncated_resources: set[str] = set()
 
@@ -721,6 +723,18 @@ class PublicSourcesSnapshotClient:
                         self.source_client.resolution_rules(market_id)
                     ),
                     request_key=market_id,
+                )
+        elif kind == "trades":
+            for condition_id in self.condition_ids:
+                capture_resource(
+                    "data_api_trades",
+                    lambda condition_id=condition_id: self.source_client.data_trades(
+                        condition_id,
+                        taker_only=True,
+                        limit=1_000,
+                        offset=0,
+                    ),
+                    request_key=condition_id,
                 )
         snapshot = {
             "schema_version": "edge-lab-public-snapshot.v1",
@@ -944,6 +958,12 @@ def _assert_public_raw_response(
             "clob_rewards",
             lambda path: path == "/rewards/markets/current",
             frozenset({"limit", "next_cursor"}),
+        ),
+        "data_api_trades": (
+            "data-api.polymarket.com",
+            "data_api_trades",
+            lambda path: path == "/trades",
+            frozenset({"market", "takeronly", "limit", "offset"}),
         ),
     }.get(resource)
     if (

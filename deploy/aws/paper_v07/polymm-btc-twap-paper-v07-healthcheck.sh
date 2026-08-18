@@ -22,6 +22,8 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
+from src.edge_lab.btc_twap_relative_value_v07_health import evaluate_shadow_health
+
 config = json.loads(Path("/opt/poly-mm-v07/research/btc_5m_15m_relative_value_paper_v07_shadow_2026-08-16/SERVICE_CONFIG.json").read_text(encoding="utf-8"))
 status_path = Path("/var/lib/poly-mm-v07/data/btc_5m_15m_relative_value_paper_v07_shadow_2026-08-16/service/status.json")
 now = datetime.now(timezone.utc)
@@ -73,7 +75,7 @@ performance_timer = systemctl_show("polymm-btc-twap-paper-v07-performance.timer"
 health_timer = systemctl_show("polymm-btc-twap-paper-v07-health.timer")
 source_acl_service = systemctl_show("polymm-btc-twap-paper-v07-source-acl.service")
 free_bytes = shutil.disk_usage(Path(config["data_root"])).free
-shadow_validation = subprocess.run(
+shadow_config_validation = subprocess.run(
     [
         "/opt/poly-mm-v07/.venv/bin/python",
         "/opt/poly-mm-v07/scripts/run_btc_twap_relative_value_v07_shadow.py",
@@ -85,127 +87,37 @@ shadow_validation = subprocess.run(
     capture_output=True,
     text=True,
 )
-failures: list[str] = []
-warnings: list[str] = []
+source_runtime_validation = subprocess.run(
+    [
+        "/opt/poly-mm-v07/.venv/bin/python",
+        "/opt/poly-mm-v07/scripts/run_btc_twap_relative_value_v07_shadow.py",
+        "--config",
+        "/opt/poly-mm-v07/research/btc_5m_15m_relative_value_paper_v07_shadow_2026-08-16/SERVICE_CONFIG.json",
+        "--validate-only",
+        "--check-source",
+    ],
+    check=False,
+    capture_output=True,
+    text=True,
+)
 
-if shadow_validation.returncode != 0:
-    failures.append("shadow_validate_failed")
-if performance_timer.get("ActiveState") != "active":
-    failures.append("performance_timer_inactive")
-if health_timer.get("ActiveState") != "active":
-    failures.append("health_timer_inactive")
-if (
-    source_acl_service.get("Result") != "success"
-    or source_acl_service.get("ExecMainStatus") != "0"
-):
-    failures.append("source_acl_service_failed")
-if status is None:
-    failures.append("status_missing_or_invalid")
-else:
-    if status.get("mode") != config["mode"]:
-        failures.append("mode_mismatch")
-    if status.get("paper_only") is not True:
-        failures.append("paper_only_guard_invalid")
-    if status.get("public_only") is not True:
-        failures.append("public_only_guard_invalid")
-    if status.get("new_orders_disabled") is not True:
-        failures.append("new_orders_disabled_guard_invalid")
-    if status.get("live") is not False:
-        failures.append("live_flag_invalid")
-    if status.get("orders_submitted") != 0:
-        failures.append("orders_submitted_nonzero")
-    if status.get("authenticated_endpoints_used") != 0:
-        failures.append("authenticated_endpoints_used_nonzero")
-    if status.get("phase") not in {"warming_up", "ok"}:
-        failures.append("status_phase_unhealthy")
-    source_accounting = {
-        key: status.get(key)
-        for key in (
-            "source_post_cutoff_attempt_count",
-            "source_finalized_clean_count",
-            "source_rejected_count",
-            "source_rejected_capture_error_count",
-            "selection_denominator_count",
-            "cohort_admission_count",
-            "case_count",
-        )
-    }
-    if any(
-        isinstance(value, bool)
-        or not isinstance(value, int)
-        or value < 0
-        for value in source_accounting.values()
-    ):
-        failures.append("source_accounting_invalid")
-    elif (
-        source_accounting["source_post_cutoff_attempt_count"]
-        != source_accounting["source_finalized_clean_count"]
-        + source_accounting["source_rejected_count"]
-        or source_accounting["source_rejected_count"]
-        != source_accounting["source_rejected_capture_error_count"]
-        or source_accounting["selection_denominator_count"]
-        != source_accounting["source_finalized_clean_count"]
-        or source_accounting["cohort_admission_count"]
-        != source_accounting["case_count"]
-        or status.get("data_quality_complete")
-        is not (source_accounting["source_rejected_count"] == 0)
-        or not isinstance(status.get("latest_rejected_attempts"), list)
-    ):
-        failures.append("source_accounting_inconsistent")
-    else:
-        if source_accounting["source_rejected_capture_error_count"] > 0:
-            warnings.append("source_attempt_capture_error_present")
-        if (
-            source_accounting["source_post_cutoff_attempt_count"] > 0
-            and source_accounting["source_finalized_clean_count"] == 0
-        ):
-            warnings.append("no_clean_post_cutoff_source_attempts_yet")
-    if status.get("qualified_net_pnl") is not None:
-        failures.append("qualified_pnl_must_be_null")
-    if (
-        status.get("true_edge") is not False
-        or status.get("true_edge_gate") is not False
-    ):
-        failures.append("true_edge_guard_invalid")
-    if (
-        status.get("positive_100_trade_check") is not False
-        or status.get("positive_100_trade_pnl_check") is not False
-    ):
-        failures.append("positive_100_trade_guard_invalid")
-    if (
-        status.get("prelabel_lock_journal") is not False
-        or status.get("prelabel") is not False
-    ):
-        failures.append("prelabel_guard_invalid")
-    if (
-        heartbeat_age_seconds is None
-        or heartbeat_age_seconds < -60
-        or heartbeat_age_seconds > int(config["maximum_status_age_seconds"])
-    ):
-        failures.append("status_stale")
-if not source_active:
-    failures.append("source_v06_inactive")
-if free_bytes < int(config["minimum_free_bytes"]):
-    failures.append("disk_below_minimum")
-
-payload = {
-    "schema_version": "btc-twap-relative-value-v07-shadow-health.v1",
-    "checked_at": now.isoformat().replace("+00:00", "Z"),
-    "healthy": not failures,
-    "failures": failures,
-    "warnings": warnings,
+payload = evaluate_shadow_health(
+    config=config,
+    status=status,
+    now=now,
+    shadow_config_returncode=shadow_config_validation.returncode,
+    source_runtime_returncode=source_runtime_validation.returncode,
+    performance_timer=performance_timer,
+    health_timer=health_timer,
+    source_acl_service=source_acl_service,
+    source_active=source_active,
+    free_bytes=free_bytes,
+)
+payload.update({
     "config_path": str(Path("/opt/poly-mm-v07/research/btc_5m_15m_relative_value_paper_v07_shadow_2026-08-16/SERVICE_CONFIG.json")),
     "status_path": str(status_path),
-    "mode": config["mode"],
-    "status": status,
-    "status_freshness_seconds": heartbeat_age_seconds,
-    "performance_timer": performance_timer,
-    "health_timer": health_timer,
-    "source_acl_service": source_acl_service,
-    "source_v06_active": source_active,
-    "free_bytes": free_bytes,
-    "minimum_free_bytes": config["minimum_free_bytes"],
-    "shadow_validation_returncode": shadow_validation.returncode,
+    "shadow_config_stderr": shadow_config_validation.stderr[-1000:],
+    "source_runtime_stderr": source_runtime_validation.stderr[-1000:],
     "source_post_cutoff_attempt_count": (
         None if status is None else status.get("source_post_cutoff_attempt_count")
     ),
@@ -217,13 +129,18 @@ payload = {
         if status is None
         else status.get("source_rejected_capture_error_count")
     ),
+    "source_rejected_recorder_leg_failure_count": (
+        None
+        if status is None
+        else status.get("source_rejected_recorder_leg_failure_count")
+    ),
     "selection_denominator_count": (
         None if status is None else status.get("selection_denominator_count")
     ),
     "cohort_admission_count": (
         None if status is None else status.get("cohort_admission_count")
     ),
-}
+})
 print(json.dumps(payload, indent=2, sort_keys=True))
 PY
 
