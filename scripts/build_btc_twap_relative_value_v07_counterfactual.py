@@ -1479,7 +1479,10 @@ def _load_case_contexts(
         contract.down_token_id: contract for contract in (pair.market_5, pair.market_15)
     }
     replay = CausalBookReplay.from_records(
-        _records(capture_root, "clob_market_ws"),
+        (
+            *_records(capture_root, "clob_market_ws"),
+            *_records(capture_root, "clob_http"),
+        ),
         receipt_clock_offset_ms=receipt_offset,
         tokens={
             token_id: BookReplayToken(

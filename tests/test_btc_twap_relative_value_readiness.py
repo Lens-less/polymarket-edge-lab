@@ -12,6 +12,7 @@ from src.edge_lab.btc_twap_relative_value import (
 from src.edge_lab.btc_twap_relative_value_readiness import (
     CohortCoverageInput,
     ExecutionProbePrerequisites,
+    NeutralShadowEvidence,
     PerfectInformationAttempt,
     StrategyLiveInputs,
     evaluate_execution_probe_readiness,
@@ -29,12 +30,18 @@ from tests.test_btc_twap_relative_value_v07_replay import (
 D = Decimal
 
 
-def _book(token_id: str, *, ask: str, bid: str | None = None) -> OrderBookSnapshot:
+def _book(
+    token_id: str,
+    *,
+    ask: str,
+    bid: str | None = None,
+    size: str = "10",
+) -> OrderBookSnapshot:
     best_bid = D(ask) - D("0.01") if bid is None else D(bid)
     return OrderBookSnapshot.from_tuples(
         token_id,
-        bids=((best_bid, D("10")),),
-        asks=((D(ask), D("10")),),
+        bids=((best_bid, D(size)),),
+        asks=((D(ask), D(size)),),
         timestamp_ms=1_000,
         tick_size=D("0.01"),
         minimum_order_size=D("1"),
@@ -248,8 +255,54 @@ def test_gate_zero_enumerates_non_floor_direction_as_a_true_hindsight_bound() ->
 
     report = evaluate_perfect_information_upper_bound((attempt,))
 
-    assert report.attempts[0].best_action is PairAction.LONG_15_UP_LONG_5_DOWN
-    assert report.attempts[0].best_total_pnl > D("0")
+    assert (
+        report.attempts[0].unrestricted_best_action
+        is PairAction.LONG_15_UP_LONG_5_DOWN
+    )
+    assert report.attempts[0].unrestricted_best_total_pnl > D("0")
+    assert report.attempts[0].best_action is None
+    assert report.attempts[0].best_total_pnl == D("0")
+    assert report.gate_0_passed is False
+    assert report.unrestricted_hindsight_aggregate_best_total_pnl > D("0")
+
+
+def test_gate_zero_upper_bound_is_not_truncated_by_v07_pair_risk_budget() -> None:
+    pair = _v07_pair()
+    books = {
+        pair.market_5.up_token_id: _book(
+            pair.market_5.up_token_id, ask="0.40", size="100"
+        ),
+        pair.market_5.down_token_id: _book(
+            pair.market_5.down_token_id, ask="0.20", size="100"
+        ),
+        pair.market_15.up_token_id: _book(
+            pair.market_15.up_token_id, ask="0.30", size="100"
+        ),
+        pair.market_15.down_token_id: _book(
+            pair.market_15.down_token_id, ask="0.25", size="100"
+        ),
+    }
+    attempt = PerfectInformationAttempt(
+        attempt_id="full-depth-upper-bound",
+        pair=pair,
+        settlement_state=replace(
+            _settlement_state(pair),
+            strike_5=D("100"),
+            strike_15=D("101"),
+        ),
+        books=books,
+        actual_5_up=True,
+        actual_15_up=False,
+    )
+
+    report = evaluate_perfect_information_upper_bound((attempt,))
+
+    structural_breakpoints = [
+        item
+        for item in report.attempts[0].breakpoints
+        if item.action is PairAction.LONG_5_UP_LONG_15_DOWN
+    ]
+    assert max(item.quantity for item in structural_breakpoints) == D("100")
 
 
 def test_coverage_validator_requires_continuous_official_rtds_and_complete_inputs() -> (
@@ -341,7 +394,11 @@ def test_probe_and_strategy_live_readiness_are_separated_and_fail_closed() -> No
         for index in range(4)
     )
     probe = evaluate_execution_probe_readiness(
-        shadow_net_pnl=D("1"),
+        neutral_shadow_evidence=NeutralShadowEvidence(
+            realized_net_pnl=D("1"),
+            receipt_chain_verified=True,
+            all_admitted_cohorts_included=True,
+        ),
         clean_common_terminal_cohort_count=4,
         coverage_results=coverage,
         structural_floor=floor,
@@ -356,7 +413,11 @@ def test_probe_and_strategy_live_readiness_are_separated_and_fail_closed() -> No
         ),
     )
     insufficient_unique_probe = evaluate_execution_probe_readiness(
-        shadow_net_pnl=D("1"),
+        neutral_shadow_evidence=NeutralShadowEvidence(
+            realized_net_pnl=D("1"),
+            receipt_chain_verified=True,
+            all_admitted_cohorts_included=True,
+        ),
         clean_common_terminal_cohort_count=4,
         coverage_results=(coverage[0], coverage[0], coverage[0], coverage[0]),
         structural_floor=floor,

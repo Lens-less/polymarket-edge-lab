@@ -39,6 +39,7 @@ MINIMUM_SETTLED_CLUSTERS = 100
 MINIMUM_EXPLAINABLE_ECONOMIC_ATTEMPTS = 100
 MAXIMUM_SINGLE_EXPIRY_PNL_CONCENTRATION = Decimal("0.20")
 DEFAULT_PAIR_PRICING_POLICY = PairPricingPolicy()
+GATE_0_PAIR_PRICING_POLICY = PairPricingPolicy(pair_risk_usdc=None)
 
 
 def _outcome_key(*, actual_5_up: bool, actual_15_up: bool) -> str:
@@ -65,6 +66,19 @@ def _pair_action_specs(
                 pair.market_15.down_token_id,
             ),
         }
+    )
+
+
+def _structural_floor_actions(
+    strike_ordering: StrikeOrdering,
+) -> tuple[PairAction, ...]:
+    if strike_ordering is StrikeOrdering.FIVE_BELOW_FIFTEEN:
+        return (PairAction.LONG_5_UP_LONG_15_DOWN,)
+    if strike_ordering is StrikeOrdering.FIVE_ABOVE_FIFTEEN:
+        return (PairAction.LONG_15_UP_LONG_5_DOWN,)
+    return (
+        PairAction.LONG_15_UP_LONG_5_DOWN,
+        PairAction.LONG_5_UP_LONG_15_DOWN,
     )
 
 
@@ -197,16 +211,7 @@ def validate_structural_floor(
         strike_15=settlement_state.strike_15,
     )
     all_specs = _pair_action_specs(pair)
-    allowed_actions: tuple[PairAction, ...]
-    if structure.strike_ordering is StrikeOrdering.FIVE_BELOW_FIFTEEN:
-        allowed_actions = (PairAction.LONG_5_UP_LONG_15_DOWN,)
-    elif structure.strike_ordering is StrikeOrdering.FIVE_ABOVE_FIFTEEN:
-        allowed_actions = (PairAction.LONG_15_UP_LONG_5_DOWN,)
-    else:
-        allowed_actions = (
-            PairAction.LONG_15_UP_LONG_5_DOWN,
-            PairAction.LONG_5_UP_LONG_15_DOWN,
-        )
+    allowed_actions = _structural_floor_actions(structure.strike_ordering)
 
     ladder: list[StructuralFloorLevel] = []
     for action in allowed_actions:
@@ -310,7 +315,7 @@ class PerfectInformationAttempt:
     books: Mapping[str, OrderBookSnapshot]
     actual_5_up: bool
     actual_15_up: bool
-    pricing_policy: PairPricingPolicy = DEFAULT_PAIR_PRICING_POLICY
+    pricing_policy: PairPricingPolicy = GATE_0_PAIR_PRICING_POLICY
 
 
 @dataclass(frozen=True)
@@ -342,6 +347,9 @@ class PerfectInformationAttemptUpperBound:
     best_action: PairAction | None
     best_quantity: Decimal | None
     best_total_pnl: Decimal
+    unrestricted_best_action: PairAction | None
+    unrestricted_best_quantity: Decimal | None
+    unrestricted_best_total_pnl: Decimal
     gate_0_passed: bool
 
     def to_document(self) -> dict[str, object]:
@@ -357,6 +365,19 @@ class PerfectInformationAttemptUpperBound:
                 None if self.best_quantity is None else str(self.best_quantity)
             ),
             "best_total_pnl": str(self.best_total_pnl),
+            "unrestricted_best_action": (
+                None
+                if self.unrestricted_best_action is None
+                else self.unrestricted_best_action.value
+            ),
+            "unrestricted_best_quantity": (
+                None
+                if self.unrestricted_best_quantity is None
+                else str(self.unrestricted_best_quantity)
+            ),
+            "unrestricted_best_total_pnl": str(
+                self.unrestricted_best_total_pnl
+            ),
             "gate_0_passed": self.gate_0_passed,
             "no_trade_available": True,
         }
@@ -366,6 +387,7 @@ class PerfectInformationAttemptUpperBound:
 class PerfectInformationUpperBoundReport:
     attempts: tuple[PerfectInformationAttemptUpperBound, ...]
     aggregate_best_total_pnl: Decimal
+    unrestricted_hindsight_aggregate_best_total_pnl: Decimal
     per_action_total_pnl: Mapping[str, Decimal]
     gate_0_passed: bool
     stop_recommended: bool
@@ -378,6 +400,9 @@ class PerfectInformationUpperBoundReport:
             "attempt_count": len(self.attempts),
             "attempts": [attempt.to_document() for attempt in self.attempts],
             "aggregate_best_total_pnl": str(self.aggregate_best_total_pnl),
+            "unrestricted_hindsight_aggregate_best_total_pnl": str(
+                self.unrestricted_hindsight_aggregate_best_total_pnl
+            ),
             "per_action_total_pnl": {
                 key: str(value) for key, value in self.per_action_total_pnl.items()
             },
@@ -389,6 +414,7 @@ class PerfectInformationUpperBoundReport:
             },
             "gate_0_passed": self.gate_0_passed,
             "stop_recommended": self.stop_recommended,
+            "gate_0_route": "structural_floor_only",
         }
 
 
@@ -406,7 +432,8 @@ def evaluate_perfect_information_upper_bound(
         )
     per_attempt: list[PerfectInformationAttemptUpperBound] = []
     per_action: defaultdict[str, Decimal] = defaultdict(lambda: ZERO)
-    aggregate = ZERO
+    structural_aggregate = ZERO
+    unrestricted_aggregate = ZERO
     for attempt in attempts:
         structure = SharedTerminalPayoffStructure.from_strikes(
             strike_5=attempt.settlement_state.strike_5,
@@ -420,6 +447,7 @@ def evaluate_perfect_information_upper_bound(
             raise ValueError(
                 f"attempt {attempt.attempt_id} label violates shared-terminal strike ordering"
             )
+        structural_actions = set(_structural_floor_actions(structure.strike_ordering))
         candidates: list[PerfectInformationBreakpoint] = []
         per_attempt_best_by_action: defaultdict[str, Decimal] = defaultdict(
             lambda: Decimal("-Infinity")
@@ -503,6 +531,9 @@ def evaluate_perfect_information_upper_bound(
                     best_action=None,
                     best_quantity=None,
                     best_total_pnl=ZERO,
+                    unrestricted_best_action=None,
+                    unrestricted_best_quantity=None,
+                    unrestricted_best_total_pnl=ZERO,
                     gate_0_passed=False,
                 )
             )
@@ -510,14 +541,32 @@ def evaluate_perfect_information_upper_bound(
         per_action_best = dict(sorted(per_attempt_best_by_action.items()))
         for action_name, total_pnl in per_action_best.items():
             per_action[action_name] += total_pnl
-        positive_candidates = [
+        unrestricted_positive_candidates = [
             candidate for candidate in candidates if candidate.realized_total_pnl > ZERO
+        ]
+        unrestricted_best = (
+            None
+            if not unrestricted_positive_candidates
+            else max(
+                unrestricted_positive_candidates,
+                key=lambda item: (
+                    item.realized_total_pnl,
+                    item.realized_net_pnl_per_pair,
+                    -item.quantity,
+                    item.action.value,
+                ),
+            )
+        )
+        structural_positive_candidates = [
+            candidate
+            for candidate in unrestricted_positive_candidates
+            if candidate.action in structural_actions
         ]
         best = (
             None
-            if not positive_candidates
+            if not structural_positive_candidates
             else max(
-                positive_candidates,
+                structural_positive_candidates,
                 key=lambda item: (
                     item.realized_total_pnl,
                     item.realized_net_pnl_per_pair,
@@ -527,7 +576,13 @@ def evaluate_perfect_information_upper_bound(
             )
         )
         best_total = ZERO if best is None else best.realized_total_pnl
-        aggregate += best_total
+        unrestricted_best_total = (
+            ZERO
+            if unrestricted_best is None
+            else unrestricted_best.realized_total_pnl
+        )
+        structural_aggregate += best_total
+        unrestricted_aggregate += unrestricted_best_total
         per_attempt.append(
             PerfectInformationAttemptUpperBound(
                 attempt_id=attempt.attempt_id,
@@ -537,15 +592,23 @@ def evaluate_perfect_information_upper_bound(
                 best_action=None if best is None else best.action,
                 best_quantity=None if best is None else best.quantity,
                 best_total_pnl=best_total,
+                unrestricted_best_action=(
+                    None if unrestricted_best is None else unrestricted_best.action
+                ),
+                unrestricted_best_quantity=(
+                    None if unrestricted_best is None else unrestricted_best.quantity
+                ),
+                unrestricted_best_total_pnl=unrestricted_best_total,
                 gate_0_passed=best_total > ZERO,
             )
         )
     return PerfectInformationUpperBoundReport(
         attempts=tuple(per_attempt),
-        aggregate_best_total_pnl=aggregate,
+        aggregate_best_total_pnl=structural_aggregate,
+        unrestricted_hindsight_aggregate_best_total_pnl=unrestricted_aggregate,
         per_action_total_pnl=MappingProxyType(dict(sorted(per_action.items()))),
-        gate_0_passed=aggregate > ZERO,
-        stop_recommended=aggregate <= ZERO,
+        gate_0_passed=structural_aggregate > ZERO,
+        stop_recommended=structural_aggregate <= ZERO,
     )
 
 
@@ -650,6 +713,32 @@ DEFAULT_PROBE_PREREQUISITES = ExecutionProbePrerequisites()
 
 
 @dataclass(frozen=True)
+class NeutralShadowEvidence:
+    realized_net_pnl: Decimal | None
+    receipt_chain_verified: bool
+    all_admitted_cohorts_included: bool
+    scenario: str = "neutral"
+
+    def __post_init__(self) -> None:
+        if self.scenario != "neutral":
+            raise ValueError("execution-probe shadow evidence must be neutral")
+        if self.realized_net_pnl is not None:
+            if isinstance(self.realized_net_pnl, (bool, float)):
+                raise TypeError("neutral shadow PnL must be an exact decimal")
+            parsed = (
+                self.realized_net_pnl
+                if isinstance(self.realized_net_pnl, Decimal)
+                else Decimal(str(self.realized_net_pnl))
+            )
+            if not parsed.is_finite():
+                raise ValueError("neutral shadow PnL must be finite")
+            object.__setattr__(self, "realized_net_pnl", parsed)
+        for name in ("receipt_chain_verified", "all_admitted_cohorts_included"):
+            if not isinstance(getattr(self, name), bool):
+                raise TypeError(f"{name} must be bool")
+
+
+@dataclass(frozen=True)
 class ExecutionProbeReadiness:
     eligible: bool
     clean_common_terminal_cohort_count: int
@@ -658,7 +747,7 @@ class ExecutionProbeReadiness:
 
 def evaluate_execution_probe_readiness(
     *,
-    shadow_net_pnl: Decimal | None,
+    neutral_shadow_evidence: NeutralShadowEvidence | None,
     clean_common_terminal_cohort_count: int,
     coverage_results: Sequence[CohortCoverageResult],
     structural_floor: StructuralFloorVerdict | None,
@@ -668,8 +757,18 @@ def evaluate_execution_probe_readiness(
     unique_complete_cohort_count = len(
         {result.cohort_id for result in coverage_results if result.complete}
     )
-    if shadow_net_pnl is None or shadow_net_pnl <= ZERO:
-        reasons.append("shadow_net_pnl_not_positive")
+    if neutral_shadow_evidence is None:
+        reasons.append("neutral_shadow_evidence_unverified")
+    else:
+        if (
+            neutral_shadow_evidence.realized_net_pnl is None
+            or neutral_shadow_evidence.realized_net_pnl <= ZERO
+        ):
+            reasons.append("neutral_shadow_net_pnl_not_positive")
+        if not neutral_shadow_evidence.receipt_chain_verified:
+            reasons.append("neutral_shadow_receipt_chain_unverified")
+        if not neutral_shadow_evidence.all_admitted_cohorts_included:
+            reasons.append("neutral_shadow_denominator_incomplete")
     if clean_common_terminal_cohort_count < 4:
         reasons.append("fewer_than_4_candidate_common_terminal_cohorts")
     if unique_complete_cohort_count < 4:
@@ -817,6 +916,7 @@ def evaluate_strategy_live_readiness(
 __all__ = [
     "EXPECTED_RTDS_INTERVAL_MS",
     "MAXIMUM_RTDS_GAP_MS",
+    "NeutralShadowEvidence",
     "PROBE_ALL_IN_LIMIT",
     "CohortCoverageInput",
     "CohortCoverageResult",

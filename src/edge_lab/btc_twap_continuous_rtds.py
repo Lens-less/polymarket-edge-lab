@@ -171,15 +171,17 @@ def _official_observation(message: Any) -> tuple[int, str] | None:
     timestamp = payload.get("timestamp")
     envelope_timestamp = message.get("timestamp")
     full_accuracy_value = payload.get("full_accuracy_value")
+    window_seconds = payload.get("window_s")
     if (
         isinstance(timestamp, bool)
         or not isinstance(timestamp, int)
         or timestamp < 0
         or isinstance(envelope_timestamp, bool)
         or not isinstance(envelope_timestamp, int)
-        or envelope_timestamp != timestamp
+        or envelope_timestamp < timestamp
+        or window_seconds != 60
         or not isinstance(full_accuracy_value, str)
-        or not full_accuracy_value.isdigit()
+        or not full_accuracy_value.removeprefix("-").isdigit()
     ):
         return None
     return timestamp, full_accuracy_value

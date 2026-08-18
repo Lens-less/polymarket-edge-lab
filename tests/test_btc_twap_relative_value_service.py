@@ -596,7 +596,7 @@ def test_gamma_slug_lookup_discards_response_cookies(
 
 
 @pytest.mark.asyncio
-async def test_compact_sink_keeps_target_top_five_book_without_duplicate_frame(
+async def test_compact_sink_keeps_target_full_depth_book_without_duplicate_frame(
     tmp_path: Path,
 ) -> None:
     from src.edge_lab.btc_twap_relative_value_service import CompactRecorderSink
@@ -656,13 +656,19 @@ async def test_compact_sink_keeps_target_top_five_book_without_duplicate_frame(
     inner = stored["payload"]
     assert "raw_frame" not in inner
     assert inner["frame_hash"] == "a" * 64
-    assert len(inner["payload"]["bids"]) == 5
+    assert len(inner["payload"]["bids"]) == 11
     assert [level["price"] for level in inner["payload"]["bids"]] == [
         "0.11",
         "0.1",
         "0.09",
         "0.08",
         "0.07",
+        "0.06",
+        "0.05",
+        "0.04",
+        "0.03",
+        "0.02",
+        "0.01",
     ]
     assert [level["price"] for level in inner["payload"]["asks"]] == [
         "0.12",
@@ -670,6 +676,12 @@ async def test_compact_sink_keeps_target_top_five_book_without_duplicate_frame(
         "0.14",
         "0.15",
         "0.16",
+        "0.17",
+        "0.18",
+        "0.19",
+        "0.2",
+        "0.21",
+        "0.22",
     ]
 
 
@@ -913,6 +925,6 @@ async def test_compact_sink_coalesces_target_price_changes_into_causal_books(
     assert reconstructed["asset_id"] == "target-token"
     assert reconstructed["asks"][0] == {"price": "0.51", "size": "11"}
     assert reconstructed["depth_policy"] == (
-        "top_5_each_side_reconstructed_from_price_change"
+        "full_depth_reconstructed_from_price_change"
     )
     assert reconstructed["source_event_type"] == "price_change"

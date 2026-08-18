@@ -13,10 +13,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.edge_lab.btc_twap_continuous_rtds import (
+from src.edge_lab.btc_twap_continuous_rtds import (  # noqa: E402
     evaluate_continuous_rtds_health,
 )
-from src.edge_lab.btc_twap_relative_value_service import (
+from src.edge_lab.btc_twap_relative_value_service import (  # noqa: E402
     write_json_document,
 )
 

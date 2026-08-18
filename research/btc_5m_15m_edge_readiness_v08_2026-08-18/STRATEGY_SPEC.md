@@ -32,9 +32,11 @@ Before promotion work, the hindsight diagnostic enumerates both cross-pair
 directions and every jointly executable depth breakpoint at one fixed decision
 time per common expiry. It can select no-trade at zero. It uses captured
 decision-time books, fee/rule metadata, and the realized common terminal label.
-It is deliberately optimistic and can only falsify: aggregate best executable
-PnL `<= 0` stops the route. A positive result is not edge evidence and never
-enters locked-OOS counts.
+It does not truncate the upper bound at the older v0.7 25 USDC sizing budget.
+The non-floor direction remains visible as an unrestricted hindsight diagnostic,
+but only the strike-consistent structural direction contributes to the
+structural Gate 0. Aggregate structural executable PnL `<= 0` stops that route.
+A positive result is not edge evidence and never enters locked-OOS counts.
 
 The local repository does not contain the deployed 41 capture trees. Runtime
 generation must use the exact-count command in `PREREGISTRATION.json`; any

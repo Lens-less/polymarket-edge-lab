@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
 
@@ -90,10 +91,10 @@ class FakeVenue:
             full_depth_available=True,
             quoted_notional=order.notional,
             quoted_fee=D("0"),
-            source_timestamp_ms=1_000,
-            receipt_timestamp_ms=1_010,
+            source_timestamp_ms=9_950,
+            receipt_timestamp_ms=9_960,
             book_sha256="a" * 64,
-            fee_rule_sha256="b" * 64,
+            fee_rule_sha256=order.fee_rule_sha256,
         )
 
     def quote_fak_unwind(self, order: ProbeOrder) -> ProbeExecutionQuote:
@@ -104,10 +105,10 @@ class FakeVenue:
             full_depth_available=True,
             quoted_notional=order.notional,
             quoted_fee=D("0"),
-            source_timestamp_ms=1_000,
-            receipt_timestamp_ms=1_010,
+            source_timestamp_ms=9_950,
+            receipt_timestamp_ms=9_960,
             book_sha256="c" * 64,
-            fee_rule_sha256="d" * 64,
+            fee_rule_sha256=order.fee_rule_sha256,
         )
 
     def reconcile_after_cancel(
@@ -138,16 +139,20 @@ def order(
     leg_id: str,
     *,
     horizon: str,
+    outcome: str,
     market_id: str,
     token_id: str,
+    fee_rule_sha256: str,
     price: str,
     quantity: str = "2",
 ) -> ProbeOrder:
     return ProbeOrder(
         leg_id=leg_id,
         horizon=horizon,
+        outcome=outcome,
         market_id=market_id,
         token_id=token_id,
+        fee_rule_sha256=fee_rule_sha256,
         side="buy",
         price=D(price),
         quantity=D(quantity),
@@ -158,21 +163,25 @@ def plan(*, strategy_kind: str = "structure_floor", balance: str = "12") -> Prob
     slow = order(
         "leg-15m-up",
         horizon="15m",
+        outcome="up",
         market_id="market-15m-up",
         token_id="token-15m-up",
+        fee_rule_sha256="a" * 64,
         price="0.48",
     )
     fast = order(
         "leg-5m-down",
         horizon="5m",
+        outcome="down",
         market_id="market-5m-down",
         token_id="token-5m-down",
+        fee_rule_sha256="b" * 64,
         price="0.47",
     )
     return ProbePlan(
         plan_id="probe-plan-1",
         strategy_kind=strategy_kind,
-        strike_ordering="five_above_fifteen",
+        strike_ordering="strike_5_above_strike_15",
         floor_action="long_15_up_long_5_down",
         co_terminal_validator_sha256="f" * 64,
         common_expiry_id="expiry-1780000000",
@@ -429,6 +438,13 @@ def test_predictive_routes_are_rejected_before_any_venue_mutation() -> None:
     assert venue.cancel_reasons == []
 
 
+def test_probe_plan_rejects_a_floor_action_that_conflicts_with_strike_ordering() -> None:
+    candidate_plan = plan()
+
+    with pytest.raises(ValueError, match="floor action conflicts"):
+        replace(candidate_plan, floor_action="long_5_up_long_15_down")
+
+
 def test_actual_fill_and_current_full_depth_must_remain_below_point_99() -> None:
     candidate_plan = plan()
     hedge_template = candidate_plan.route_candidates[0].hedge_order
@@ -443,10 +459,10 @@ def test_actual_fill_and_current_full_depth_must_remain_below_point_99() -> None
         full_depth_available=True,
         quoted_notional=D("1.04"),
         quoted_fee=D("0.01"),
-        source_timestamp_ms=1_000,
-        receipt_timestamp_ms=1_010,
+        source_timestamp_ms=9_950,
+        receipt_timestamp_ms=9_960,
         book_sha256="1" * 64,
-        fee_rule_sha256="2" * 64,
+        fee_rule_sha256=hedge_template.fee_rule_sha256,
     )
     venue = FakeVenue(
         events=(fill(fill_id="fill-1", quantity="2", price="0.48", fee="0.01"),),
@@ -462,6 +478,42 @@ def test_actual_fill_and_current_full_depth_must_remain_below_point_99() -> None
     assert venue.fok_orders == []
     assert len(venue.fak_orders) == 1
     assert venue.fak_orders[0].side == "sell"
+    assert result.unwind_submitted is True
+
+
+def test_stale_fok_quote_cannot_be_treated_as_current_depth() -> None:
+    candidate_plan = plan()
+    hedge_template = candidate_plan.route_candidates[0].hedge_order
+    stale_hedge = ProbeExecutionQuote(
+        order=hedge_template,
+        full_depth_available=True,
+        quoted_notional=hedge_template.notional,
+        quoted_fee=D("0"),
+        source_timestamp_ms=1_000,
+        receipt_timestamp_ms=1_010,
+        book_sha256="1" * 64,
+        fee_rule_sha256=hedge_template.fee_rule_sha256,
+    )
+    venue = FakeVenue(
+        events=(fill(fill_id="fill-stale", quantity="2"),),
+        hedge_quote=stale_hedge,
+    )
+    persistence = InMemoryProbePersistence()
+    probe = harness(venue, persistence)
+    bind(probe, candidate_plan)
+
+    result = probe.execute(
+        candidate_plan,
+        final_confirmation=confirmation(candidate_plan),
+    )
+
+    observed = [
+        receipt
+        for receipt in persistence.snapshot["receipts"]
+        if receipt["event_type"] == "hedge_quote_observed"
+    ]
+    assert observed[0]["body"]["rejection_reason"] == "fok_quote_stale"
+    assert venue.fok_orders == []
     assert result.unwind_submitted is True
 
 

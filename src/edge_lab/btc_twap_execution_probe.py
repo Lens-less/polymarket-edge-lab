@@ -36,11 +36,23 @@ ONE = Decimal(1)
 MAX_ISOLATED_BALANCE = Decimal(12)
 MAX_BUY_NOTIONAL = Decimal(10)
 MAX_ALL_IN_COST = Decimal("0.99")
+MAX_EXECUTION_QUOTE_AGE_MS = 750
 SNAPSHOT_SCHEMA = "edge-lab-btc-twap-execution-probe-state.v1"
 RECEIPT_SCHEMA = "edge-lab-btc-twap-execution-probe-receipt.v1"
 PERSISTENCE_SCHEMA = "edge-lab-btc-twap-execution-probe-persistence.v1"
 FINAL_CONFIRMATION_MAX_LIFETIME_MS = 300_000
 ACCOUNT_LOSS_ACKNOWLEDGEMENT = "I ACCEPT ACCOUNT MAX LOSS 12 USDC"
+_FLOOR_ACTIONS_BY_STRIKE_ORDERING = {
+    "strike_5_below_strike_15": frozenset({"long_5_up_long_15_down"}),
+    "strike_5_above_strike_15": frozenset({"long_15_up_long_5_down"}),
+    "strikes_equal": frozenset(
+        {"long_5_up_long_15_down", "long_15_up_long_5_down"}
+    ),
+}
+_LEGS_BY_FLOOR_ACTION = {
+    "long_5_up_long_15_down": frozenset({("5m", "up"), ("15m", "down")}),
+    "long_15_up_long_5_down": frozenset({("15m", "up"), ("5m", "down")}),
+}
 
 
 def _sha256_text(value: str, *, name: str) -> str:
@@ -98,6 +110,13 @@ def _side(value: str) -> str:
     return normalized
 
 
+def _outcome(value: str) -> str:
+    normalized = _nonempty(value, name="outcome").lower()
+    if normalized not in {"up", "down"}:
+        raise ValueError("outcome must be 'up' or 'down'")
+    return normalized
+
+
 class ProbeKillSwitchError(RuntimeError):
     """Raised once the probe enters a durable killed state."""
 
@@ -120,8 +139,10 @@ class ProbeEventKind(str, Enum):
 class ProbeOrder:
     leg_id: str
     horizon: str
+    outcome: str
     market_id: str
     token_id: str
+    fee_rule_sha256: str
     side: str
     price: Decimal
     quantity: Decimal
@@ -129,10 +150,18 @@ class ProbeOrder:
     def __post_init__(self) -> None:
         object.__setattr__(self, "leg_id", _nonempty(self.leg_id, name="leg_id"))
         object.__setattr__(self, "horizon", _nonempty(self.horizon, name="horizon"))
+        if self.horizon not in {"5m", "15m"}:
+            raise ValueError("horizon must be '5m' or '15m'")
+        object.__setattr__(self, "outcome", _outcome(self.outcome))
         object.__setattr__(
             self, "market_id", _nonempty(self.market_id, name="market_id")
         )
         object.__setattr__(self, "token_id", _nonempty(self.token_id, name="token_id"))
+        object.__setattr__(
+            self,
+            "fee_rule_sha256",
+            _sha256_text(self.fee_rule_sha256, name="fee_rule_sha256"),
+        )
         object.__setattr__(self, "side", _side(self.side))
         object.__setattr__(self, "price", _probability(self.price, name="price"))
         object.__setattr__(
@@ -147,8 +176,10 @@ class ProbeOrder:
         return ProbeOrder(
             leg_id=self.leg_id,
             horizon=self.horizon,
+            outcome=self.outcome,
             market_id=self.market_id,
             token_id=self.token_id,
+            fee_rule_sha256=self.fee_rule_sha256,
             side=self.side,
             price=self.price,
             quantity=quantity,
@@ -164,8 +195,10 @@ class ProbeOrder:
         return ProbeOrder(
             leg_id=self.leg_id,
             horizon=self.horizon,
+            outcome=self.outcome,
             market_id=self.market_id,
             token_id=self.token_id,
+            fee_rule_sha256=self.fee_rule_sha256,
             side=self.side if side is None else side,
             price=self.price if price is None else price,
             quantity=self.quantity if quantity is None else quantity,
@@ -175,8 +208,10 @@ class ProbeOrder:
         return {
             "leg_id": self.leg_id,
             "horizon": self.horizon,
+            "outcome": self.outcome,
             "market_id": self.market_id,
             "token_id": self.token_id,
+            "fee_rule_sha256": self.fee_rule_sha256,
             "side": self.side,
             "price": self.price,
             "quantity": self.quantity,
@@ -269,6 +304,13 @@ class ProbePlan:
             "floor_action",
             _nonempty(self.floor_action, name="floor_action"),
         )
+        allowed_floor_actions = _FLOOR_ACTIONS_BY_STRIKE_ORDERING.get(
+            self.strike_ordering
+        )
+        if allowed_floor_actions is None:
+            raise ValueError("unsupported structural strike ordering")
+        if self.floor_action not in allowed_floor_actions:
+            raise ValueError("floor action conflicts with strike ordering")
         object.__setattr__(
             self,
             "co_terminal_validator_sha256",
@@ -311,6 +353,18 @@ class ProbePlan:
             raise ValueError(
                 "maker directions must reverse the same two structural legs"
             )
+        expected_legs = _LEGS_BY_FLOOR_ACTION[self.floor_action]
+        for candidate in self.route_candidates:
+            actual_legs = frozenset(
+                {
+                    (candidate.maker_order.horizon, candidate.maker_order.outcome),
+                    (candidate.hedge_order.horizon, candidate.hedge_order.outcome),
+                }
+            )
+            if actual_legs != expected_legs:
+                raise ValueError(
+                    "route candidate legs conflict with the structural floor action"
+                )
         for first, second in zip(
             self.route_candidates,
             reversed(self.route_candidates),
@@ -559,6 +613,8 @@ class ProbeExecutionQuote:
             "fee_rule_sha256",
             _sha256_text(self.fee_rule_sha256, name="fee_rule_sha256"),
         )
+        if self.fee_rule_sha256 != self.order.fee_rule_sha256:
+            raise ValueError("execution quote fee rule does not match its bound order")
 
     def with_quantity(self, quantity: Decimal) -> ProbeExecutionQuote:
         quantity = _positive_decimal(quantity, name="quantity")
@@ -1306,6 +1362,7 @@ class ExecutionProbeHarness:
         return (
             order.leg_id == template.leg_id
             and order.horizon == template.horizon
+            and order.outcome == template.outcome
             and order.market_id == template.market_id
             and order.token_id == template.token_id
             and order.side == template.side
@@ -1325,6 +1382,8 @@ class ExecutionProbeHarness:
             return "fok_quote_identity_mismatch"
         if not quote.full_depth_available:
             return "fok_full_depth_unavailable"
+        if not self._quote_is_current(quote):
+            return "fok_quote_stale"
         if quote.quoted_notional > quote.order.notional:
             return "fok_quote_exceeds_buy_limit"
         maker_cost = _decimal(
@@ -1355,6 +1414,17 @@ class ExecutionProbeHarness:
             self._fail_closed("unwind_must_sell_maker_leg")
         if not quote.full_depth_available:
             self._fail_closed("unwind_full_depth_unavailable")
+        if not self._quote_is_current(quote):
+            self._fail_closed("unwind_quote_stale")
+
+    def _quote_is_current(self, quote: ProbeExecutionQuote) -> bool:
+        now_ms = _integer(self.now_ms(), name="now_ms")
+        return (
+            quote.source_timestamp_ms <= now_ms
+            and quote.receipt_timestamp_ms <= now_ms
+            and now_ms - quote.source_timestamp_ms <= MAX_EXECUTION_QUOTE_AGE_MS
+            and now_ms - quote.receipt_timestamp_ms <= MAX_EXECUTION_QUOTE_AGE_MS
+        )
 
     def _validate_complete_execution(
         self,

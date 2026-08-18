@@ -322,10 +322,16 @@ def test_v07_health_service_timer_and_script_are_read_only() -> None:
     assert "payload = evaluate_shadow_health(" in script_text
     assert "shadow_config_returncode=shadow_config_validation.returncode" in script_text
     assert "source_runtime_returncode=source_runtime_validation.returncode" in script_text
+    assert (
+        'systemctl_show("polymm-btc-twap-paper-v07-performance.service")'
+        in script_text
+    )
+    assert "performance_service=performance_service" in script_text
     assert '"--check-source",' in script_text
     assert "shadow_validate_failed" not in script_text
     assert "mv -f \"${TMP_PATH}\" \"${OUTPUT_PATH}\"" in script_text
     assert "cp \"${OUTPUT_PATH}\" \"${HISTORY_TMP}\"" in script_text
+    assert "payload.get(\"healthy\") is True" in script_text
 
 
 def test_v07_bootstrap_uses_release_markers_reflink_probe_and_manual_start() -> None:

@@ -72,6 +72,7 @@ source_active = subprocess.run(
 ).stdout.strip() == "active"
 
 performance_timer = systemctl_show("polymm-btc-twap-paper-v07-performance.timer")
+performance_service = systemctl_show("polymm-btc-twap-paper-v07-performance.service")
 health_timer = systemctl_show("polymm-btc-twap-paper-v07-health.timer")
 source_acl_service = systemctl_show("polymm-btc-twap-paper-v07-source-acl.service")
 free_bytes = shutil.disk_usage(Path(config["data_root"])).free
@@ -108,6 +109,7 @@ payload = evaluate_shadow_health(
     shadow_config_returncode=shadow_config_validation.returncode,
     source_runtime_returncode=source_runtime_validation.returncode,
     performance_timer=performance_timer,
+    performance_service=performance_service,
     health_timer=health_timer,
     source_acl_service=source_acl_service,
     source_active=source_active,
@@ -149,3 +151,14 @@ mv -f "${TMP_PATH}" "${OUTPUT_PATH}"
 cp "${OUTPUT_PATH}" "${HISTORY_TMP}"
 chmod 0640 "${HISTORY_TMP}"
 mv -f "${HISTORY_TMP}" "${HISTORY_PATH}"
+
+/opt/poly-mm-v07/.venv/bin/python - "${OUTPUT_PATH}" <<'PY'
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+raise SystemExit(0 if payload.get("healthy") is True else 1)
+PY

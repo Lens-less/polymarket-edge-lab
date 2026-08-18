@@ -20,13 +20,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import scripts.build_btc_twap_relative_value_v07_counterfactual as v07_builder
-from src.edge_lab.btc_twap_pair_pricing import PairPricingPolicy
-from src.edge_lab.btc_twap_relative_value_readiness import (
+import scripts.build_btc_twap_relative_value_v07_counterfactual as v07_builder  # noqa: E402
+from src.edge_lab.btc_twap_pair_pricing import PairPricingPolicy  # noqa: E402
+from src.edge_lab.btc_twap_relative_value_readiness import (  # noqa: E402
     PerfectInformationAttempt,
     evaluate_perfect_information_upper_bound,
 )
-from src.edge_lab.data_store import canonical_json_bytes
+from src.edge_lab.data_store import canonical_json_bytes  # noqa: E402
 
 REPORT_SCHEMA = "btc-5m-15m-gate-0-executable-upper-bound-report.v1"
 
@@ -131,7 +131,7 @@ def build_upper_bound_report(
         maximum_spread_each_leg=strategy.maximum_spread_each_leg,
         minimum_market_price=strategy.minimum_market_price,
         maximum_market_price=strategy.maximum_market_price,
-        pair_risk_usdc=strategy.pair_risk_usdc,
+        pair_risk_usdc=None,
     )
     for context in sorted(selected, key=lambda item: item.expiry_ms):
         token_ids = (
@@ -144,10 +144,12 @@ def build_upper_bound_report(
             token_ids=token_ids,
             decision_at_ms=context.decision_at_ms,
             maximum_age_ms=strategy.maximum_book_staleness_ms,
+            require_full_depth=True,
         )
         if set(signal) != set(token_ids):
             raise ValueError(
-                f"Gate-0 attempt {context.expiry_cluster_id} lacks four causal books"
+                f"Gate-0 attempt {context.expiry_cluster_id} lacks four causal "
+                "full-depth books"
             )
         attempts.append(
             PerfectInformationAttempt(
@@ -176,6 +178,9 @@ def build_upper_bound_report(
             "gate": 0,
             "perfect_information": True,
             "decision_time_executable_full_depth": True,
+            "quantity_risk_cap_usdc": None,
+            "quantity_scope": "all_captured_joint_depth_breakpoints",
+            "route": "structural_floor_only",
             "dynamic_captured_fees_and_rounding": True,
             "no_trade_available": True,
             "non_positive_aggregate_upper_bound_action": "stop_route",

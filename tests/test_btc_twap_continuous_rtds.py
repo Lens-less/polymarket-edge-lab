@@ -72,6 +72,28 @@ def test_build_recorder_config_is_rtds_only_btc_twap_sixty() -> None:
     )
 
 
+def test_official_observation_uses_chainlink_time_not_publisher_time() -> None:
+    message = {
+        "topic": "crypto_prices_twap_sixty",
+        "type": "update",
+        "timestamp": 1_785_178_800_123,
+        "payload": {
+            "symbol": "btc/usd",
+            "timestamp": 1_785_178_800_000,
+            "value": 65_000.5,
+            "full_accuracy_value": "65000500000000000000000",
+            "window_s": 60,
+        },
+    }
+
+    assert continuous_rtds._official_observation(message) == (
+        1_785_178_800_000,
+        "65000500000000000000000",
+    )
+    message["payload"]["window_s"] = 30
+    assert continuous_rtds._official_observation(message) is None
+
+
 def test_validate_only_returns_public_only_guarded_payload(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

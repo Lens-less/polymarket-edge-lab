@@ -207,6 +207,91 @@ def test_replay_applies_price_changes_to_causal_signal_and_delayed_books() -> No
     )
 
 
+def test_replay_uses_causal_http_full_book_anchor_without_top_five_truncation() -> None:
+    token = BookReplayToken(
+        token_id="token",
+        tick_size=D("0.01"),
+        minimum_order_size=D("1"),
+    )
+    asks = [
+        {"price": str(D("0.50") + D(index) / D("100")), "size": "10"}
+        for index in range(7)
+    ]
+    replay = CausalBookReplay.from_records(
+        (
+            _record(
+                event_type="clob_snapshot",
+                received_at="1970-01-01T00:01:39.950Z",
+                record_id="http-full-book",
+                payload={
+                    "snapshot_kind": "clob",
+                    "responses": [
+                        {
+                            "resource": "clob_book",
+                            "request_key": "token",
+                            "raw_json": {
+                                "asset_id": "token",
+                                "timestamp": "99900",
+                                "bids": [{"price": "0.49", "size": "10"}],
+                                "asks": asks,
+                            },
+                        }
+                    ],
+                },
+            ),
+        ),
+        tokens={"token": token},
+    )
+
+    signal = replay.signal_books(
+        token_ids=("token",),
+        decision_at_ms=100_000,
+        maximum_age_ms=750,
+        require_full_depth=True,
+    )
+
+    assert len(signal["token"].snapshot.asks) == 7
+    assert signal["token"].full_depth_available is True
+    assert signal["token"].source_event_id == "http-full-book:clob_book:0"
+
+
+def test_replay_does_not_label_a_legacy_top_five_anchor_as_full_depth() -> None:
+    token = BookReplayToken(
+        token_id="token",
+        tick_size=D("0.01"),
+        minimum_order_size=D("1"),
+    )
+    replay = CausalBookReplay.from_records(
+        (
+            _record(
+                event_type="book",
+                received_at="1970-01-01T00:01:39.950Z",
+                record_id="legacy-top-five",
+                payload={
+                    "asset_id": "token",
+                    "timestamp": "99900",
+                    "bids": [{"price": "0.49", "size": "10"}],
+                    "asks": [{"price": "0.50", "size": "10"}],
+                    "depth_policy": "top_5_each_side",
+                },
+            ),
+        ),
+        tokens={"token": token},
+    )
+
+    assert "token" in replay.signal_books(
+        token_ids=("token",),
+        decision_at_ms=100_000,
+        maximum_age_ms=750,
+    )
+    assert "token" not in replay.signal_books(
+        token_ids=("token",),
+        decision_at_ms=100_000,
+        maximum_age_ms=750,
+        require_full_depth=True,
+    )
+
+
 def test_replay_fails_closed_when_delta_top_of_book_cannot_be_reconciled() -> None:
     token = BookReplayToken(
         token_id="token",

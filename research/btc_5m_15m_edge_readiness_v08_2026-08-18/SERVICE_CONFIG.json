@@ -19,6 +19,7 @@
   },
   "pair_capture": {
     "full_clob_snapshot_interval_seconds": 5,
+    "reconstructed_full_depth_interval_ms": 250,
     "public_taker_trades_interval_seconds": 30,
     "rules_interval_seconds": 30,
     "retain_source_receipt_and_monotonic_timestamps": true,

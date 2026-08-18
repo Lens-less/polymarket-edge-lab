@@ -1431,16 +1431,6 @@ def _report_summary(
     # No pre-label journal exists on this deployment track. Keep the user gate
     # fail-closed even if a malformed upstream report claims otherwise.
     positive_100_trade_check = False
-    shadow_net_decimal = None
-    for candidate in (structural_pnl, net_pnl, predictive_pnl):
-        if candidate is None:
-            continue
-        try:
-            shadow_net_decimal = _decimal(candidate, label="shadow_net_pnl")
-        except (TypeError, ValueError):
-            shadow_net_decimal = None
-        else:
-            break
     builder_verified = evaluation.get("builder_verified_evidence")
     if not isinstance(builder_verified, Mapping):
         builder_verified = {}
@@ -1508,7 +1498,7 @@ def _report_summary(
         )
     )
     probe_readiness = evaluate_execution_probe_readiness(
-        shadow_net_pnl=shadow_net_decimal,
+        neutral_shadow_evidence=None,
         clean_common_terminal_cohort_count=len(projected),
         coverage_results=(),
         structural_floor=None,

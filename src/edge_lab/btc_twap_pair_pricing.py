@@ -20,14 +20,13 @@ class PairPricingPolicy:
     maximum_spread_each_leg: Decimal = Decimal("0.03")
     minimum_market_price: Decimal = Decimal("0.05")
     maximum_market_price: Decimal = Decimal("0.95")
-    pair_risk_usdc: Decimal = Decimal(25)
+    pair_risk_usdc: Decimal | None = Decimal(25)
 
     def __post_init__(self) -> None:
         for name in (
             "maximum_spread_each_leg",
             "minimum_market_price",
             "maximum_market_price",
-            "pair_risk_usdc",
         ):
             value = getattr(self, name)
             if isinstance(value, (bool, float)):
@@ -36,11 +35,19 @@ class PairPricingPolicy:
             if not parsed.is_finite():
                 raise ValueError(f"{name} must be finite")
             object.__setattr__(self, name, parsed)
+        if self.pair_risk_usdc is not None:
+            value = self.pair_risk_usdc
+            if isinstance(value, (bool, float)):
+                raise TypeError("pair_risk_usdc must be an exact decimal or None")
+            parsed = value if isinstance(value, Decimal) else Decimal(str(value))
+            if not parsed.is_finite():
+                raise ValueError("pair_risk_usdc must be finite")
+            object.__setattr__(self, "pair_risk_usdc", parsed)
         if self.maximum_spread_each_leg < ZERO:
             raise ValueError("maximum_spread_each_leg cannot be negative")
         if not ZERO <= self.minimum_market_price < self.maximum_market_price <= ONE:
             raise ValueError("market price bounds are invalid")
-        if self.pair_risk_usdc <= ZERO:
+        if self.pair_risk_usdc is not None and self.pair_risk_usdc <= ZERO:
             raise ValueError("pair_risk_usdc must be positive")
 
 
@@ -218,14 +225,18 @@ def joint_quantity_breakpoints(
     maximum_depth = min(first_depth, second_depth)
     if maximum_depth < minimum_quantity:
         return ()
-    maximum_affordable = _maximum_affordable_quantity(
-        minimum_quantity=minimum_quantity,
-        maximum_depth_quantity=maximum_depth,
-        first_book=first_book,
-        second_book=second_book,
-        first_contract=first_contract,
-        second_contract=second_contract,
-        pair_risk_usdc=policy.pair_risk_usdc,
+    maximum_affordable = (
+        Decimal(_quantity_units_floor(maximum_depth)) * SIZE_QUANTUM
+        if policy.pair_risk_usdc is None
+        else _maximum_affordable_quantity(
+            minimum_quantity=minimum_quantity,
+            maximum_depth_quantity=maximum_depth,
+            first_book=first_book,
+            second_book=second_book,
+            first_contract=first_contract,
+            second_contract=second_contract,
+            pair_risk_usdc=policy.pair_risk_usdc,
+        )
     )
     if maximum_affordable is None:
         return ()

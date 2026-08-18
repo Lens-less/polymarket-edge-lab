@@ -44,6 +44,7 @@ def _evaluate(
     status: dict[str, Any] | None = None,
     shadow_config_returncode: int = 0,
     source_runtime_returncode: int = 0,
+    performance_service: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     successful_unit = {
         "ActiveState": "active",
@@ -61,6 +62,9 @@ def _evaluate(
         shadow_config_returncode=shadow_config_returncode,
         source_runtime_returncode=source_runtime_returncode,
         performance_timer=successful_unit,
+        performance_service=(
+            successful_unit if performance_service is None else performance_service
+        ),
         health_timer=successful_unit,
         source_acl_service=successful_unit,
         source_active=True,
@@ -88,6 +92,22 @@ def test_static_config_and_source_runtime_failures_are_distinct() -> None:
     assert source_failure["failures"] == ["source_runtime_invalid"]
     assert "shadow_validate_failed" not in config_failure["failures"]
     assert "shadow_validate_failed" not in source_failure["failures"]
+
+
+def test_last_performance_service_failure_is_not_hidden_by_active_timer() -> None:
+    now = datetime(2026, 8, 18, 12, 0, tzinfo=timezone.utc)
+
+    result = _evaluate(
+        now,
+        performance_service={
+            "ActiveState": "failed",
+            "Result": "exit-code",
+            "ExecMainStatus": "1",
+        },
+    )
+
+    assert result["healthy"] is False
+    assert "performance_service_failed" in result["failures"]
 
 
 def test_stale_status_and_capture_errors_remain_visible() -> None:

@@ -411,7 +411,7 @@ class CompactRecorderSink:
     ) -> list[dict[str, str]]:
         return [
             {"price": str(price), "size": str(levels[price])}
-            for price in sorted(levels, reverse=bids)[:5]
+            for price in sorted(levels, reverse=bids)
         ]
 
     def _remember_full_book(self, payload: Mapping[str, Any]) -> bool:
@@ -521,7 +521,7 @@ class CompactRecorderSink:
                 "timestamp": str(timestamp_ms),
                 "bids": self._levels_from_depth(bids, bids=True),
                 "asks": self._levels_from_depth(asks, bids=False),
-                "depth_policy": ("top_5_each_side_reconstructed_from_price_change"),
+                "depth_policy": ("full_depth_reconstructed_from_price_change"),
                 "source_event_type": "price_change",
             }
             reconstructed = dict(compact)
@@ -541,7 +541,7 @@ class CompactRecorderSink:
         return emitted
 
     @staticmethod
-    def _top_five_levels(value: Any, *, bids: bool) -> list[dict[str, str]]:
+    def _normalized_levels(value: Any, *, bids: bool) -> list[dict[str, str]]:
         if not isinstance(value, list):
             return []
         parsed: list[tuple[Decimal, dict[str, str]]] = []
@@ -557,7 +557,7 @@ class CompactRecorderSink:
                 continue
             parsed.append((price, {"price": str(price), "size": str(size)}))
         parsed.sort(key=lambda item: item[0], reverse=bids)
-        return [level for _price, level in parsed[:5]]
+        return [level for _price, level in parsed]
 
     def _compact_clob_payload(
         self,
@@ -584,9 +584,9 @@ class CompactRecorderSink:
         if event_type == "book":
             if not self._remember_full_book(payload):
                 return None
-            compact["bids"] = self._top_five_levels(payload.get("bids"), bids=True)
-            compact["asks"] = self._top_five_levels(payload.get("asks"), bids=False)
-            compact["depth_policy"] = "top_5_each_side"
+            compact["bids"] = self._normalized_levels(payload.get("bids"), bids=True)
+            compact["asks"] = self._normalized_levels(payload.get("asks"), bids=False)
+            compact["depth_policy"] = "full_depth"
         return compact
 
     @property

@@ -225,6 +225,7 @@ def _replay_observation(
         received_at_ms=received_at_ms,
         source_event_id=source_event_id,
         update_kind="book",
+        full_depth_available=True,
     )
 
 

@@ -262,6 +262,7 @@ class CausalBookObservation:
     received_at_ms: int
     source_event_id: str
     update_kind: str
+    full_depth_available: bool
 
     def __post_init__(self) -> None:
         if not isinstance(self.snapshot, OrderBookSnapshot):
@@ -276,6 +277,8 @@ class CausalBookObservation:
             raise ValueError("source_event_id must be non-empty")
         if self.update_kind not in {"book", "price_change"}:
             raise ValueError("update_kind must be book or price_change")
+        if not isinstance(self.full_depth_available, bool):
+            raise TypeError("full_depth_available must be bool")
 
     @property
     def source_at_ms(self) -> int:
@@ -378,7 +381,12 @@ class CausalBookReplay:
                 continue
             event_type = envelope.get("event_type")
             payload = envelope.get("payload")
-            if event_type not in {"book", "price_change"} or not isinstance(
+            if event_type not in {
+                "book",
+                "price_change",
+                "clob_snapshot",
+                "resnapshot",
+            } or not isinstance(
                 payload, Mapping
             ):
                 continue
@@ -390,7 +398,37 @@ class CausalBookReplay:
             )
             source_at_ms = _source_ms(payload)
             source_event_id = str(record.get("record_id") or "")
-            if received_at_ms is None or source_at_ms is None or not source_event_id:
+            if received_at_ms is None or not source_event_id:
+                continue
+            if event_type in {"clob_snapshot", "resnapshot"}:
+                responses = payload.get("responses")
+                if not isinstance(responses, list):
+                    continue
+                for index, response in enumerate(responses):
+                    if (
+                        not isinstance(response, Mapping)
+                        or response.get("resource") != "clob_book"
+                    ):
+                        continue
+                    raw_book = response.get("raw_json")
+                    if not isinstance(raw_book, Mapping):
+                        continue
+                    book_source_at_ms = _source_ms(raw_book)
+                    if book_source_at_ms is None:
+                        continue
+                    annotated_book = dict(raw_book)
+                    annotated_book["depth_policy"] = "full_depth_http_snapshot"
+                    ordered.append(
+                        (
+                            received_at_ms,
+                            book_source_at_ms,
+                            f"{source_event_id}:clob_book:{index}",
+                            "book",
+                            annotated_book,
+                        )
+                    )
+                continue
+            if source_at_ms is None:
                 continue
             ordered.append(
                 (
@@ -404,6 +442,7 @@ class CausalBookReplay:
         ordered.sort(key=lambda item: item[:3])
 
         states: dict[str, _DepthState] = {}
+        full_depth_by_token: dict[str, bool] = {}
         invalid: set[str] = set()
         observations: dict[str, list[CausalBookObservation]] = {
             token_id: [] for token_id in frozen_tokens
@@ -417,6 +456,7 @@ class CausalBookReplay:
                 asks = _levels(payload.get("asks"))
                 if bids is None or asks is None or not bids or not asks:
                     states.pop(token_id, None)
+                    full_depth_by_token.pop(token_id, None)
                     invalid.add(token_id)
                     continue
                 state = _DepthState(bids=bids, asks=asks)
@@ -425,9 +465,15 @@ class CausalBookReplay:
                 )
                 if snapshot is None:
                     states.pop(token_id, None)
+                    full_depth_by_token.pop(token_id, None)
                     invalid.add(token_id)
                     continue
                 states[token_id] = state
+                depth_policy = payload.get("depth_policy")
+                full_depth_by_token[token_id] = not (
+                    isinstance(depth_policy, str)
+                    and depth_policy.startswith("top_5")
+                )
                 invalid.discard(token_id)
                 observations[token_id].append(
                     CausalBookObservation(
@@ -435,6 +481,7 @@ class CausalBookReplay:
                         received_at_ms=received_at_ms,
                         source_event_id=event_id,
                         update_kind="book",
+                        full_depth_available=full_depth_by_token[token_id],
                     )
                 )
                 continue
@@ -474,12 +521,14 @@ class CausalBookReplay:
                         levels[price] = size
                 if not coherent or not _top_matches(state, changes):
                     invalid.add(token_id)
+                    full_depth_by_token.pop(token_id, None)
                     continue
                 snapshot = _snapshot(
                     frozen_tokens[token_id], state, source_at_ms=source_at_ms
                 )
                 if snapshot is None:
                     invalid.add(token_id)
+                    full_depth_by_token.pop(token_id, None)
                     continue
                 observations[token_id].append(
                     CausalBookObservation(
@@ -487,6 +536,7 @@ class CausalBookReplay:
                         received_at_ms=received_at_ms,
                         source_event_id=event_id,
                         update_kind="price_change",
+                        full_depth_available=full_depth_by_token.get(token_id, False),
                     )
                 )
 
@@ -502,9 +552,12 @@ class CausalBookReplay:
         token_ids: Sequence[str],
         decision_at_ms: int,
         maximum_age_ms: int,
+        require_full_depth: bool = False,
     ) -> Mapping[str, CausalBookObservation]:
         if maximum_age_ms < 0:
             raise ValueError("maximum_age_ms cannot be negative")
+        if not isinstance(require_full_depth, bool):
+            raise TypeError("require_full_depth must be bool")
         result: dict[str, CausalBookObservation] = {}
         for token_id in token_ids:
             eligible = [
@@ -514,6 +567,7 @@ class CausalBookReplay:
                 and item.received_at_ms <= decision_at_ms
                 and decision_at_ms - item.source_at_ms <= maximum_age_ms
                 and decision_at_ms - item.received_at_ms <= maximum_age_ms
+                and (item.full_depth_available or not require_full_depth)
             ]
             if eligible:
                 result[token_id] = eligible[-1]

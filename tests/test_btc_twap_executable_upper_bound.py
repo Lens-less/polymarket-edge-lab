@@ -43,6 +43,11 @@ def test_gate_zero_builder_emits_one_depth_ladder_per_common_expiry(
     assert report["diagnostic"]["attempt_count"] == 1
     assert report["diagnostic"]["attempts"][0]["breakpoints"]
     assert report["diagnostic"]["counts_as_locked_oos_evidence"] is False
+    assert report["diagnostic"]["gate_0_route"] == "structural_floor_only"
+    assert report["policy"]["quantity_risk_cap_usdc"] is None
+    assert report["policy"]["quantity_scope"] == (
+        "all_captured_joint_depth_breakpoints"
+    )
     assert report["policy"]["can_authorize_live"] is False
     assert report["safety"]["orders_submitted"] == 0
     assert report["report_sha256"]

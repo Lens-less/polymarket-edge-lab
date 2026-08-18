@@ -46,6 +46,7 @@ def evaluate_shadow_health(
     shadow_config_returncode: int,
     source_runtime_returncode: int,
     performance_timer: Mapping[str, Any],
+    performance_service: Mapping[str, Any],
     health_timer: Mapping[str, Any],
     source_acl_service: Mapping[str, Any],
     source_active: bool,
@@ -81,6 +82,8 @@ def evaluate_shadow_health(
         failures.append("source_runtime_invalid")
     if not _unit_active(performance_timer):
         failures.append("performance_timer_inactive")
+    if not _unit_succeeded(performance_service):
+        failures.append("performance_service_failed")
     if not _unit_active(health_timer):
         failures.append("health_timer_inactive")
     if not _unit_succeeded(source_acl_service):
@@ -196,6 +199,7 @@ def evaluate_shadow_health(
         "status": None if status is None else dict(status),
         "status_freshness_seconds": heartbeat_age_seconds,
         "performance_timer": dict(performance_timer),
+        "performance_service": dict(performance_service),
         "health_timer": dict(health_timer),
         "source_acl_service": dict(source_acl_service),
         "source_v06_active": source_active,
