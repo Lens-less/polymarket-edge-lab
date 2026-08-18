@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import src.edge_lab.btc_twap_relative_value_readiness as readiness
 from scripts.watch_paper_tracks import (
     AlertRecord,
     Publisher,
@@ -225,6 +226,117 @@ def test_v08_capacity_snapshot_uses_recent_window_and_pending_started_are_not_su
         "maximum_receipts": 96,
     }
     assert "capture_capacity_terminal_evidence_unavailable" in result["reason_codes"]
+
+
+def test_watch_cycle_writes_capacity_artifact_without_overwriting_health(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = datetime(2026, 8, 18, 12, 0, tzinfo=UTC)
+    status_path = tmp_path / "v08" / "service" / "status.json"
+    health_path = tmp_path / "v08" / "monitor" / "edge-readiness-health-latest.json"
+    capacity_path = tmp_path / "watch" / "state" / "v08-capture-capacity.json"
+    host_status_path = tmp_path / "watch" / "state" / "host-status.json"
+    data_root = tmp_path / "v08" / "data"
+    capture_root = data_root / "runs" / "1786737600" / "attempt-1"
+    _write_json(
+        capture_root / "capture-summary.json",
+        {
+            "schema_version": "btc-twap-compact-forward-capture-summary.v1",
+            "data_root": str(capture_root.resolve()),
+            "duration_seconds": "300",
+            "capture_error": None,
+            "recorder_leg_failures": [],
+            "integrity": {
+                "orphan_partials": [],
+                "raw_without_manifest": [],
+                "manifest_without_raw": [],
+                "checksum_mismatches": [],
+                "invalid_manifests": [],
+            },
+        },
+    )
+    _write_json(
+        data_root / "service" / "attempt-receipts" / "attempt-1.json",
+        {
+            "schema_version": "btc-twap-capture-attempt-receipt.v1",
+            "attempt_id": "attempt-1",
+            "track_id": "v08",
+            "created_at": "2026-08-18T11:00:00Z",
+            "started_at": "2026-08-18T11:00:00Z",
+            "updated_at": "2026-08-18T11:10:00Z",
+            "terminal_at": "2026-08-18T11:10:00Z",
+            "scheduled_expiry_seconds": 1786737600,
+            "expiry_seconds": 1786737600,
+            "status": "succeeded",
+            "capture_root": str(capture_root),
+        },
+    )
+    _write_json(
+        status_path,
+        {
+            "phase": "capturing",
+            "heartbeat_at": "2026-08-18T12:00:00Z",
+            "completed_report_count": 1,
+        },
+    )
+    _write_json(
+        health_path,
+        {"schema_version": "btc-twap-service-health-evidence.v1", "sentinel": True},
+    )
+    _write_json(
+        host_status_path,
+        {
+            "schema_version": "polymm-local-host-status.v1",
+            "mem_available_bytes": 3 * 1024**3,
+            "cpu_credit_balance": 50.0,
+        },
+    )
+    config_path = _write_json(
+        tmp_path / "watch-config.json",
+        {
+            "schema_version": "polymm-paper-track-watch-config.v1",
+            "state_path": str(tmp_path / "watch" / "state" / "watch-state.json"),
+            "host": {"status_path": str(host_status_path)},
+            "tracks": [
+                {
+                    "name": "v08",
+                    "kind": "edge_readiness",
+                    "status_path": str(status_path),
+                    "health_path": str(health_path),
+                    "capacity_evidence_path": str(capacity_path),
+                    "data_root": str(data_root),
+                    "capture_summary_glob": str(
+                        data_root / "runs" / "*" / "*" / "capture-summary.json"
+                    ),
+                    "attempt_receipt_glob": str(
+                        data_root / "service" / "attempt-receipts" / "*.json"
+                    ),
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        "scripts.watch_paper_tracks.shutil.disk_usage",
+        lambda _path: SimpleNamespace(free=11 * 1024**3),
+    )
+
+    run_watch_cycle(
+        _load_watch_config(config_path),
+        publisher=CollectingPublisher(),
+        now=now,
+    )
+
+    health = json.loads(health_path.read_text(encoding="utf-8"))
+    artifact = readiness.load_verified_json_artifact(capacity_path)
+    valid, reasons = readiness._validated_capture_capacity_artifact(artifact)
+
+    assert health == {
+        "schema_version": "btc-twap-service-health-evidence.v1",
+        "sentinel": True,
+    }
+    assert valid is False
+    assert "capture_capacity_artifact_invalid" in reasons
 
 
 def _watch_config(

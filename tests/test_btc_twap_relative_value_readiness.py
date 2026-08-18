@@ -46,7 +46,13 @@ def _write_artifact(
 ):
     path = tmp_path / name
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+    document = dict(payload)
+    if "artifact_sha256" in document:
+        unsigned = {key: value for key, value in document.items() if key != "artifact_sha256"}
+        document["artifact_sha256"] = readiness.sha256(
+            json.dumps(unsigned, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+    path.write_text(json.dumps(document, sort_keys=True), encoding="utf-8")
     return load_verified_json_artifact(path)
 
 
@@ -241,7 +247,7 @@ def _probe_bundle(
                 "pending_attempt_receipts": [],
                 "host_metrics": {
                     "mem_available_bytes": 3 * 1024**3,
-                    "cpu_credit_balance": 50.0,
+                    "cpu_credit_balance": "50.0",
                     "cpu_credit_telemetry_unavailable": None,
                 },
                 "artifact_sha256": "",
