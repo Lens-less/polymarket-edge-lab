@@ -30,6 +30,7 @@ from src.edge_lab.btc_twap_relative_value_readiness import (  # noqa: E402
     CaptureCapacityEvidence,
     evaluate_capture_capacity,
 )
+from src.edge_lab.data_store import canonical_json_bytes  # noqa: E402
 
 
 def _parse_utc(value: str | None) -> datetime | None:
@@ -735,7 +736,11 @@ def _capture_capacity_snapshot(
         ],
         "host_metrics": {
             "mem_available_bytes": host_status.get("mem_available_bytes"),
-            "cpu_credit_balance": host_status.get("cpu_credit_balance"),
+            "cpu_credit_balance": (
+                None
+                if host_status.get("cpu_credit_balance") is None
+                else str(host_status.get("cpu_credit_balance"))
+            ),
             "cpu_credit_telemetry_unavailable": host_status.get(
                 "cpu_credit_telemetry_unavailable"
             ),
@@ -761,9 +766,7 @@ def _capture_capacity_snapshot(
             },
         },
     }
-    artifact_sha256 = hashlib.sha256(
-        json.dumps(unsigned, sort_keys=True).encode("utf-8")
-    ).hexdigest()
+    artifact_sha256 = hashlib.sha256(canonical_json_bytes(unsigned)).hexdigest()
     return {
         **unsigned["verdict"],
         "schema_version": unsigned["schema_version"],
