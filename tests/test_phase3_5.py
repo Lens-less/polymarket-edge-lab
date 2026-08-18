@@ -202,6 +202,7 @@ class TestMarketFeed:
         print("✓ MarketFeed instantiated")
 
     @pytest.mark.asyncio
+    @pytest.mark.network
     async def test_start_stop(self):
         """Test basic lifecycle."""
         from src.feed import MarketFeed, FeedState
@@ -223,6 +224,7 @@ class TestMarketFeed:
         print("✓ Start/stop works")
 
     @pytest.mark.asyncio
+    @pytest.mark.network
     async def test_health_and_data(self):
         """Test health status and data access."""
         from src.feed import MarketFeed
@@ -255,6 +257,7 @@ class TestMarketFeed:
             await feed.stop()
 
     @pytest.mark.asyncio
+    @pytest.mark.network
     async def test_callbacks(self):
         """Test callbacks are invoked."""
         from src.feed import MarketFeed
@@ -312,6 +315,7 @@ class TestMarketFeed:
             await feed.stop()
 
     @pytest.mark.asyncio
+    @pytest.mark.network
     async def test_state_transitions(self):
         """Test state change callbacks."""
         from src.feed import MarketFeed, FeedState
@@ -344,6 +348,7 @@ class TestMarketFeed:
             raise
 
 
+@pytest.mark.network
 class TestIntegration:
     """Integration tests."""
 
