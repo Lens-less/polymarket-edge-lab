@@ -53,6 +53,9 @@ from .settlement_regime import (
 from .sources import GAMMA_BASE, PublicSourceError, PublicSourcesClient
 
 SERVICE_CONFIG_SCHEMA = "btc-twap-relative-value-continuous-service.v1"
+EDGE_READINESS_SERVICE_CONFIG_SCHEMA = (
+    "btc-5m-15m-edge-readiness-v08-service-config.v2"
+)
 SERVICE_STATUS_SCHEMA = "btc-twap-relative-value-service-status.v1"
 CAPTURE_CONFIG_SCHEMA = "edge-lab-forward-capture-config.v1"
 _ATTEMPT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -329,6 +332,8 @@ class CompactRecorderSink:
         allowed_asset_ids: tuple[str, ...],
         reconstructed_book_interval_ms: int = 250,
         semantic_dedup_max_records: int = _COMPACT_DATA_IDENTITY_MAX,
+        persist_reconstructed_full_depth_frames: bool = True,
+        persist_top_of_book_changes: bool = False,
     ) -> None:
         if not isinstance(backing, CaptureStoreRecorderSink):
             raise TypeError("backing must be CaptureStoreRecorderSink")
@@ -350,10 +355,23 @@ class CompactRecorderSink:
             or semantic_dedup_max_records <= 0
         ):
             raise ValueError("semantic_dedup_max_records must be positive")
+        for name, value in (
+            (
+                "persist_reconstructed_full_depth_frames",
+                persist_reconstructed_full_depth_frames,
+            ),
+            ("persist_top_of_book_changes", persist_top_of_book_changes),
+        ):
+            if not isinstance(value, bool):
+                raise TypeError(f"{name} must be bool")
         self.backing = backing
         self.allowed_asset_ids = frozenset(allowed_asset_ids)
         self.reconstructed_book_interval_ms = reconstructed_book_interval_ms
         self.semantic_dedup_max_records = semantic_dedup_max_records
+        self.persist_reconstructed_full_depth_frames = (
+            persist_reconstructed_full_depth_frames
+        )
+        self.persist_top_of_book_changes = persist_top_of_book_changes
         self._depth_by_asset: dict[
             str, tuple[dict[Decimal, Decimal], dict[Decimal, Decimal]]
         ] = {}
@@ -399,8 +417,11 @@ class CompactRecorderSink:
 
     @staticmethod
     def _source_timestamp_ms(payload: Mapping[str, Any]) -> int | None:
+        raw_value = payload.get("timestamp")
+        if raw_value is None:
+            return None
         try:
-            value = int(payload.get("timestamp"))
+            value = int(raw_value)
         except (TypeError, ValueError):
             return None
         return value if value >= 0 else None
@@ -540,6 +561,62 @@ class CompactRecorderSink:
             self._last_emitted_book_ms[token_id] = timestamp_ms
         return emitted
 
+    async def _emit_top_of_book_changes(
+        self,
+        compact: Mapping[str, Any],
+    ) -> Any:
+        """Persist only target top-of-book changes, never the raw CLOB frame."""
+
+        payload = compact.get("payload")
+        if not isinstance(payload, Mapping):
+            return None
+        timestamp_ms = self._source_timestamp_ms(payload)
+        changes = payload.get("price_changes")
+        if timestamp_ms is None or not isinstance(changes, list):
+            return None
+        retained: list[dict[str, str]] = []
+        for change in changes:
+            if not isinstance(change, Mapping):
+                continue
+            token_id = change.get("asset_id")
+            best_bid = self._decimal(change.get("best_bid"))
+            best_ask = self._decimal(change.get("best_ask"))
+            if (
+                token_id not in self.allowed_asset_ids
+                or best_bid is None
+                or best_ask is None
+            ):
+                continue
+            retained.append(
+                {
+                    "asset_id": str(token_id),
+                    "best_bid": str(best_bid),
+                    "best_ask": str(best_ask),
+                }
+            )
+        if not retained:
+            return None
+        top_payload = {
+            "event_type": "best_bid_ask",
+            "market": payload.get("market"),
+            "timestamp": str(timestamp_ms),
+            "changes": retained,
+            "source_event_type": "price_change",
+        }
+        top_record = dict(compact)
+        top_record.update(
+            {
+                "schema_version": "clob-market-ws.compact-top-of-book.v1",
+                "event_type": "best_bid_ask",
+                "server_timestamp": str(timestamp_ms),
+                "payload_hash": hashlib.sha256(
+                    canonical_json_bytes(top_payload)
+                ).hexdigest(),
+                "payload": top_payload,
+            }
+        )
+        return await self._persist_record(top_record)
+
     @staticmethod
     def _normalized_levels(value: Any, *, bids: bool) -> list[dict[str, str]]:
         if not isinstance(value, list):
@@ -566,7 +643,25 @@ class CompactRecorderSink:
     ) -> dict[str, Any] | None:
         if not isinstance(event_type, str) or not isinstance(payload, Mapping):
             return None
-        if event_type in {"best_bid_ask", "new_market"}:
+        if event_type == "best_bid_ask":
+            if not self.persist_top_of_book_changes:
+                return None
+            asset_id = payload.get("asset_id")
+            if asset_id not in self.allowed_asset_ids:
+                return None
+            return {
+                key: payload[key]
+                for key in (
+                    "event_type",
+                    "market",
+                    "asset_id",
+                    "timestamp",
+                    "best_bid",
+                    "best_ask",
+                )
+                if key in payload
+            }
+        if event_type == "new_market":
             return None
         if event_type == "price_change":
             return None
@@ -717,7 +812,12 @@ class CompactRecorderSink:
                     compact.get("kind") == "data"
                     and compact.get("event_type") == "price_change"
                 ):
-                    return await self._emit_reconstructed_books(compact)
+                    emitted = None
+                    if self.persist_reconstructed_full_depth_frames:
+                        emitted = await self._emit_reconstructed_books(compact)
+                    if self.persist_top_of_book_changes:
+                        emitted = await self._emit_top_of_book_changes(compact)
+                    return emitted
                 compact_payload = self._compact_clob_payload(
                     compact.get("event_type"), compact.get("payload")
                 )
@@ -793,6 +893,12 @@ class ContinuousServiceConfig:
     seed_report_paths: tuple[Path, ...] = ()
     settlement_regime_id: str = LEGACY_SETTLEMENT_REGIME_ID
     regime_registry_path: Path | None = None
+    clob_snapshot_interval_seconds: int = 5
+    public_taker_trades_interval_seconds: int = 30
+    rules_interval_seconds: int = 30
+    persist_raw_clob_frames: bool = False
+    persist_reconstructed_full_depth_frames: bool = True
+    persist_top_of_book_changes: bool = False
 
     def __post_init__(self) -> None:
         for name in ("data_root", "research_root", "preregistration_path"):
@@ -820,10 +926,22 @@ class ContinuousServiceConfig:
             "status_interval_seconds",
             "minimum_free_disk_bytes",
             "max_history_roots",
+            "clob_snapshot_interval_seconds",
+            "public_taker_trades_interval_seconds",
+            "rules_interval_seconds",
         ):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
                 raise ValueError(f"{name} must be a positive integer")
+        for name in (
+            "persist_raw_clob_frames",
+            "persist_reconstructed_full_depth_frames",
+            "persist_top_of_book_changes",
+        ):
+            if not isinstance(getattr(self, name), bool):
+                raise TypeError(f"{name} must be bool")
+        if self.persist_raw_clob_frames:
+            raise ValueError("compact pair capture cannot persist raw CLOB frames")
         raw_taus = self.decision_tau_seconds
         decision_taus = (raw_taus,) if isinstance(raw_taus, int) else raw_taus
         if (
@@ -1056,12 +1174,17 @@ def evaluate_service_health(
 
 
 def load_service_config(path: Path) -> ContinuousServiceConfig:
-    raw = json.loads(path.expanduser().resolve().read_text(encoding="utf-8"))
+    resolved_path = path.expanduser().resolve()
+    raw = json.loads(resolved_path.read_text(encoding="utf-8"))
     if not isinstance(raw, Mapping):
         raise TypeError("continuous service config must be an object")
-    if raw.get("schema_version") != SERVICE_CONFIG_SCHEMA:
+    schema_version = raw.get("schema_version")
+    if schema_version not in {
+        SERVICE_CONFIG_SCHEMA,
+        EDGE_READINESS_SERVICE_CONFIG_SCHEMA,
+    }:
         raise ValueError("unsupported continuous service config schema")
-    allowed = {
+    legacy_allowed = {
         "schema_version",
         "data_root",
         "research_root",
@@ -1078,6 +1201,24 @@ def load_service_config(path: Path) -> ContinuousServiceConfig:
         "settlement_regime_id",
         "regime_registry_path",
     }
+    edge_readiness_allowed = legacy_allowed | {
+        "track_id",
+        "mode",
+        "continuous_rtds_root",
+        "continuous_rtds_status_path",
+        "rolling_lock_journal_root",
+        "gate_0_report_path",
+        "official_rtds",
+        "pair_capture",
+        "capacity_gate",
+        "safety",
+        "eligibility_defaults",
+    }
+    allowed = (
+        edge_readiness_allowed
+        if schema_version == EDGE_READINESS_SERVICE_CONFIG_SCHEMA
+        else legacy_allowed
+    )
     unexpected = set(raw) - allowed
     if unexpected:
         raise ValueError(
@@ -1118,6 +1259,116 @@ def load_service_config(path: Path) -> ContinuousServiceConfig:
         not isinstance(registry_path_raw, str) or not registry_path_raw.strip()
     ):
         raise ValueError("regime_registry_path must be a non-empty path string")
+    pair_capture: Mapping[str, Any] = {}
+    capacity_gate: Mapping[str, Any] = {}
+    if schema_version == EDGE_READINESS_SERVICE_CONFIG_SCHEMA:
+        pair_capture_raw = raw.get("pair_capture")
+        capacity_gate_raw = raw.get("capacity_gate")
+        official_rtds = raw.get("official_rtds")
+        safety = raw.get("safety")
+        eligibility = raw.get("eligibility_defaults")
+        if not isinstance(pair_capture_raw, Mapping):
+            raise TypeError("pair_capture must be an object")
+        if not isinstance(capacity_gate_raw, Mapping):
+            raise TypeError("capacity_gate must be an object")
+        if not isinstance(official_rtds, Mapping):
+            raise TypeError("official_rtds must be an object")
+        if not isinstance(safety, Mapping):
+            raise TypeError("safety must be an object")
+        if not isinstance(eligibility, Mapping):
+            raise TypeError("eligibility_defaults must be an object")
+        expected_pair_capture = {
+            "token_scope",
+            "persist_raw_clob_frames",
+            "persist_reconstructed_full_depth_frames",
+            "persist_top_of_book_changes",
+            "full_clob_snapshot_interval_seconds",
+            "public_taker_trades_interval_seconds",
+            "rules_interval_seconds",
+            "retain_source_receipt_and_monotonic_timestamps",
+            "single_recorder_leg_failure_policy",
+        }
+        if set(pair_capture_raw) != expected_pair_capture:
+            raise ValueError("pair_capture fields do not match the v0.8 contract")
+        if (
+            pair_capture_raw.get("token_scope") != "paired_four_tokens_only"
+            or pair_capture_raw.get("retain_source_receipt_and_monotonic_timestamps")
+            is not True
+            or pair_capture_raw.get("single_recorder_leg_failure_policy")
+            != "dirty"
+        ):
+            raise ValueError("pair_capture safety policy is invalid")
+        for name in (
+            "persist_raw_clob_frames",
+            "persist_reconstructed_full_depth_frames",
+            "persist_top_of_book_changes",
+        ):
+            if type(pair_capture_raw.get(name)) is not bool:
+                raise TypeError(f"pair_capture.{name} must be bool")
+        for name in (
+            "full_clob_snapshot_interval_seconds",
+            "public_taker_trades_interval_seconds",
+            "rules_interval_seconds",
+        ):
+            value = pair_capture_raw.get(name)
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(f"pair_capture.{name} must be positive")
+        expected_capacity_gate = {
+            "maximum_capture_failure_rate",
+            "minimum_free_disk_bytes",
+            "maximum_projected_daily_capture_bytes",
+            "minimum_memory_bytes",
+            "burstable_cpu_credit_exhaustion_allowed",
+            "failure_action",
+        }
+        if set(capacity_gate_raw) != expected_capacity_gate:
+            raise ValueError("capacity_gate fields do not match the v0.8 contract")
+        for name in (
+            "minimum_free_disk_bytes",
+            "maximum_projected_daily_capture_bytes",
+            "minimum_memory_bytes",
+        ):
+            value = capacity_gate_raw.get(name)
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(f"capacity_gate.{name} must be positive")
+        if (
+            Decimal(str(capacity_gate_raw.get("maximum_capture_failure_rate")))
+            != Decimal("0.05")
+            or capacity_gate_raw.get("burstable_cpu_credit_exhaustion_allowed")
+            is not False
+            or capacity_gate_raw.get("failure_action")
+            != "stop_all_statistical_and_probe_promotion"
+        ):
+            raise ValueError("capacity_gate safety policy is invalid")
+        if official_rtds != {
+            "topic": "crypto_prices_twap_sixty",
+            "type": "update",
+            "filter": {"symbol": "btc/usd"},
+            "continuous": True,
+            "maximum_gap_ms": 2000,
+            "disconnect_policy": "dirty",
+        }:
+            raise ValueError("official_rtds policy is invalid")
+        if safety != {
+            "paper_only": True,
+            "public_only": True,
+            "new_orders_disabled": True,
+            "credentials_allowed": False,
+            "authenticated_endpoints_allowed": False,
+            "production_probe_adapter_installed": False,
+        }:
+            raise ValueError("v0.8 safety policy is invalid")
+        if any(value is not False for value in eligibility.values()) or set(
+            eligibility
+        ) != {
+            "execution_probe_eligible",
+            "strategy_live_eligible",
+            "predictive_live_fallback_allowed",
+        }:
+            raise ValueError("v0.8 eligibility defaults must all be false")
+        pair_capture = pair_capture_raw
+        capacity_gate = capacity_gate_raw
+
     return ContinuousServiceConfig(
         data_root=Path(str(raw.get("data_root", ""))),
         research_root=Path(str(raw.get("research_root", ""))),
@@ -1125,10 +1376,20 @@ def load_service_config(path: Path) -> ContinuousServiceConfig:
         settlement_grace_seconds=int(raw.get("settlement_grace_seconds", 360)),
         retry_seconds=int(raw.get("retry_seconds", 30)),
         status_interval_seconds=int(raw.get("status_interval_seconds", 15)),
-        minimum_free_disk_bytes=int(raw.get("minimum_free_disk_bytes", 12 * 1024**3)),
+        minimum_free_disk_bytes=int(
+            capacity_gate.get(
+                "minimum_free_disk_bytes",
+                raw.get("minimum_free_disk_bytes", 12 * 1024**3),
+            )
+        ),
         max_history_roots=int(raw.get("max_history_roots", 1)),
         decision_tau_seconds=decision_taus,
-        evidence_track_id=str(raw.get("evidence_track_id", LEGACY_EVIDENCE_TRACK_ID)),
+        evidence_track_id=str(
+            raw.get(
+                "evidence_track_id",
+                raw.get("track_id", LEGACY_EVIDENCE_TRACK_ID),
+            )
+        ),
         clock_sync_source=str(raw.get("clock_sync_source", CLOCK_SYNC_SOURCE_SNTP)),
         seed_report_paths=tuple(Path(item) for item in seed),
         settlement_regime_id=str(
@@ -1136,6 +1397,24 @@ def load_service_config(path: Path) -> ContinuousServiceConfig:
         ),
         regime_registry_path=(
             None if registry_path_raw is None else Path(registry_path_raw)
+        ),
+        clob_snapshot_interval_seconds=int(
+            pair_capture.get("full_clob_snapshot_interval_seconds", 5)
+        ),
+        public_taker_trades_interval_seconds=int(
+            pair_capture.get("public_taker_trades_interval_seconds", 30)
+        ),
+        rules_interval_seconds=int(
+            pair_capture.get("rules_interval_seconds", 30)
+        ),
+        persist_raw_clob_frames=bool(
+            pair_capture.get("persist_raw_clob_frames", False)
+        ),
+        persist_reconstructed_full_depth_frames=bool(
+            pair_capture.get("persist_reconstructed_full_depth_frames", True)
+        ),
+        persist_top_of_book_changes=bool(
+            pair_capture.get("persist_top_of_book_changes", False)
         ),
     )
 
@@ -1162,6 +1441,47 @@ def validate_preregistration_runtime_identity(
     scope = preregistration.get("scope")
     if not isinstance(scope, Mapping):
         raise ValueError("preregistration scope must be an object")
+    if preregistration.get("schema_version") == (
+        "btc-5m-15m-edge-readiness-preregistration.v08-draft"
+    ):
+        if (
+            scope.get("public_capture_only") is not True
+            or scope.get("new_orders_disabled_by_default") is not True
+            or scope.get("strategy_live_status") != "NO_GO"
+            or scope.get("execution_probe_status") != "NO_GO"
+            or scope.get("production_venue_adapter_distributed") is not False
+        ):
+            raise ValueError("v0.8 preregistration scope is not fail closed")
+        runtime = preregistration.get("runtime_capture_contract")
+        if not isinstance(runtime, Mapping):
+            raise ValueError("v0.8 runtime_capture_contract must be an object")
+        _parse_required_utc_timestamp(
+            runtime.get("prospective_only_after"),
+            field="runtime_capture_contract.prospective_only_after",
+        )
+        if runtime.get("evidence_track_id") != config.evidence_track_id:
+            raise ValueError("v0.8 evidence track does not match service config")
+        decision_taus = config.decision_tau_seconds
+        normalized_decision_taus = (
+            (decision_taus,) if isinstance(decision_taus, int) else decision_taus
+        )
+        if runtime.get("decision_tau_seconds") != list(normalized_decision_taus):
+            raise ValueError("v0.8 decision taus do not match service config")
+        if runtime.get("clock_sync_source") != config.clock_sync_source:
+            raise ValueError("v0.8 clock source does not match service config")
+        if runtime.get("settlement_regime_id") != config.settlement_regime_id:
+            raise ValueError("v0.8 settlement regime does not match service config")
+        current_decision = preregistration.get("current_decision")
+        if not isinstance(current_decision, Mapping) or (
+            current_decision.get("strategy_live") != "NO_GO"
+            or current_decision.get("execution_probe") != "NO_GO"
+        ):
+            raise ValueError("v0.8 current decision must remain NO_GO")
+        if config.regime_registry_path is None:
+            raise ValueError("v0.8 settlement registry path is required")
+        registry = load_settlement_regime_registry(config.regime_registry_path)
+        registry.require(config.settlement_regime_id)
+        return
     if scope.get("paper_only") is not True:
         raise ValueError("preregistration scope must keep paper_only=true")
     if scope.get("live_orders_disabled") is not True:
@@ -1221,7 +1541,11 @@ def validate_preregistration_runtime_identity(
     if not isinstance(frozen_strategy, Mapping):
         raise ValueError("preregistration frozen_strategy must be an object")
     frozen_taus = frozen_strategy.get("decision_tau_seconds")
-    if frozen_taus != list(config.decision_tau_seconds):
+    decision_taus = config.decision_tau_seconds
+    normalized_decision_taus = (
+        (decision_taus,) if isinstance(decision_taus, int) else decision_taus
+    )
+    if frozen_taus != list(normalized_decision_taus):
         raise ValueError("service decision_tau_seconds do not match preregistration")
     frozen_clock = frozen_strategy.get("clock_sync")
     if not isinstance(frozen_clock, Mapping):
@@ -1419,7 +1743,16 @@ def build_capture_plan(
         # Pair discovery has already frozen the two targets.  Avoid repeatedly
         # fetching unrelated Gamma pages; spend that budget on causal full-book,
         # trade, fee, rule, and clock evidence instead.
-        "snapshot_intervals": {"clob": 5, "trades": 30, "rules": 30},
+        "snapshot_intervals": {
+            "clob": config.clob_snapshot_interval_seconds,
+            "trades": config.public_taker_trades_interval_seconds,
+            "rules": config.rules_interval_seconds,
+        },
+        "persist_raw_clob_frames": config.persist_raw_clob_frames,
+        "persist_reconstructed_full_depth_frames": (
+            config.persist_reconstructed_full_depth_frames
+        ),
+        "persist_top_of_book_changes": config.persist_top_of_book_changes,
         # The upstream CLOB stream can exceed 300 events/second even though
         # only the frozen 100-500ms replay surface is retained.  Checkpoint on
         # upstream count infrequently to avoid thousands of tiny manifests;
@@ -1596,7 +1929,7 @@ def discover_next_pair(
 def _build_redundant_recorder_configs(
     config: ForwardCaptureConfig,
 ) -> tuple[RecorderConfig, RecorderConfig]:
-    common = {
+    common: dict[str, Any] = {
         "clob_asset_ids": config.asset_ids,
         "rtds_subscriptions": config.rtds_subscriptions,
         "checkpoint_every_records": config.checkpoint_every_records,
@@ -1677,6 +2010,8 @@ async def run_compact_forward_capture(
 ) -> dict[str, Any]:
     if not math.isfinite(duration_seconds) or duration_seconds <= 0:
         raise ValueError("duration_seconds must be positive and finite")
+    if config.persist_raw_clob_frames:
+        raise ValueError("compact capture cannot persist raw CLOB frames")
     verify_paper_only_guard()
     session = public_session(proxy_url)
     sources = PublicSourcesClient(
@@ -1695,6 +2030,10 @@ async def run_compact_forward_capture(
     sink = CompactRecorderSink(
         backing,
         allowed_asset_ids=tuple(config.asset_ids),
+        persist_reconstructed_full_depth_frames=(
+            config.persist_reconstructed_full_depth_frames
+        ),
+        persist_top_of_book_changes=config.persist_top_of_book_changes,
     )
     snapshots = PublicSourcesSnapshotClient(
         sources,

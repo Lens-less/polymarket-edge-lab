@@ -342,10 +342,11 @@ def build_upper_bound_report(
             attempt_id=unique_attempt_id,
             pair=context.pair,
             settlement_state=context.settlement_state,
-            books=_books_for_context(context) or {},
+            books=_books_for_context(context, required=False) or {},
             actual_5_up=context.actual_5_up,
             actual_15_up=context.actual_15_up,
             pricing_policy=pricing_policy,
+            execution_mode=PairExecutionMode.MAKER_MAKER,
         )
 
     if decision_tau_seconds is None:
@@ -442,10 +443,10 @@ def build_upper_bound_report(
             ] = (context, books)
     observations_by_expiry = {
         expiry_id: tuple(
-            slots[ttc_seconds]
-            for ttc_seconds in sorted(slots, reverse=True)
+            observation_slots[expiry_id][ttc_seconds]
+            for ttc_seconds in sorted(observation_slots[expiry_id], reverse=True)
         )
-        for expiry_id, slots in observation_slots.items()
+        for expiry_id in sorted(contexts_by_expiry)
     }
     execution_modes, split_probability_diagnostics = (
         _execution_mode_diagnostics(
@@ -463,8 +464,8 @@ def build_upper_bound_report(
         "expected_clean_attempts": expected_clean_attempts,
         "observed_unique_common_expiry_attempts": len(selected),
         "selected_decision_tau_seconds_by_expiry": {
-            context.expiry_cluster_id: context.decision_tau_seconds
-            for context in selected
+            str(attempt["attempt_id"]): attempt["best_ttc_seconds"]
+            for attempt in maker_maker_gate["attempts"]
         },
         "diagnostic": diagnostic.to_document(),
         "execution_modes": execution_modes,

@@ -490,7 +490,7 @@ Before going live:
 ## Dependencies
 
 ```
-py-clob-client    # Polymarket API client
+polymarket-client # Official unified Polymarket API SDK
 python-dotenv     # Environment variables
 websockets        # WebSocket connections
 pandas            # Data analysis

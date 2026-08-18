@@ -25,9 +25,6 @@ COPY requirements.lock /tmp/requirements.lock
 RUN pip install --upgrade pip && \
     pip install -r /tmp/requirements.lock
 
-# Install py-clob-client (must be installed separately)
-RUN pip install py-clob-client
-
 # ===== Production Stage =====
 FROM python:3.11-slim AS production
 

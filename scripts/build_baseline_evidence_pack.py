@@ -1493,6 +1493,29 @@ def _current_snapshot_evidence(
     }
 
 
+def _frozen_evidence_set(repo_root: Path, evidence_id: str) -> dict[str, Any]:
+    frozen_pack_path = repo_root / PACK_RELATIVE_PATH
+    if not frozen_pack_path.is_file():
+        raise FileNotFoundError("missing frozen baseline evidence pack")
+    frozen_pack = _read_json(frozen_pack_path)
+    frozen_sets = frozen_pack.get("evidence_sets")
+    if not isinstance(frozen_sets, list):
+        raise ValueError("frozen baseline evidence_sets are invalid")
+    result = next(
+        (
+            json.loads(json.dumps(item))
+            for item in frozen_sets
+            if isinstance(item, Mapping) and item.get("evidence_id") == evidence_id
+        ),
+        None,
+    )
+    if result is None:
+        raise ValueError(f"frozen baseline lacks {evidence_id}")
+    result.setdefault("details", {})["source_artifacts_missing_from_checkout"] = True
+    result["details"]["fallback_source"] = PACK_RELATIVE_PATH.as_posix()
+    return result
+
+
 def build_pack(repo_root: Path | str) -> dict[str, Any]:
     """Return a deterministic evidence pack for the repository at ``repo_root``."""
 
@@ -1511,11 +1534,22 @@ def build_pack(repo_root: Path | str) -> dict[str, Any]:
     observe_path = old_research / "singapore_28_observe.jsonl"
     observe_records = _read_jsonl(observe_path)
     log_paths = sorted((root / "logs").glob("trades_*.jsonl"))
+    frozen_pack_path = root / PACK_RELATIVE_PATH
+    frozen_dry_run_evidence: dict[str, Any] | None = None
     if not log_paths:
-        raise FileNotFoundError("no legacy dry-run trade logs found")
+        frozen_dry_run_evidence = _frozen_evidence_set(
+            root,
+            "legacy_dry_run_jsonl",
+        )
     autoresearch_results_path = root / "autoresearch-results.tsv"
-    if not autoresearch_results_path.is_file():
-        raise FileNotFoundError("missing autoresearch-results.tsv")
+    frozen_autoresearch_evidence = (
+        None
+        if autoresearch_results_path.is_file()
+        else _frozen_evidence_set(
+            root,
+            "legacy_autoresearch_parameter_search",
+        )
+    )
 
     replay_documents = [
         (path, document)
@@ -1542,8 +1576,16 @@ def build_pack(repo_root: Path | str) -> dict[str, Any]:
 
     evidence_sets = [
         _legacy_mock_evidence(root),
-        _legacy_dry_run_evidence(root, log_paths),
-        _legacy_autoresearch_evidence(root, autoresearch_results_path),
+        (
+            _legacy_dry_run_evidence(root, log_paths)
+            if frozen_dry_run_evidence is None
+            else frozen_dry_run_evidence
+        ),
+        (
+            _legacy_autoresearch_evidence(root, autoresearch_results_path)
+            if frozen_autoresearch_evidence is None
+            else frozen_autoresearch_evidence
+        ),
         _public_replay_evidence(root, replay_documents),
         _observe_evidence(root, observe_path, observe_records),
         _complete_set_scan_evidence(root, complete_set_scans),
@@ -1555,7 +1597,14 @@ def build_pack(repo_root: Path | str) -> dict[str, Any]:
 
     data_paths = [path for path, _ in json_documents]
     data_paths.extend(sorted(old_research.glob("*.md")))
-    data_paths.extend([observe_path, autoresearch_results_path, *log_paths])
+    data_paths.extend([observe_path, *log_paths])
+    if autoresearch_results_path.is_file():
+        data_paths.append(autoresearch_results_path)
+    if (
+        frozen_dry_run_evidence is not None
+        or frozen_autoresearch_evidence is not None
+    ):
+        data_paths.append(frozen_pack_path)
     method_paths = [
         root / "scripts/build_baseline_evidence_pack.py",
         root / "scripts/run_backtest.py",
@@ -1652,11 +1701,16 @@ def _write_json_atomic(path: Path, value: Any) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary_path, path)
-        directory_fd = os.open(path.parent, os.O_RDONLY)
         try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
+            directory_fd = os.open(path.parent, os.O_RDONLY)
+        except PermissionError:
+            if os.name != "nt":
+                raise
+        else:
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
     finally:
         if temporary_path is not None:
             temporary_path.unlink(missing_ok=True)

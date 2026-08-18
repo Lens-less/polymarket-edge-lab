@@ -27,26 +27,28 @@ def test_client_creation():
     print("✓ Client created successfully")
 
 
+@pytest.mark.network
 def test_client_connectivity():
     """Verify we can connect to Polymarket CLOB API"""
-    from src.client import get_client
+    import requests
+    from src.config import CLOB_API_URL
 
-    client = get_client()
-
-    # Test 1: Basic connectivity - get_ok() returns "OK" string
-    result = client.get_ok()
+    response = requests.get(CLOB_API_URL, timeout=10)
+    response.raise_for_status()
+    result = response.text.strip().strip('"')
     assert result == "OK", f"Expected 'OK', got {result}"
     print(f"✓ API connectivity verified: {result}")
 
 
+@pytest.mark.network
 def test_server_time():
     """Verify we can get server time"""
-    from src.client import get_client
+    import requests
+    from src.config import CLOB_API_URL
 
-    client = get_client()
-
-    # get_server_time() returns the server timestamp
-    server_time = client.get_server_time()
+    response = requests.get(f"{CLOB_API_URL}/time", timeout=10)
+    response.raise_for_status()
+    server_time = response.json()
     assert server_time is not None, "Server time should not be None"
     print(f"✓ Server time: {server_time}")
 

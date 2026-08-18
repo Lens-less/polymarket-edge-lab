@@ -23,7 +23,7 @@ def get_midpoint(token_id: str) -> Optional[float]:
     client = get_client()
 
     try:
-        result = client.get_midpoint(token_id)
+        result = client.get_midpoint(token_id=token_id)
         if result is not None:
             return float(result)
         return None
@@ -46,7 +46,7 @@ def get_price(token_id: str, side: str = "BUY") -> Optional[float]:
     client = get_client()
 
     try:
-        result = client.get_price(token_id, side=side)
+        result = client.get_price(token_id=token_id, side=side)
         if result is not None:
             return float(result)
         return None
@@ -71,7 +71,7 @@ def get_order_book(token_id: str) -> Optional[OrderBook]:
     client = get_client()
 
     try:
-        result = client.get_order_book(token_id)
+        result = client.get_order_book(token_id=token_id)
         return _parse_order_book(token_id, result)
     except Exception as e:
         error_str = str(e)
@@ -95,16 +95,12 @@ def get_order_books(token_ids: List[str]) -> Dict[str, OrderBook]:
     client = get_client()
 
     try:
-        # Build params for batch request
-        from py_clob_client.clob_types import BookParams
-        params = [BookParams(token_id=tid) for tid in token_ids]
-
-        results = client.get_order_books(params)
+        results = client.get_order_books(token_ids=token_ids)
 
         books = {}
         for i, result in enumerate(results):
             if result:
-                token_id = token_ids[i]
+                token_id = str(getattr(result, "token_id", token_ids[i]))
                 books[token_id] = _parse_order_book(token_id, result)
 
         return books
@@ -152,7 +148,7 @@ def _parse_order_book(token_id: str, data: Any) -> OrderBook:
     asks = []
     timestamp = None
 
-    # Handle OrderBookSummary object from py-clob-client
+    # Handle the official unified SDK OrderBook model.
     if hasattr(data, 'bids') and hasattr(data, 'asks'):
         # Parse bids (buy orders)
         for bid in data.bids:
@@ -170,7 +166,9 @@ def _parse_order_book(token_id: str, data: Any) -> OrderBook:
                     size=float(ask.size)
                 ))
 
-        timestamp = getattr(data, 'timestamp', None)
+        timestamp_value = getattr(data, 'timestamp', None)
+        isoformat = getattr(timestamp_value, "isoformat", None)
+        timestamp = isoformat() if callable(isoformat) else timestamp_value
 
     # Handle dictionary format (for compatibility)
     elif isinstance(data, dict):

@@ -187,7 +187,12 @@ class RecorderClientConnection(ClientConnection):
 
         self.protocol.receive_eof()
         self.set_recv_exc(exc)
-        self.terminate_pending_pings()
+        # websockets 15 renamed this cleanup hook from
+        # ``terminate_pending_pings`` to ``abort_pings``.
+        abort_pings = getattr(self, "abort_pings", None)
+        if abort_pings is None:  # pragma: no cover - websockets < 15
+            abort_pings = getattr(self, "terminate_pending_pings")
+        abort_pings()
         if self.keepalive_task is not None:
             self.keepalive_task.cancel()
         if not self.connection_lost_waiter.done():

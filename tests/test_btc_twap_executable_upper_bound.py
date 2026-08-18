@@ -215,7 +215,9 @@ def test_gate_zero_builder_scans_all_taus_and_keeps_best_attempt_per_expiry(
     assert report["decision_tau_seconds"] is None
     assert report["selected_decision_tau_seconds_by_expiry"] == {"expiry-1": 60}
     assert report["diagnostic"]["attempt_count"] == 1
-    assert report["diagnostic"]["attempts"][0]["best_total_pnl"] == "0E-8"
+    assert D(report["diagnostic"]["attempts"][0]["best_total_pnl"]) == D(
+        "0.020"
+    )
     assert set(report["execution_modes"]) == {
         "taker_taker",
         "maker_taker",

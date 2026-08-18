@@ -2,10 +2,11 @@
 
 这是一个面向 Polymarket 的公开数据研究与成交感知回放工程。主线不再是“对称挂单后调 spread”，而是独立研究天气概率、跨市场逻辑约束、标准/augmented Neg-Risk、选择性奖励做市和标的价格延迟。
 
-> **截至 2026-07-24：没有找到经过严格认定的回测盈利策略，不建议实盘交易。**
+> **截至 2026-08-18：没有找到经过严格认定的回测盈利策略，不建议实盘交易。**
 >
-> 当前可认证成交为 0，实际 reward payout 为 0。所有新实盘订单仍由
-> `assert_new_orders_disabled()` 硬阻断，研究命令不会读取钱包私钥或交易凭证。
+> BTC 5m/15m 的 Gate 0 已修为全窗口、三执行口径，但本地缺少 41 个部署
+> capture tree 与 200 个双 maker shadow 到期样本。运行时已迁到官方统一 SDK；
+> 新订单仍需八项兼容性证据全部通过，普通研究命令不会读取钱包私钥或凭证。
 
 最终证据入口：
 
@@ -47,7 +48,7 @@
 
 ## 安装
 
-需要 Python 3.10+。推荐使用 `uv`：
+需要 Python 3.11+。推荐使用 `uv`：
 
 ```bash
 uv sync --python 3.12 --extra dev
@@ -69,7 +70,7 @@ pip install -r requirements.txt
 ### 纯离线、只读
 
 ```bash
-# 检查旧 SDK/V2 兼容性和新订单 guard
+# 检查统一 SDK、地理限制与八项新订单 guard
 ./.venv/bin/python scripts/run_edge_lab.py audit
 
 # 校验 recorder 配置和 guard，不访问网络

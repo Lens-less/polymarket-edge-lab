@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from decimal import ROUND_CEILING, ROUND_DOWN, Decimal
 from enum import Enum
 
-from .btc_twap_relative_value import OrderBookSnapshot, TwapMarketContract
+from .btc_twap_relative_value import BookLevel, OrderBookSnapshot, TwapMarketContract
 
 ZERO = Decimal(0)
 ONE = Decimal(1)
@@ -95,6 +95,11 @@ def quote_book_buy(
         raise ValueError("quantity must be positive")
     if maker:
         if book.best_bid is None:
+            return None
+        # A resting bid is not immediately executable.  Gate 0 therefore uses
+        # captured same-side displayed depth as a finite, reproducible sizing
+        # envelope; actual fills remain a separate queue-replay question.
+        if sum((level.size for level in book.bids), ZERO) < quantity:
             return None
         return BookBuyQuote(
             notional=quantity * book.best_bid,
@@ -204,8 +209,15 @@ def select_healthy_pair_books(
     policy: PairPricingPolicy,
     first_contract: TwapMarketContract | None = None,
     second_contract: TwapMarketContract | None = None,
+    execution_mode: PairExecutionMode = PairExecutionMode.TAKER_TAKER,
 ) -> tuple[OrderBookSnapshot, OrderBookSnapshot] | None:
-    """Fail closed unless both books are complete and satisfy the active policy."""
+    """Validate only the book sides needed by the selected execution shape."""
+
+    mode = (
+        execution_mode
+        if isinstance(execution_mode, PairExecutionMode)
+        else PairExecutionMode(execution_mode)
+    )
 
     first_book = books.get(first_token_id)
     second_book = books.get(second_token_id)
@@ -229,6 +241,16 @@ def select_healthy_pair_books(
             )
         ):
             return None
+    if policy.structural_only:
+        feasible_side_pairs = _execution_side_pairs(
+            first_book=first_book,
+            second_book=second_book,
+            execution_mode=mode,
+        )
+        if not any(first_levels and second_levels for first_levels, second_levels in feasible_side_pairs):
+            return None
+        return first_book, second_book
+
     for book in (first_book, second_book):
         if (
             book.best_bid is None
@@ -237,8 +259,6 @@ def select_healthy_pair_books(
             or book.spread < ZERO
         ):
             return None
-        if policy.structural_only:
-            continue
         if (
             book.spread > policy.maximum_spread_each_leg
             or not policy.minimum_market_price
@@ -266,6 +286,7 @@ def _maximum_affordable_quantity(
     first_contract: TwapMarketContract,
     second_contract: TwapMarketContract,
     pair_risk_usdc: Decimal,
+    execution_mode: PairExecutionMode,
 ) -> Decimal | None:
     minimum_units = _quantity_units_ceiling(minimum_quantity)
     maximum_units = _quantity_units_floor(maximum_depth_quantity)
@@ -279,6 +300,7 @@ def _maximum_affordable_quantity(
             second_book=second_book,
             first_contract=first_contract,
             second_contract=second_contract,
+            execution_mode=execution_mode,
         )
         if quote is not None and quote.total_cost <= pair_risk_usdc:
             affordable_units = middle_units
@@ -297,8 +319,15 @@ def joint_quantity_breakpoints(
     first_contract: TwapMarketContract,
     second_contract: TwapMarketContract,
     policy: PairPricingPolicy,
+    execution_mode: PairExecutionMode = PairExecutionMode.TAKER_TAKER,
 ) -> tuple[Decimal, ...]:
     """Enumerate joint depth breaks and the exact fee-aware risk boundary."""
+
+    mode = (
+        execution_mode
+        if isinstance(execution_mode, PairExecutionMode)
+        else PairExecutionMode(execution_mode)
+    )
 
     minimum_quantity = max(
         first_book.minimum_order_size,
@@ -307,9 +336,24 @@ def joint_quantity_breakpoints(
         second_contract.minimum_order_size,
     )
     minimum_quantity = Decimal(_quantity_units_ceiling(minimum_quantity)) * SIZE_QUANTUM
-    first_depth = sum((level.size for level in first_book.asks), ZERO)
-    second_depth = sum((level.size for level in second_book.asks), ZERO)
-    maximum_depth = min(first_depth, second_depth)
+    feasible_side_pairs = tuple(
+        (first_levels, second_levels)
+        for first_levels, second_levels in _execution_side_pairs(
+            first_book=first_book,
+            second_book=second_book,
+            execution_mode=mode,
+        )
+        if first_levels and second_levels
+    )
+    if not feasible_side_pairs:
+        return ()
+    maximum_depth = max(
+        min(
+            sum((level.size for level in first_levels), ZERO),
+            sum((level.size for level in second_levels), ZERO),
+        )
+        for first_levels, second_levels in feasible_side_pairs
+    )
     if maximum_depth < minimum_quantity:
         return ()
     maximum_affordable = (
@@ -323,19 +367,42 @@ def joint_quantity_breakpoints(
             first_contract=first_contract,
             second_contract=second_contract,
             pair_risk_usdc=policy.pair_risk_usdc,
+            execution_mode=mode,
         )
     )
     if maximum_affordable is None:
         return ()
     candidates = {minimum_quantity, maximum_affordable}
-    for book in (first_book, second_book):
+    for levels in {
+        id(levels): levels
+        for pair in feasible_side_pairs
+        for levels in pair
+    }.values():
         cumulative = ZERO
-        for level in book.asks:
+        for level in levels:
             cumulative += level.size
             quantity = Decimal(_quantity_units_floor(cumulative)) * SIZE_QUANTUM
             if minimum_quantity <= quantity <= maximum_affordable:
                 candidates.add(quantity)
     return tuple(sorted(candidates))
+
+
+def _execution_side_pairs(
+    *,
+    first_book: OrderBookSnapshot,
+    second_book: OrderBookSnapshot,
+    execution_mode: PairExecutionMode,
+) -> tuple[tuple[tuple[BookLevel, ...], tuple[BookLevel, ...]], ...]:
+    """Return the first/second depth sides for every feasible orientation."""
+
+    if execution_mode is PairExecutionMode.TAKER_TAKER:
+        return ((first_book.asks, second_book.asks),)
+    if execution_mode is PairExecutionMode.MAKER_MAKER:
+        return ((first_book.bids, second_book.bids),)
+    return (
+        (first_book.bids, second_book.asks),
+        (first_book.asks, second_book.bids),
+    )
 
 
 __all__ = [

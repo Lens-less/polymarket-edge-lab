@@ -77,6 +77,9 @@ _MANIFEST_COUNT_FIELDS = (
     "schema_drift_count",
     "schema_change_count",
 )
+_DESCRIPTOR_BOUND_READS_AVAILABLE = all(
+    hasattr(os, name) for name in ("O_NOFOLLOW", "O_DIRECTORY")
+) and os.open in os.supports_dir_fd
 
 
 @dataclass(frozen=True)
@@ -106,9 +109,7 @@ def _sha256(data: bytes) -> str:
 
 
 def _open_flags(*, directory: bool) -> int:
-    required = ("O_NOFOLLOW", "O_DIRECTORY")
-    missing = [name for name in required if not hasattr(os, name)]
-    if missing:
+    if not _DESCRIPTOR_BOUND_READS_AVAILABLE:
         raise UnsafeInputPathError(
             "descriptor-bound audit reads are unavailable on this platform"
         )
@@ -207,6 +208,9 @@ def _open_root_directory_fd(allowed_root: Path) -> int:
 def _open_regular_input_fd(path: Path, *, allowed_root: Path) -> int:
     """Open an input through root-anchored, no-follow file descriptors."""
 
+    if not _DESCRIPTOR_BOUND_READS_AVAILABLE:
+        return _open_regular_input_fd_portable(path, allowed_root=allowed_root)
+
     parts = _relative_input_parts(path, allowed_root=allowed_root)
     root_fd: int | None = None
     parent_fd: int | None = None
@@ -262,6 +266,82 @@ def _open_regular_input_fd(path: Path, *, allowed_root: Path) -> int:
             os.close(parent_fd)
         if root_fd is not None:
             os.close(root_fd)
+
+
+def _portable_identity(metadata: os.stat_result) -> tuple[int, int, int, int, int]:
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+    )
+
+
+def _is_link_like(metadata: os.stat_result) -> bool:
+    reparse_point = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    attributes = getattr(metadata, "st_file_attributes", 0)
+    return stat.S_ISLNK(metadata.st_mode) or bool(attributes & reparse_point)
+
+
+def _open_regular_input_fd_portable(path: Path, *, allowed_root: Path) -> int:
+    """Best available stable, no-reparse read on platforms without ``dir_fd``.
+
+    Linux production keeps the descriptor-anchored path above.  This fallback
+    captures every ancestor identity, rejects symlinks/junctions, opens the
+    absolute regular file, and revalidates the chain before returning its file
+    descriptor.  It closes the Windows/dev portability gap without pretending
+    to provide the stronger POSIX rename-race proof.
+    """
+
+    parts = _relative_input_parts(path, allowed_root=allowed_root)
+    root = Path(os.path.abspath(allowed_root))
+    absolute = root.joinpath(*parts)
+    chain = (root, *(root.joinpath(*parts[:index]) for index in range(1, len(parts))))
+    identities: list[tuple[Path, tuple[int, int, int, int, int]]] = []
+    try:
+        for ancestor in chain:
+            metadata = ancestor.lstat()
+            if _is_link_like(metadata) or not stat.S_ISDIR(metadata.st_mode):
+                raise UnsafeInputPathError(
+                    "symbolic links are not accepted as audit inputs"
+                )
+            identities.append((ancestor, _portable_identity(metadata)))
+        before = absolute.lstat()
+    except FileNotFoundError as exc:
+        raise UnsafeInputPathError("input disappeared during audit") from exc
+    except OSError as exc:
+        raise UnsafeInputPathError(f"unable to inspect audit input: {exc}") from exc
+    if _is_link_like(before):
+        raise UnsafeInputPathError(
+            "symbolic links are not accepted as audit inputs"
+        )
+    if not stat.S_ISREG(before.st_mode):
+        raise UnsafeInputPathError("audit input is not a regular file")
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0)
+    try:
+        descriptor = os.open(absolute, flags)
+    except OSError as exc:
+        _raise_unsafe_open(exc)
+    try:
+        opened = os.fstat(descriptor)
+        after = absolute.lstat()
+        if (
+            _is_link_like(after)
+            or _portable_identity(before) != _portable_identity(opened)
+            or _portable_identity(opened) != _portable_identity(after)
+        ):
+            raise UnsafeInputPathError("audit input changed while it was opened")
+        for ancestor, identity in identities:
+            current = ancestor.lstat()
+            if _is_link_like(current) or _portable_identity(current) != identity:
+                raise UnsafeInputPathError(
+                    "audit input ancestor changed while the file was opened"
+                )
+        return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
 
 
 def _validate_input_path(path: Path, *, allowed_root: Path) -> None:
@@ -3139,7 +3219,14 @@ def _write_new_file(path: Path, data: bytes) -> None:
 
 
 def _fsync_directory(path: Path) -> None:
-    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        descriptor = os.open(path, os.O_RDONLY)
+    except PermissionError:
+        if os.name == "nt":
+            # Windows has no portable directory fsync primitive. File payloads
+            # are still fsynced before the atomic hard-link publication.
+            return
+        raise
     try:
         os.fsync(descriptor)
     finally:

@@ -1,8 +1,9 @@
-py-clob-client
+polymarket-client==0.6.0
 python-dotenv
 websockets
 python-socks[asyncio]
 pandas
+pyarrow
 pytest
 pytest-asyncio
 pytest-timeout

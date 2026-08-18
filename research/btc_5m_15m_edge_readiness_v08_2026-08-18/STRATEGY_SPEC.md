@@ -18,25 +18,33 @@ separate official opening 60-second TWAP strikes. Both legs compare the same
 
 The co-terminal validator must reject any pair without matching close,
 official 60-second topics, exact strikes, current rule hashes, four fresh token
-books, and captured dynamic fees. For quantity `q`, it walks every ask level and
-applies the captured fee schedule with actual per-level rounding.
+books, matching captured tick/minimum-size rules, and captured dynamic fees.
+Prediction-only `[0.05, 0.95]` price and `0.03` spread filters never apply to
+the structural route: the only interesting regime naturally has one leg near
+zero and the other near one.
 
 If total all-in cost per pair is `c`, the structural net floor is `1-c`.
 `c <= 1` proves only a non-negative floor. Positive edge needs `c < 1`. The
-execution probe additionally requires `c <= 0.99` after the actual passive fill
-and a new current full-depth FOK hedge quote.
+Gate 0 reports three costs: two takers, one maker plus one FOK taker, and two
+makers. The maker+FOK shape cannot be live-eligible because its cost is
+`1 + b + hedge_fee` for non-negative implicit split probability `b`. The
+`c <= 0.99` probe buffer therefore belongs only to the two-maker shape.
 
 ## Gate 0
 
-Before promotion work, the hindsight diagnostic enumerates both cross-pair
-directions and every jointly executable depth breakpoint at one fixed decision
-time per common expiry. It can select no-trade at zero. It uses captured
+Before promotion work, the hindsight diagnostic scans every integer second
+from `ttc=300` through `ttc=0` for each common expiry, enumerates both
+cross-pair directions and every jointly modeled depth breakpoint, and records
+the best `ttc`. It can select no-trade at zero. It uses captured
 decision-time books, fee/rule metadata, and the realized common terminal label.
 It does not truncate the upper bound at the older v0.7 25 USDC sizing budget.
 The non-floor direction remains visible as an unrestricted hindsight diagnostic,
 but only the strike-consistent structural direction contributes to the
-structural Gate 0. Aggregate structural executable PnL `<= 0` stops that route.
-A positive result is not edge evidence and never enters locked-OOS counts.
+structural Gate 0. It persists all three execution shapes plus the full `b(t)`
+curve and count of `b < 0` observations. The decision route is two makers;
+aggregate PnL `<= 0` or average PnL below `0.5 USDC/expiry` stops the route.
+A positive result is only an optimistic upper bound and never enters locked-OOS
+counts; actual fills must be established by the neutral queue replay.
 
 The local repository does not contain the deployed 41 capture trees. Runtime
 generation must use the exact-count command in `PREREGISTRATION.json`; any
@@ -57,33 +65,43 @@ replace it. Dirty, no-trade, causal no-fill, partial, and failed outcomes remain
 in the denominator. There is no 102-case ceiling and tau aliases do not count as
 independent samples.
 
-## Maker-assisted execution
+Capture capacity is itself a promotion gate. Failure rate must be at most 5%,
+free disk at least 10 GiB, projected retained data at most 1 GiB/day, available
+memory at least 2 GiB, and burstable CPU credits must not be exhausted. The
+v0.8 compact policy retains only the paired four tokens, 30-second full-depth
+anchors, 5-second public taker polls, and compact top-of-book changes; raw CLOB
+frames and 250 ms reconstructed full-depth frames are disabled.
 
-Maker assistance is not alpha. The plan compares making the 5m leg and making
-the 15m leg, binding the chosen pair and both orientations to the validator
-hash. After a passive fill it cancels all remaining orders, reconciles the
-authenticated user-fill ledger, and rejects overfills, unknown orders,
-duplicate conflicts, and an open-order remainder.
+## Double-maker shadow execution
 
-Only then may it obtain a current full-depth FOK quote for the other leg. Actual
-maker notional and fee plus current hedge notional and fee must still be at most
-`0.99` per matched pair, and submitted buy-order notional must remain at most
-10 USDC. Otherwise it performs the single preregistered sell-side emergency
-unwind. Ambiguous FOK state engages the persistent kill switch; it must not guess
-whether the hedge filled.
+Both structural legs rest post-only at captured bids. `QueueScenario` supplies
+optimistic, neutral, and pessimistic public-trade queue boundaries. The neutral
+case is the promotion route. Every maker fill is recorded through the existing
+ledger, with dynamic maker/taker fees and terminal payouts.
 
-The harness has an injected venue interface but no production adapter. It is
-therefore testable without credentials and cannot submit a real order as shipped.
+If only one leg fills, the preregistered paper replay accounts three policies
+separately: keep waiting passively, cancel and buy the missing leg as an FOK
+taker (including the captured 250 ms delay and fee), or cancel and flatten the
+filled leg with FAK. These are scenario diagnostics, not interchangeable rows.
+No maker+FOK result can authorize live trading.
+
+The existing live harness still models one maker plus FOK and has no production
+adapter. It is therefore intentionally ineligible for this revised double-maker
+route and cannot submit a real order as shipped.
 
 ## Promotion boundaries
 
-Positive neutral-shadow realized PnL plus four complete common-expiry cohorts is
-only one part of execution-probe eligibility. Health, Gate 0, authenticated
-read, user fill stream, all failure drills, immutable probe preregistration, and
-current hedge depth are also mandatory.
+At least 200 unique common expiries are required in neutral double-maker shadow.
+Total PnL, PnL without the best expiry, PnL without the best direction, and every
+registered rolling-window minimum must remain positive; single-expiry
+concentration must be at most 20%. Four fresh complete cohorts are still needed
+for a later metered probe, but cannot substitute for the 200-expiry shadow gate.
+Health, Gate 0, authenticated read, user fill stream, all failure drills,
+immutable probe preregistration, and a purpose-built double-maker probe are also
+mandatory.
 
-Strategy live requires at least 100 clean prelabel common-expiry cohorts, at
-least 100 explainable structural economic attempts, complete actual execution
+Strategy live requires at least 200 clean prelabel common-expiry cohorts, at
+least 200 explainable structural economic attempts, complete actual execution
 costs/reconciliation, no more than 20% single-expiry PnL concentration, and a
 one-sided 95% common-expiry cluster-bootstrap mean lower bound above zero. The
 Oracle basis/split-probability model stays action-disabled in a separate research

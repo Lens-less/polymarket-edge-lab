@@ -225,6 +225,9 @@ def test_capture_plan_targets_the_next_same_expiry_pair(tmp_path: Path) -> None:
         "trades": 30,
         "rules": 30,
     }
+    assert plan.capture_config["persist_raw_clob_frames"] is False
+    assert plan.capture_config["persist_reconstructed_full_depth_frames"] is True
+    assert plan.capture_config["persist_top_of_book_changes"] is False
     assert plan.capture_config["capture_started_at_ms"] == now_seconds * 1_000
     assert plan.capture_config["evidence_track_id"] == "paper-v05"
     assert plan.capture_config["clock_sync"] == {
@@ -928,3 +931,78 @@ async def test_compact_sink_coalesces_target_price_changes_into_causal_books(
         "full_depth_reconstructed_from_price_change"
     )
     assert reconstructed["source_event_type"] == "price_change"
+
+
+@pytest.mark.asyncio
+async def test_compact_sink_can_keep_top_changes_without_reconstructed_depth(
+    tmp_path: Path,
+) -> None:
+    from src.edge_lab.btc_twap_relative_value_service import CompactRecorderSink
+
+    backing = CaptureStoreRecorderSink(
+        CaptureStore(tmp_path / "capture"),
+        max_records_per_batch=100,
+    )
+    sink = CompactRecorderSink(
+        backing,
+        allowed_asset_ids=("target-token",),
+        persist_reconstructed_full_depth_frames=False,
+        persist_top_of_book_changes=True,
+    )
+    await sink.emit(
+        {
+            "schema_version": "clob-market-ws.price_change.v1",
+            "source": "clob_market_ws",
+            "received_at": "1970-01-01T00:00:01.100000Z",
+            "event_at": "1970-01-01T00:00:01.100000Z",
+            "event_type": "price_change",
+            "kind": "data",
+            "connection_id": "connection-1",
+            "frame_hash": "a" * 64,
+            "payload_hash": "b" * 64,
+            "payload": {
+                "event_type": "price_change",
+                "market": "condition",
+                "timestamp": "1100",
+                "price_changes": [
+                    {
+                        "asset_id": "target-token",
+                        "price": "0.50",
+                        "size": "0",
+                        "side": "SELL",
+                        "best_bid": "0.49",
+                        "best_ask": "0.51",
+                    },
+                    {
+                        "asset_id": "other-token",
+                        "price": "0.60",
+                        "size": "9",
+                        "side": "SELL",
+                        "best_bid": "0.59",
+                        "best_ask": "0.60",
+                    },
+                ],
+            },
+        }
+    )
+    await sink.close()
+
+    raw_path = next(
+        (tmp_path / "capture" / "raw" / "clob_market_ws").glob("*.jsonl")
+    )
+    stored = json.loads(raw_path.read_text(encoding="utf-8"))["payload"]
+    assert stored["event_type"] == "best_bid_ask"
+    assert stored["schema_version"] == "clob-market-ws.compact-top-of-book.v1"
+    assert stored["payload"] == {
+        "event_type": "best_bid_ask",
+        "market": "condition",
+        "timestamp": "1100",
+        "changes": [
+            {
+                "asset_id": "target-token",
+                "best_bid": "0.49",
+                "best_ask": "0.51",
+            }
+        ],
+        "source_event_type": "price_change",
+    }

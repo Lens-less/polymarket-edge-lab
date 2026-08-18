@@ -10,6 +10,7 @@ from src.edge_lab.btc_twap_relative_value import (
     SameExpiryPair,
 )
 from src.edge_lab.btc_twap_relative_value_readiness import (
+    CaptureCapacityEvidence,
     CohortCoverageInput,
     ExecutionProbePrerequisites,
     GATE_0_PAIR_PRICING_POLICY,
@@ -17,6 +18,7 @@ from src.edge_lab.btc_twap_relative_value_readiness import (
     PerfectInformationAttempt,
     StrategyLiveInputs,
     evaluate_execution_probe_readiness,
+    evaluate_capture_capacity,
     evaluate_perfect_information_upper_bound,
     evaluate_strategy_live_readiness_inputs,
     validate_cohort_data_coverage,
@@ -550,6 +552,7 @@ def test_probe_and_strategy_live_readiness_are_separated_and_fail_closed() -> No
             full_hedge_depth_verified=True,
             gate_0_passed=True,
             double_maker_probe_implemented=True,
+            capture_capacity_gate_passed=True,
         ),
     )
     insufficient_unique_probe = evaluate_execution_probe_readiness(
@@ -575,6 +578,7 @@ def test_probe_and_strategy_live_readiness_are_separated_and_fail_closed() -> No
             full_hedge_depth_verified=True,
             gate_0_passed=True,
             double_maker_probe_implemented=True,
+            capture_capacity_gate_passed=True,
         ),
     )
 
@@ -632,3 +636,37 @@ def test_gate_zero_is_mandatory_for_probe_and_live() -> None:
 
     assert live.eligible is False
     assert "structural_gate_0_not_passed" in live.reason_codes
+
+
+def test_capture_capacity_gate_enforces_failure_storage_memory_and_cpu_limits() -> None:
+    passing = evaluate_capture_capacity(
+        CaptureCapacityEvidence(
+            capture_attempt_count=100,
+            capture_failure_count=5,
+            free_disk_bytes=10 * 1024**3,
+            projected_daily_capture_bytes=1024**3,
+            available_memory_bytes=2 * 1024**3,
+            burstable_cpu_credit_exhausted=False,
+        )
+    )
+    failing = evaluate_capture_capacity(
+        CaptureCapacityEvidence(
+            capture_attempt_count=100,
+            capture_failure_count=6,
+            free_disk_bytes=9 * 1024**3,
+            projected_daily_capture_bytes=1024**3 + 1,
+            available_memory_bytes=2 * 1024**3 - 1,
+            burstable_cpu_credit_exhausted=True,
+        )
+    )
+
+    assert passing.passed is True
+    assert passing.failure_rate == D("0.05")
+    assert failing.passed is False
+    assert set(failing.reason_codes) == {
+        "capture_failure_rate_above_5pct",
+        "capture_free_disk_below_10gib",
+        "projected_daily_capture_above_1gib",
+        "capture_memory_below_2gib",
+        "burstable_cpu_credit_exhausted",
+    }

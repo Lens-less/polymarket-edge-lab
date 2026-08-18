@@ -67,6 +67,18 @@ class TestBalanceCheck:
                     with pytest.raises(OrderError, match="exceeds 50%"):
                         check_balance_for_order(Decimal("0.60"), Decimal("10"))
 
+    def test_balance_check_fails_closed_when_pusd_cannot_be_verified(self):
+        """A read error must never authorize an otherwise unchecked order."""
+        with patch('src.trading.DRY_RUN', False):
+            with patch('src.trading._cached_balance', None):
+                with patch('src.trading._last_balance_check', 0):
+                    with patch(
+                        'src.auth.get_balances',
+                        side_effect=RuntimeError("unavailable"),
+                    ):
+                        with pytest.raises(OrderError, match="verify pUSD"):
+                            check_balance_for_order(Decimal("0.50"), Decimal("5"))
+
 
 class TestStartupCleanup:
     """Test orphaned order cleanup on startup."""

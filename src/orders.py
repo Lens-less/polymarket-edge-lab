@@ -27,19 +27,19 @@ def get_open_orders(
     from src.client import get_auth_client
 
     try:
-        response = get_auth_client().get_orders()
+        response = get_auth_client().list_open_orders(token_id=token_id)
         orders = []
 
-        for r in (response or []):
-            if r.get('status') != 'LIVE':
+        for item in response.iter_items():
+            if str(item.status).upper() != 'LIVE':
                 continue
             order = Order(
-                id=r['id'],
-                token_id=r['asset_id'],
-                side=OrderSide(r['side']),
-                price=Decimal(str(r['price'])),
-                size=Decimal(str(r.get('original_size', r.get('size', 0)))),
-                filled=Decimal(str(r.get('size_matched', 0))),
+                id=str(item.id),
+                token_id=str(item.token_id),
+                side=OrderSide(item.side),
+                price=Decimal(str(item.price)),
+                size=Decimal(str(item.original_size)),
+                filled=Decimal(str(item.size_matched)),
                 status=OrderStatus.LIVE,
                 is_simulated=False
             )
@@ -72,26 +72,24 @@ def get_trades(
     from src.client import get_auth_client
 
     try:
-        response = get_auth_client().get_trades()
+        response = get_auth_client().list_account_trades(token_id=token_id)
         trades = []
 
-        raw_trades = response.get("data", []) if isinstance(response, dict) else (response or [])
-
-        for r in raw_trades:
+        for item in response.iter_items():
             trade = Trade(
-                id=r['id'],
-                order_id=r.get('order_id', ''),
-                token_id=r['asset_id'],
-                side=OrderSide(r['side']),
-                price=Decimal(str(r['price'])),
-                size=Decimal(str(r['size'])),
+                id=str(item.id),
+                order_id=str(item.taker_order_id),
+                token_id=str(item.token_id),
+                side=OrderSide(item.side),
+                price=Decimal(str(item.price)),
+                size=Decimal(str(item.size)),
                 is_simulated=False
             )
             if token_id is None or trade.token_id == token_id:
                 trades.append(trade)
+            if limit is not None and len(trades) >= limit:
+                break
 
-        if limit is not None:
-            trades = trades[:limit]
         return trades
 
     except Exception as e:

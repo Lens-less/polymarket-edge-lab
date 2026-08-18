@@ -432,7 +432,10 @@ def _atomic_write_bytes(path: Path, content: bytes) -> None:
     try:
         with tempfile.NamedTemporaryFile(
             mode="wb",
-            prefix=f".{path.name}.",
+            # Keep the same-directory temporary name short.  Repeating a
+            # content-addressed destination name here can cross Windows'
+            # legacy MAX_PATH boundary even when the final path itself fits.
+            prefix=".tmp-",
             suffix=".tmp",
             dir=path.parent,
             delete=False,

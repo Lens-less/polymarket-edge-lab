@@ -87,7 +87,7 @@ src/
 - **Decimal 类型** - 所有金额使用 Decimal（非 float）
 - **Dataclass** - 数据传输对象
 - **类型提示** - 全程使用
-- **py-clob-client** - Polymarket CLOB API 集成
+- **polymarket-client 0.6.0** - 官方统一 Polymarket API SDK
 - **WebSocket + REST 备用** - 数据韧性
 - **DRY_RUN 模式** - 使用 `OrderSimulator` 进行无风险模拟交易
 
@@ -288,7 +288,7 @@ pytest tests/ -v -m "not slow"
 ## 依赖
 
 ```
-py-clob-client    # Polymarket API 客户端
+polymarket-client # 官方统一 Polymarket API SDK
 python-dotenv     # 环境变量
 websockets        # WebSocket 连接
 pandas            # 数据分析

@@ -40,6 +40,10 @@ MINIMUM_SETTLED_CLUSTERS = 100
 MINIMUM_EXPLAINABLE_ECONOMIC_ATTEMPTS = 100
 MINIMUM_STRUCTURAL_SHADOW_EXPIRIES = 200
 MAXIMUM_SINGLE_EXPIRY_PNL_CONCENTRATION = Decimal("0.20")
+MAXIMUM_CAPTURE_FAILURE_RATE = Decimal("0.05")
+MINIMUM_CAPTURE_FREE_DISK_BYTES = 10 * 1024**3
+MAXIMUM_PROJECTED_DAILY_CAPTURE_BYTES = 1024**3
+MINIMUM_CAPTURE_MEMORY_BYTES = 2 * 1024**3
 DEFAULT_PAIR_PRICING_POLICY = PairPricingPolicy(structural_only=True)
 GATE_0_PAIR_PRICING_POLICY = PairPricingPolicy(
     pair_risk_usdc=None,
@@ -105,7 +109,7 @@ class StructuralFloorLevel:
     execution_mode: PairExecutionMode = PairExecutionMode.TAKER_TAKER
     maker_token_ids: tuple[str, ...] = ()
 
-    def to_document(self) -> dict[str, str | bool]:
+    def to_document(self) -> dict[str, object]:
         return {
             "quantity": format(self.quantity.normalize(), "f"),
             "action": self.action.value,
@@ -251,6 +255,7 @@ def validate_structural_floor(
             policy=pricing_policy,
             first_contract=first_contract,
             second_contract=second_contract,
+            execution_mode=execution_mode,
         )
         if selected_books is None:
             continue
@@ -261,6 +266,7 @@ def validate_structural_floor(
             first_contract=first_contract,
             second_contract=second_contract,
             policy=pricing_policy,
+            execution_mode=execution_mode,
         )
         worst_case_payoff = structure.worst_case_payoff(action)
         for quantity in quantities:
@@ -345,7 +351,7 @@ class PerfectInformationBreakpoint:
     realized_net_pnl_per_pair: Decimal
     realized_total_pnl: Decimal
 
-    def to_document(self) -> dict[str, str]:
+    def to_document(self) -> dict[str, object]:
         return {
             "quantity": str(self.quantity),
             "action": self.action.value,
@@ -499,6 +505,7 @@ def evaluate_perfect_information_upper_bound(
                 policy=attempt.pricing_policy,
                 first_contract=first_contract,
                 second_contract=second_contract,
+                execution_mode=attempt.execution_mode,
             )
             if selected_books is None:
                 per_attempt_best_by_action[action.value] = ZERO
@@ -510,6 +517,7 @@ def evaluate_perfect_information_upper_bound(
                 first_contract=first_contract,
                 second_contract=second_contract,
                 policy=attempt.pricing_policy,
+                execution_mode=attempt.execution_mode,
             )
             realized_payoff = structure.payoff_by_outcome(action)[outcome]
             for quantity in quantities:
@@ -734,9 +742,88 @@ class ExecutionProbePrerequisites:
     full_hedge_depth_verified: bool = False
     gate_0_passed: bool = False
     double_maker_probe_implemented: bool = False
+    capture_capacity_gate_passed: bool = False
 
 
 DEFAULT_PROBE_PREREQUISITES = ExecutionProbePrerequisites()
+
+
+@dataclass(frozen=True)
+class CaptureCapacityEvidence:
+    capture_attempt_count: int
+    capture_failure_count: int
+    free_disk_bytes: int
+    projected_daily_capture_bytes: int
+    available_memory_bytes: int
+    burstable_cpu_credit_exhausted: bool
+
+    def __post_init__(self) -> None:
+        for name in (
+            "capture_attempt_count",
+            "capture_failure_count",
+            "free_disk_bytes",
+            "projected_daily_capture_bytes",
+            "available_memory_bytes",
+        ):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"{name} must be a non-negative integer")
+        if self.capture_attempt_count == 0:
+            raise ValueError("capture_attempt_count must be positive")
+        if self.capture_failure_count > self.capture_attempt_count:
+            raise ValueError("capture failures cannot exceed attempts")
+        if not isinstance(self.burstable_cpu_credit_exhausted, bool):
+            raise TypeError("burstable_cpu_credit_exhausted must be bool")
+
+
+@dataclass(frozen=True)
+class CaptureCapacityVerdict:
+    passed: bool
+    failure_rate: Decimal
+    reason_codes: tuple[str, ...]
+
+    def to_document(self) -> dict[str, object]:
+        return {
+            "passed": self.passed,
+            "failure_rate": str(self.failure_rate),
+            "reason_codes": list(self.reason_codes),
+            "maximum_capture_failure_rate": str(MAXIMUM_CAPTURE_FAILURE_RATE),
+            "minimum_free_disk_bytes": MINIMUM_CAPTURE_FREE_DISK_BYTES,
+            "maximum_projected_daily_capture_bytes": (
+                MAXIMUM_PROJECTED_DAILY_CAPTURE_BYTES
+            ),
+            "minimum_available_memory_bytes": MINIMUM_CAPTURE_MEMORY_BYTES,
+            "burstable_cpu_credit_exhaustion_allowed": False,
+        }
+
+
+def evaluate_capture_capacity(
+    evidence: CaptureCapacityEvidence,
+) -> CaptureCapacityVerdict:
+    if not isinstance(evidence, CaptureCapacityEvidence):
+        raise TypeError("evidence must be CaptureCapacityEvidence")
+    failure_rate = Decimal(evidence.capture_failure_count) / Decimal(
+        evidence.capture_attempt_count
+    )
+    reasons: list[str] = []
+    if failure_rate > MAXIMUM_CAPTURE_FAILURE_RATE:
+        reasons.append("capture_failure_rate_above_5pct")
+    if evidence.free_disk_bytes < MINIMUM_CAPTURE_FREE_DISK_BYTES:
+        reasons.append("capture_free_disk_below_10gib")
+    if (
+        evidence.projected_daily_capture_bytes
+        > MAXIMUM_PROJECTED_DAILY_CAPTURE_BYTES
+    ):
+        reasons.append("projected_daily_capture_above_1gib")
+    if evidence.available_memory_bytes < MINIMUM_CAPTURE_MEMORY_BYTES:
+        reasons.append("capture_memory_below_2gib")
+    if evidence.burstable_cpu_credit_exhausted:
+        reasons.append("burstable_cpu_credit_exhausted")
+    return CaptureCapacityVerdict(
+        passed=not reasons,
+        failure_rate=failure_rate,
+        reason_codes=tuple(reasons),
+    )
 
 
 @dataclass(frozen=True)
@@ -879,6 +966,8 @@ def evaluate_execution_probe_readiness(
         reasons.append("gate_0_not_passed")
     if not prerequisites.double_maker_probe_implemented:
         reasons.append("double_maker_probe_not_implemented")
+    if not prerequisites.capture_capacity_gate_passed:
+        reasons.append("capture_capacity_gate_not_passed")
     return ExecutionProbeReadiness(
         eligible=not reasons,
         clean_common_terminal_cohort_count=unique_complete_cohort_count,
@@ -994,8 +1083,11 @@ def evaluate_strategy_live_readiness(
 
 
 __all__ = [
+    "CaptureCapacityEvidence",
+    "CaptureCapacityVerdict",
     "EXPECTED_RTDS_INTERVAL_MS",
     "MAXIMUM_RTDS_GAP_MS",
+    "MINIMUM_STRUCTURAL_SHADOW_EXPIRIES",
     "NeutralShadowEvidence",
     "PROBE_ALL_IN_LIMIT",
     "CohortCoverageInput",
@@ -1011,6 +1103,7 @@ __all__ = [
     "StructuralFloorLevel",
     "StructuralFloorVerdict",
     "evaluate_execution_probe_readiness",
+    "evaluate_capture_capacity",
     "evaluate_perfect_information_upper_bound",
     "evaluate_strategy_live_readiness",
     "evaluate_strategy_live_readiness_inputs",

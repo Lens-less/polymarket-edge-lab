@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from decimal import Decimal
 from pathlib import Path
 
@@ -16,6 +17,13 @@ from src.edge_lab.data_manifest import (
     write_data_audit,
 )
 from src.edge_lab.data_store import CaptureStore
+
+
+requires_posix_descriptor_reads = pytest.mark.skipif(
+    not all(hasattr(os, name) for name in ("O_NOFOLLOW", "O_DIRECTORY"))
+    or os.open not in os.supports_dir_fd,
+    reason="requires POSIX descriptor-bound no-follow traversal",
+)
 
 
 def _append_forward_book(
@@ -273,6 +281,7 @@ def test_lifecycle_only_and_partial_streams_are_not_promoted_to_l2(
     assert "unfinalized_partial_excluded" in gap_codes
 
 
+@requires_posix_descriptor_reads
 def test_live_audit_records_partial_rotation_without_promoting_or_failing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -348,6 +357,7 @@ def test_live_audit_records_partial_rotation_without_promoting_or_failing(
     )
 
 
+@requires_posix_descriptor_reads
 def test_live_audit_treats_partial_missing_at_validation_as_rotation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -407,6 +417,7 @@ def test_live_audit_treats_partial_missing_at_validation_as_rotation(
         ("legacy", 2),
     ],
 )
+@requires_posix_descriptor_reads
 def test_audit_still_fails_closed_if_immutable_input_disappears(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1390,6 +1401,7 @@ def test_external_symlink_input_is_reported_without_being_read(
     )
 
 
+@requires_posix_descriptor_reads
 def test_descriptor_bound_read_rejects_symlink_swap_before_final_open(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1430,6 +1442,7 @@ def test_descriptor_bound_read_rejects_symlink_swap_before_final_open(
     assert swapped
 
 
+@requires_posix_descriptor_reads
 def test_descriptor_bound_read_rejects_audit_root_ancestor_swap(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

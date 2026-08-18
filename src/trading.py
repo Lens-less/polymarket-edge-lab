@@ -61,8 +61,8 @@ def check_balance_for_order(price: Decimal, size: Decimal) -> None:
             _last_balance_check = now
             logger.debug(f"[BALANCE] Updated cache: ${_cached_balance:.2f}")
         except Exception as e:
-            logger.warning(f"Balance check failed: {e}")
-            return  # Don't block if API fails, but log it
+            logger.error(f"Balance check failed closed: {e}")
+            raise OrderError("Unable to verify pUSD balance for live order") from e
 
     order_cost = price * size
     if _cached_balance < MIN_BALANCE_FOR_ORDER:
@@ -105,7 +105,7 @@ def get_tick_size(token_id: str) -> Decimal:
     try:
         from src.client import get_auth_client
 
-        tick_size = str(get_auth_client().get_tick_size(token_id))
+        tick_size = str(get_auth_client().get_order_book(token_id=token_id).tick_size)
         _tick_size_cache[token_id] = tick_size
         return Decimal(tick_size)
     except Exception as e:
@@ -121,7 +121,9 @@ def get_order_creation_options(token_id: str) -> dict[str, object]:
         try:
             from src.client import get_auth_client
 
-            _neg_risk_cache[token_id] = bool(get_auth_client().get_neg_risk(token_id))
+            _neg_risk_cache[token_id] = bool(
+                get_auth_client().get_order_book(token_id=token_id).neg_risk
+            )
         except Exception as e:
             logger.warning(f"Falling back to neg_risk=False for {token_id[:16]}...: {e}")
             _neg_risk_cache[token_id] = False
@@ -216,10 +218,10 @@ def place_order(
     validate_size(size)
 
     if not DRY_RUN:
-        # CLOB V2 became mandatory in production on 2026-04-28.  This
-        # repository's existing adapter still uses the archived V1 SDK, so fail
-        # closed before any credential, balance, or signing path is touched.
-        # Cancellation remains available as a best-effort recovery path.
+        # The runtime now uses the official unified SDK, but ordinary strategy
+        # callers do not carry the separately authorized eight-check audit.
+        # Keep them fail-closed before credentials, balances, or signing are
+        # touched. Cancellation remains available for recovery.
         from src.edge_lab.compatibility import assert_new_orders_disabled
 
         assert_new_orders_disabled()
@@ -243,36 +245,21 @@ def place_order(
         raise OrderError("No credentials configured for live trading")
 
     from src.client import get_auth_client
-    from py_clob_client.clob_types import OrderArgs, OrderType, PartialCreateOrderOptions
     client = get_auth_client()
 
     try:
         logger.info(f"[LIVE] Placing: {side.value} {size} @ {price}")
 
-        # Build and post order using py-clob-client
-        order_args = OrderArgs(
+        response = client.place_limit_order(
             token_id=token_id,
-            price=float(price),
-            size=float(size),
+            price=price,
+            size=size,
             side=side.value,
-        )
-
-        signed_order = client.create_order(
-            order_args,
-            PartialCreateOrderOptions(**get_order_creation_options(token_id)),
-        )
-        response = client.post_order(
-            signed_order,
-            orderType=OrderType.GTC,
             post_only=True,
         )
-
-        if not response:
-            raise OrderError("Order rejected: empty response")
-
-        order_id = response.get("id") or response.get("orderID")
-        if not order_id:
-            raise OrderError(f"Order rejected: {response}")
+        if not response.ok:
+            raise OrderError(f"Order rejected ({response.code}): {response.message}")
+        order_id = str(response.order_id)
 
         logger.info(f"[LIVE] Order placed: {order_id}")
 
@@ -314,8 +301,8 @@ def cancel_order(order_id: str) -> bool:
 
     try:
         logger.info(f"[LIVE] Cancelling: {order_id}")
-        get_auth_client().cancel(order_id)
-        return True
+        response = get_auth_client().cancel_order(order_id=order_id)
+        return order_id in {str(item) for item in response.canceled}
     except Exception as e:
         logger.error(f"Cancel failed for {order_id}: {e}")
         return False
@@ -334,19 +321,17 @@ def cancel_all_orders(token_id: Optional[str] = None) -> int:
         return 0
 
     from src.client import get_auth_client
-    from src.orders import get_open_orders
-
     client = get_auth_client()
-
-    orders = get_open_orders(token_id)
-    cancelled = 0
-
-    for order in orders:
-        try:
-            client.cancel(order.id)
-            cancelled += 1
-        except Exception as e:
-            logger.warning(f"Failed to cancel {order.id}: {e}")
+    try:
+        response = (
+            client.cancel_all()
+            if token_id is None
+            else client.cancel_market_orders(token_id=token_id)
+        )
+        cancelled = len(response.canceled)
+    except Exception as e:
+        logger.error(f"Cancel-all failed: {e}")
+        return 0
 
     if cancelled:
         logger.info(f"[LIVE] Cancelled {cancelled} orders")

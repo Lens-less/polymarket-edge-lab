@@ -8,7 +8,6 @@ from typing import Optional, Dict, Any
 from decimal import Decimal
 
 from src.client import get_auth_client
-from src.config import POLY_SIGNATURE_TYPE
 from src.utils import setup_logging
 
 logger = setup_logging()
@@ -16,20 +15,25 @@ logger = setup_logging()
 TOKEN_DECIMALS = Decimal("1000000")
 
 
-def _load_balance_allowance_types():
-    try:
-        from py_clob_client.clob_types import BalanceAllowanceParams, AssetType
-    except ModuleNotFoundError as exc:
-        raise RuntimeError(
-            "py-clob-client is not installed. Legacy allowance inspection is unavailable."
-        ) from exc
-    return BalanceAllowanceParams, AssetType
+def _balance_allowance(*, token_id: str | None = None) -> tuple[Decimal, Decimal]:
+    client = get_auth_client()
+    result = client.get_balance_allowance(
+        asset_type="COLLATERAL" if token_id is None else "CONDITIONAL",
+        token_id=token_id,
+    )
+    raw_balance = Decimal(str(getattr(result, "balance", 0)))
+    allowances = getattr(result, "allowances", {}) or {}
+    max_allowance = max(
+        (Decimal(str(value)) for value in allowances.values()),
+        default=Decimal("0"),
+    )
+    return raw_balance / TOKEN_DECIMALS, max_allowance / TOKEN_DECIMALS
 
 
 def get_wallet_address() -> str:
     """Get the wallet address associated with the authenticated client."""
     client = get_auth_client()
-    return client.get_address()
+    return str(client.wallet)
 
 
 def get_balances() -> Dict[str, Decimal]:
@@ -41,27 +45,15 @@ def get_balances() -> Dict[str, Decimal]:
     """
     client = get_auth_client()
 
-    # Get MATIC balance (native token)
-    # Note: py-clob-client may not have direct balance methods
-    # This is a placeholder - actual implementation depends on client version
-
     try:
-        BalanceAllowanceParams, AssetType = _load_balance_allowance_types()
-        # Legacy V1 collateral lookup. New orders are blocked until this module
-        # is replaced with a verified pUSD/V2 implementation.
-        collateral = client.get_balance_allowance(
-            BalanceAllowanceParams(
-                asset_type=AssetType.COLLATERAL,
-                signature_type=POLY_SIGNATURE_TYPE,
-            )
-        )
-        raw_balance = Decimal(str(collateral.get('balance', 0)))
-        allowances = collateral.get('allowances', {}) or {}
-        max_allowance = max((Decimal(str(v)) for v in allowances.values()), default=Decimal("0"))
+        balance, allowance = _balance_allowance()
 
         return {
-            'usdc_allowance': raw_balance / TOKEN_DECIMALS,
-            'usdc_allowance_max': max_allowance / TOKEN_DECIMALS,
+            'pusd_balance': balance,
+            'pusd_allowance': allowance,
+            # Compatibility key retained for existing risk callers.
+            'usdc_allowance': balance,
+            'usdc_allowance_max': allowance,
         }
     except Exception as e:
         logger.error(f"Error getting balances: {e}")
@@ -81,22 +73,13 @@ def check_allowances() -> Dict[str, Any]:
     client = get_auth_client()
 
     try:
-        BalanceAllowanceParams, AssetType = _load_balance_allowance_types()
-        result = client.get_balance_allowance(
-            BalanceAllowanceParams(
-                asset_type=AssetType.COLLATERAL,
-                signature_type=POLY_SIGNATURE_TYPE,
-            )
-        )
-
-        # Allowance should be very large (max uint256) if properly set
-        allowances = result.get('allowances', {}) or {}
-        allowance = max((Decimal(str(v)) for v in allowances.values()), default=Decimal("0"))
+        _balance, allowance = _balance_allowance()
         has_allowance = allowance > Decimal("0")
 
         return {
+            'pusd_approved': has_allowance,
             'usdc_approved': has_allowance,
-            'allowance_amount': allowance / TOKEN_DECIMALS,
+            'allowance_amount': allowance,
         }
     except Exception as e:
         logger.error(f"Error checking allowances: {e}")
@@ -115,19 +98,7 @@ def get_conditional_balance(token_id: str) -> Dict[str, Decimal]:
     client = get_auth_client()
 
     try:
-        BalanceAllowanceParams, AssetType = _load_balance_allowance_types()
-        result = client.get_balance_allowance(
-            BalanceAllowanceParams(
-                asset_type=AssetType.CONDITIONAL,
-                token_id=token_id,
-                signature_type=POLY_SIGNATURE_TYPE,
-            )
-        )
-        raw_balance = Decimal(str(result.get("balance", 0)))
-        allowances = result.get("allowances", {}) or {}
-        max_allowance = max((Decimal(str(v)) for v in allowances.values()), default=Decimal("0"))
-        balance = raw_balance / TOKEN_DECIMALS
-        allowance = max_allowance / TOKEN_DECIMALS
+        balance, allowance = _balance_allowance(token_id=token_id)
         return {
             "balance": balance,
             "allowance": allowance,
@@ -146,8 +117,7 @@ def set_allowances() -> bool:
     """
     Set token allowances for trading.
 
-    Legacy V1 allowance helper. New live orders are disabled; do not use this
-    as a pUSD/CLOB V2 setup path.
+    Submit the official unified SDK's pUSD/conditional-token approval setup.
 
     Returns:
         True if successful
@@ -155,9 +125,11 @@ def set_allowances() -> bool:
     client = get_auth_client()
 
     try:
-        client.set_allowances()
-        logger.info("Allowances set successfully")
-        return True
+        handle = client.setup_trading_approvals()
+        handle.wait()
+        approved = bool(check_allowances().get("pusd_approved"))
+        logger.info("Trading approvals confirmed: %s", approved)
+        return approved
     except Exception as e:
         logger.error(f"Error setting allowances: {e}")
         return False
@@ -186,7 +158,7 @@ def verify_setup() -> Dict[str, Any]:
         logger.info(f"Balances: {balances}")
 
         if balances.get('usdc_allowance', 0) == 0:
-            issues.append("Legacy collateral balance is zero; V2 pUSD is not verified")
+            issues.append("pUSD collateral balance is zero")
     except Exception as e:
         issues.append(f"Cannot check balances: {e}")
 
@@ -196,7 +168,7 @@ def verify_setup() -> Dict[str, Any]:
         logger.info(f"Allowances: {allowances}")
 
         if not allowances.get('usdc_approved', False):
-            issues.append("Legacy allowance absent; V2 pUSD allowance is not verified")
+            issues.append("pUSD allowance is absent")
     except Exception as e:
         issues.append(f"Cannot check allowances: {e}")
 

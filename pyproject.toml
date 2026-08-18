@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Public-data-only Polymarket edge discovery and execution replay lab"
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [
     {name = "Polymarket Bot Developer"},
 ]
@@ -18,14 +18,13 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Office/Business :: Financial :: Investment",
 ]
 
 dependencies = [
-    "py-clob-client",
+    "polymarket-client==0.6.0",
     "python-dotenv",
     "websockets",
     "python-socks[asyncio]",
@@ -66,4 +65,4 @@ line_length = 100
 
 [tool.black]
 line-length = 100
-target-version = ['py310']
+target-version = ['py311']

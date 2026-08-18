@@ -255,7 +255,7 @@ def test_shadow_pairing_proxy_preserves_one_leg_imbalance() -> None:
     )
 
 
-def test_legacy_live_order_adapter_is_fail_closed() -> None:
+def test_live_order_adapter_is_fail_closed_without_complete_audit() -> None:
     with pytest.raises(LiveExecutionBlocked, match="CLOB V2"):
         assert_new_orders_disabled()
 

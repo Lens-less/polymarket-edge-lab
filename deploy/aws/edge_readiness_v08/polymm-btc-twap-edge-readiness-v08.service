@@ -1,0 +1,42 @@
+[Unit]
+Description=BTC 5m/15m four-token edge-readiness capture v0.8
+After=network-online.target chronyd.service polymm-btc-twap-continuous-rtds.service
+Wants=network-online.target chronyd.service polymm-btc-twap-continuous-rtds.service
+
+[Service]
+Type=simple
+User=polybotv08
+Group=polybotv08
+WorkingDirectory=/opt/poly-mm-v08
+Environment=PYTHONUNBUFFERED=1
+Environment=AWS_EC2_METADATA_DISABLED=true
+ExecStartPre=/opt/poly-mm-v08/.venv/bin/python /opt/poly-mm-v08/scripts/run_btc_twap_relative_value_service.py --config /opt/poly-mm-v08/research/btc_5m_15m_edge_readiness_v08_2026-08-18/SERVICE_CONFIG.json --validate-only
+ExecStart=/opt/poly-mm-v08/.venv/bin/python /opt/poly-mm-v08/scripts/run_btc_twap_relative_value_service.py --config /opt/poly-mm-v08/research/btc_5m_15m_edge_readiness_v08_2026-08-18/SERVICE_CONFIG.json
+Restart=always
+RestartSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ReadOnlyPaths=/opt/poly-mm-v08
+ReadWritePaths=/var/lib/poly-mm-v08
+IPAddressDeny=169.254.169.254
+IPAddressDeny=fd00:ec2::254
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

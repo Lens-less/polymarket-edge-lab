@@ -19,6 +19,13 @@
     "production_venue_adapter_distributed": false,
     "credentials_in_repository": false
   },
+  "runtime_capture_contract": {
+    "evidence_track_id": "btc_5m_15m_edge_readiness_v08_2026_08_18",
+    "prospective_only_after": "2026-08-18T00:00:00Z",
+    "decision_tau_seconds": [240, 180, 120, 60],
+    "clock_sync_source": "Chrony Amazon Time Sync Service 169.254.169.123",
+    "settlement_regime_id": "chainlink_twap_60s_5m_and_60s_15m.v1"
+  },
   "settlement_semantics": {
     "terminal_source": "official_crypto_prices_twap_sixty_btc_usd",
     "one_terminal_60s_twap_per_common_expiry": true,
@@ -29,7 +36,7 @@
   "continuous_evidence": {
     "official_rtds_starts_before_15m_open": true,
     "official_rtds_continues_through_5m_open_and_common_expiry": true,
-    "decision_window": "at_or_immediately_after_5m_open",
+    "decision_window": "scan_every_integer_second_from_5m_open_through_common_expiry",
     "disconnect_or_missing_update_policy": "dirty_no_interpolation_no_reconstruction",
     "required_parallel_inputs": [
       "both_markets_four_token_l2_with_periodic_full_depth_anchors",
@@ -43,15 +50,20 @@
     "name": "perfect_information_executable_upper_bound",
     "runs_before_any_route_promotion": true,
     "existing_41_attempt_report": {
-      "fixed_v07_decision_tau_seconds": 240,
       "expected_unique_common_expiry_attempts": 41,
-      "required_command": "python scripts/build_btc_twap_executable_upper_bound.py --manifest MANIFEST --output REPORT --decision-tau-seconds 240 --expected-clean-attempts 41",
+      "scan_ttc_seconds_inclusive": [300, 0],
+      "required_command": "python scripts/build_btc_twap_executable_upper_bound.py --manifest MANIFEST --output REPORT --expected-clean-attempts 41",
       "must_fail_on_count_mismatch": true
     },
     "uses_causal_decision_time_full_depth_and_captured_fee_rounding": true,
     "hindsight_selects_action_and_depth_breakpoint": true,
     "quantity_risk_cap_usdc": null,
     "structural_gate_uses_only_strike_consistent_floor_direction": true,
+    "execution_modes_reported": ["taker_taker", "maker_taker", "maker_maker"],
+    "decision_execution_mode": "maker_maker",
+    "minimum_average_best_total_pnl_per_expiry_usdc": "0.5",
+    "implicit_split_probability_curve_persisted": true,
+    "negative_implicit_split_probability_count_persisted": true,
     "non_floor_direction_is_diagnostic_only": true,
     "no_trade_is_zero": true,
     "aggregate_upper_bound_not_positive_action": "stop_route",
@@ -65,10 +77,11 @@
     "equal_strike_policy": "compare_both_cross_pairs_and_select_lower_all_in_cost",
     "non_negative_floor_condition": "all_in_cost_per_pair_lte_1",
     "positive_edge_condition": "all_in_cost_per_pair_lt_1",
-    "execution_probe_buffer_condition": "all_in_cost_per_pair_lte_0.99",
-    "maker_role": "execution_optimization_after_passive_fill_not_alpha",
-    "compare_both_maker_orientations": true,
-    "reprice_actual_maker_fill_plus_current_fok_full_depth_before_hedge": true
+    "execution_probe_buffer_condition": "double_maker_all_in_cost_per_pair_lte_0.99",
+    "execution_shape": "both_structural_legs_post_only_maker",
+    "single_leg_dispositions": ["passive_wait", "taker_hedge", "fak_unwind"],
+    "maker_plus_fok_live_eligible": false,
+    "maker_plus_fok_rejection_reason": "cost_equals_one_plus_nonnegative_split_probability_plus_hedge_fee"
   },
   "predictive_research_track": {
     "name": "oracle_basis_split_probability_research",
@@ -90,9 +103,23 @@
   },
   "execution_probe_gate": {
     "minimum_complete_common_expiry_cohorts": 4,
+    "minimum_neutral_shadow_expiries": 200,
     "neutral_shadow_realized_net_pnl_must_be_positive": true,
+    "neutral_shadow_without_best_expiry_must_be_positive": true,
+    "neutral_shadow_without_best_direction_must_be_positive": true,
+    "neutral_shadow_rolling_windows_must_be_positive": true,
+    "neutral_shadow_maximum_single_expiry_pnl_concentration": "0.20",
+    "double_maker_probe_implementation_required": true,
+    "maker_plus_fok_cannot_authorize_live": true,
     "gate_0_must_pass": true,
     "continuous_service_health_required": true,
+    "capture_capacity_gate_required": {
+      "maximum_failure_rate": "0.05",
+      "minimum_free_disk_bytes": 10737418240,
+      "maximum_projected_daily_capture_bytes": 1073741824,
+      "minimum_available_memory_bytes": 2147483648,
+      "burstable_cpu_credit_exhaustion_allowed": false
+    },
     "authenticated_read_required": true,
     "user_fill_stream_required": true,
     "fault_drills_required": [
@@ -108,15 +135,16 @@
     "isolated_balance_max_usdc": "12",
     "cumulative_buy_order_notional_max_usdc": "10",
     "common_expiry_pairs_max": 1,
-    "maker_submissions_max": 1,
-    "fok_hedges_max": 1,
+    "maker_submissions_max": 2,
+    "simultaneous_open_maker_orders_max": 2,
+    "single_leg_fok_hedges_max": 1,
     "emergency_unwinds_max": 1,
     "explicit_account_loss_acceptance_required": "12 USDC",
     "fresh_final_confirmation_required": true
   },
   "strategy_live_gate": {
-    "minimum_clean_prelabeled_common_terminal_common_expiry_cohorts": 100,
-    "minimum_structural_explainable_economic_attempts": 100,
+    "minimum_clean_prelabeled_common_terminal_common_expiry_cohorts": 200,
+    "minimum_structural_explainable_economic_attempts": 200,
     "all_admitted_cohorts_including_no_trade_and_no_fill_in_pnl_distribution": true,
     "one_sided_cluster_bootstrap_confidence": "95%",
     "cluster_bootstrap_mean_lower_bound_must_be_above_zero": true,
@@ -128,6 +156,6 @@
   "current_decision": {
     "strategy_live": "NO_GO",
     "execution_probe": "NO_GO",
-    "reason": "runtime health, four complete cohorts, real authenticated control-plane drills, immutable probe preregistration, and current full-depth hedge evidence are not yet proven"
+    "reason": "the full-window three-mode Gate 0 report and 200-expiry neutral double-maker shadow evidence are not available; pUSD, signature, terminal reconciliation, double-maker venue, and geoblock checks remain closed"
   }
 }

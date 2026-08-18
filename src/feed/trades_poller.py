@@ -8,21 +8,10 @@ for order flow analysis.
 import asyncio
 from typing import List, Optional, Callable, Dict
 from decimal import Decimal
-from src.client import get_auth_client
+from src.client import get_client
 from src.utils import setup_logging
 
 logger = setup_logging()
-
-
-def _load_trade_params():
-    try:
-        from py_clob_client.clob_types import TradeParams
-    except ModuleNotFoundError as exc:
-        raise RuntimeError(
-            "py-clob-client is not installed. Trade polling is unavailable."
-        ) from exc
-    return TradeParams
-
 
 class TradesPoller:
     """
@@ -46,6 +35,7 @@ class TradesPoller:
 
         # Track last seen trade IDs to avoid duplicates
         self._last_trade_ids: Dict[str, str] = {}
+        self._condition_ids: Dict[str, str] = {}
 
         # Callbacks: token_id -> list of callbacks
         # Callback signature: (price: Decimal, size: Decimal, side: str, is_taker: bool) -> None
@@ -110,27 +100,29 @@ class TradesPoller:
     async def _poll_token(self, token_id: str):
         """Poll trades for a single token."""
         try:
-            client = get_auth_client()
-            TradeParams = _load_trade_params()
-            params = TradeParams(asset_id=token_id)
+            client = get_client()
+            condition_id = self._condition_ids.get(token_id)
+            if condition_id is None:
+                book = client.get_order_book(token_id=token_id)
+                condition_id = str(book.condition_id)
+                self._condition_ids[token_id] = condition_id
 
-            # Get recent trades (API returns most recent first)
+            # The public Data API returns recent aggressive trades.  Account
+            # trades would describe only this wallet and cannot be used as a
+            # public order-flow tape.
             logger.debug(f"Polling trades for {token_id[:16]}...")
-            result = client.get_trades(params=params)
+            result = client.list_trades(
+                market=[condition_id],
+                taker_only=True,
+                page_size=100,
+            )
             logger.debug(f"Received trades response for {token_id[:16]}")
 
-            if not result:
-                return
-
-            # Process trades in chronological order (oldest first)
-            # Result is a dict with 'next_cursor' and 'data' list
-            if isinstance(result, dict) and 'data' in result:
-                trades = result['data']
-            elif isinstance(result, list):
-                trades = result
-            else:
-                logger.warning(f"Unexpected trades response format: {type(result)}")
-                return
+            trades = [
+                trade
+                for trade in result.first_page().items
+                if str(getattr(trade, "token_id", "")) == token_id
+            ]
 
             # Get last seen trade ID for this token
             last_seen = self._last_trade_ids.get(token_id)
@@ -138,14 +130,14 @@ class TradesPoller:
             # Process trades until we hit one we've seen before
             new_trades = []
             for trade in trades:
-                trade_id = trade.get('id')
+                trade_id = self._trade_id(trade)
                 if trade_id == last_seen:
                     break
                 new_trades.append(trade)
 
             # Update last seen trade ID
             if trades:
-                self._last_trade_ids[token_id] = trades[0].get('id')
+                self._last_trade_ids[token_id] = self._trade_id(trades[0])
 
             # Process new trades in chronological order (reverse of API order)
             for trade in reversed(new_trades):
@@ -154,15 +146,30 @@ class TradesPoller:
         except Exception as e:
             logger.warning(f"Trades API error for {token_id[:16]}: {e}")
 
-    def _process_trade(self, token_id: str, trade: dict):
+    @staticmethod
+    def _trade_id(trade) -> str:
+        """Build a stable identity for public trades, which have no REST id."""
+        timestamp = getattr(trade, "timestamp", None)
+        isoformat = getattr(timestamp, "isoformat", None)
+        timestamp_text = isoformat() if callable(isoformat) else str(timestamp)
+        return "|".join(
+            (
+                str(getattr(trade, "transaction_hash", "")),
+                str(getattr(trade, "token_id", "")),
+                str(getattr(trade, "side", "")),
+                str(getattr(trade, "price", "")),
+                str(getattr(trade, "size", "")),
+                timestamp_text,
+            )
+        )
+
+    def _process_trade(self, token_id: str, trade):
         """Process a single trade and notify callbacks."""
         try:
             # Extract trade details
-            price = trade.get('price')
-            size = trade.get('size')
-            side = trade.get('side', '').upper()  # "BUY" or "SELL"
-            maker_address = trade.get('maker_address', '')
-            taker_address = trade.get('taker_address', '')
+            price = getattr(trade, "price", None)
+            size = getattr(trade, "size", None)
+            side = str(getattr(trade, "side", "")).upper()
 
             if not price or not size:
                 return
