@@ -8,11 +8,20 @@ for order flow analysis.
 import asyncio
 from typing import List, Optional, Callable, Dict
 from decimal import Decimal
-from py_clob_client.clob_types import TradeParams
 from src.client import get_auth_client
 from src.utils import setup_logging
 
 logger = setup_logging()
+
+
+def _load_trade_params():
+    try:
+        from py_clob_client.clob_types import TradeParams
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "py-clob-client is not installed. Trade polling is unavailable."
+        ) from exc
+    return TradeParams
 
 
 class TradesPoller:
@@ -102,6 +111,7 @@ class TradesPoller:
         """Poll trades for a single token."""
         try:
             client = get_auth_client()
+            TradeParams = _load_trade_params()
             params = TradeParams(asset_id=token_id)
 
             # Get recent trades (API returns most recent first)

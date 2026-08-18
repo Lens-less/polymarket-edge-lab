@@ -11,6 +11,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from .btc_twap_pair_pricing import (
+    PairExecutionMode,
     PairPricingPolicy,
     joint_quantity_breakpoints,
     quote_pair_buy,
@@ -37,9 +38,13 @@ EXPECTED_RTDS_INTERVAL_MS = 1_000
 MAXIMUM_RTDS_GAP_MS = 2_000
 MINIMUM_SETTLED_CLUSTERS = 100
 MINIMUM_EXPLAINABLE_ECONOMIC_ATTEMPTS = 100
+MINIMUM_STRUCTURAL_SHADOW_EXPIRIES = 200
 MAXIMUM_SINGLE_EXPIRY_PNL_CONCENTRATION = Decimal("0.20")
-DEFAULT_PAIR_PRICING_POLICY = PairPricingPolicy()
-GATE_0_PAIR_PRICING_POLICY = PairPricingPolicy(pair_risk_usdc=None)
+DEFAULT_PAIR_PRICING_POLICY = PairPricingPolicy(structural_only=True)
+GATE_0_PAIR_PRICING_POLICY = PairPricingPolicy(
+    pair_risk_usdc=None,
+    structural_only=True,
+)
 
 
 def _outcome_key(*, actual_5_up: bool, actual_15_up: bool) -> str:
@@ -97,6 +102,8 @@ class StructuralFloorLevel:
     deterministic_floor_exists: bool
     positive_edge_after_cost: bool
     probe_buffer_ok: bool
+    execution_mode: PairExecutionMode = PairExecutionMode.TAKER_TAKER
+    maker_token_ids: tuple[str, ...] = ()
 
     def to_document(self) -> dict[str, str | bool]:
         return {
@@ -117,6 +124,8 @@ class StructuralFloorLevel:
             "deterministic_floor_exists": self.deterministic_floor_exists,
             "positive_edge_after_cost": self.positive_edge_after_cost,
             "probe_buffer_ok": self.probe_buffer_ok,
+            "execution_mode": self.execution_mode.value,
+            "maker_token_ids": list(self.maker_token_ids),
         }
 
 
@@ -193,6 +202,7 @@ def validate_structural_floor(
     books: Mapping[str, OrderBookSnapshot],
     pricing_policy: PairPricingPolicy = DEFAULT_PAIR_PRICING_POLICY,
     probe_all_in_limit: Decimal = PROBE_ALL_IN_LIMIT,
+    execution_mode: PairExecutionMode = PairExecutionMode.TAKER_TAKER,
 ) -> StructuralFloorVerdict:
     if (
         settlement_state.market_5_rule_hash != pair.market_5.rule_hash
@@ -216,15 +226,6 @@ def validate_structural_floor(
     ladder: list[StructuralFloorLevel] = []
     for action in allowed_actions:
         first_token_id, second_token_id = all_specs[action]
-        selected_books = select_healthy_pair_books(
-            first_token_id=first_token_id,
-            second_token_id=second_token_id,
-            books=books,
-            policy=pricing_policy,
-        )
-        if selected_books is None:
-            continue
-        first_book, second_book = selected_books
         first_contract = (
             pair.market_15
             if first_token_id
@@ -243,6 +244,17 @@ def validate_structural_floor(
             }
             else pair.market_5
         )
+        selected_books = select_healthy_pair_books(
+            first_token_id=first_token_id,
+            second_token_id=second_token_id,
+            books=books,
+            policy=pricing_policy,
+            first_contract=first_contract,
+            second_contract=second_contract,
+        )
+        if selected_books is None:
+            continue
+        first_book, second_book = selected_books
         quantities = joint_quantity_breakpoints(
             first_book=first_book,
             second_book=second_book,
@@ -258,6 +270,7 @@ def validate_structural_floor(
                 second_book=second_book,
                 first_contract=first_contract,
                 second_contract=second_contract,
+                execution_mode=execution_mode,
             )
             if quote is None:
                 continue
@@ -278,6 +291,8 @@ def validate_structural_floor(
                     deterministic_floor_exists=all_in <= ONE and floor >= ZERO,
                     positive_edge_after_cost=floor > ZERO,
                     probe_buffer_ok=all_in <= probe_all_in_limit and floor > ZERO,
+                    execution_mode=quote.execution_mode,
+                    maker_token_ids=quote.maker_token_ids,
                 )
             )
     selected = (
@@ -316,12 +331,15 @@ class PerfectInformationAttempt:
     actual_5_up: bool
     actual_15_up: bool
     pricing_policy: PairPricingPolicy = GATE_0_PAIR_PRICING_POLICY
+    execution_mode: PairExecutionMode = PairExecutionMode.TAKER_TAKER
 
 
 @dataclass(frozen=True)
 class PerfectInformationBreakpoint:
     quantity: Decimal
     action: PairAction
+    execution_mode: PairExecutionMode
+    maker_token_ids: tuple[str, ...]
     realized_payoff_per_pair: Decimal
     all_in_cost_per_pair: Decimal
     realized_net_pnl_per_pair: Decimal
@@ -331,6 +349,8 @@ class PerfectInformationBreakpoint:
         return {
             "quantity": str(self.quantity),
             "action": self.action.value,
+            "execution_mode": self.execution_mode.value,
+            "maker_token_ids": list(self.maker_token_ids),
             "realized_payoff_per_pair": str(self.realized_payoff_per_pair),
             "all_in_cost_per_pair": str(self.all_in_cost_per_pair),
             "realized_net_pnl_per_pair": str(self.realized_net_pnl_per_pair),
@@ -454,16 +474,6 @@ def evaluate_perfect_information_upper_bound(
         )
         for action, token_ids in _pair_action_specs(attempt.pair).items():
             first_token_id, second_token_id = token_ids
-            selected_books = select_healthy_pair_books(
-                first_token_id=first_token_id,
-                second_token_id=second_token_id,
-                books=attempt.books,
-                policy=attempt.pricing_policy,
-            )
-            if selected_books is None:
-                per_attempt_best_by_action[action.value] = ZERO
-                continue
-            first_book, second_book = selected_books
             first_contract = (
                 attempt.pair.market_15
                 if first_token_id
@@ -482,6 +492,18 @@ def evaluate_perfect_information_upper_bound(
                 }
                 else attempt.pair.market_5
             )
+            selected_books = select_healthy_pair_books(
+                first_token_id=first_token_id,
+                second_token_id=second_token_id,
+                books=attempt.books,
+                policy=attempt.pricing_policy,
+                first_contract=first_contract,
+                second_contract=second_contract,
+            )
+            if selected_books is None:
+                per_attempt_best_by_action[action.value] = ZERO
+                continue
+            first_book, second_book = selected_books
             quantities = joint_quantity_breakpoints(
                 first_book=first_book,
                 second_book=second_book,
@@ -497,6 +519,7 @@ def evaluate_perfect_information_upper_bound(
                     second_book=second_book,
                     first_contract=first_contract,
                     second_contract=second_contract,
+                    execution_mode=attempt.execution_mode,
                 )
                 if quote is None:
                     continue
@@ -504,6 +527,8 @@ def evaluate_perfect_information_upper_bound(
                 breakpoint = PerfectInformationBreakpoint(
                     quantity=quantity,
                     action=action,
+                    execution_mode=quote.execution_mode,
+                    maker_token_ids=quote.maker_token_ids,
                     realized_payoff_per_pair=realized_payoff,
                     all_in_cost_per_pair=quote.cost_per_pair,
                     realized_net_pnl_per_pair=realized_net,
@@ -557,16 +582,17 @@ def evaluate_perfect_information_upper_bound(
                 ),
             )
         )
-        structural_positive_candidates = [
+        structural_non_negative_candidates = [
             candidate
-            for candidate in unrestricted_positive_candidates
+            for candidate in candidates
             if candidate.action in structural_actions
+            and candidate.realized_total_pnl >= ZERO
         ]
         best = (
             None
-            if not structural_positive_candidates
+            if not structural_non_negative_candidates
             else max(
-                structural_positive_candidates,
+                structural_non_negative_candidates,
                 key=lambda item: (
                     item.realized_total_pnl,
                     item.realized_net_pnl_per_pair,
@@ -707,6 +733,7 @@ class ExecutionProbePrerequisites:
     immutable_probe_preregistration_present: bool = False
     full_hedge_depth_verified: bool = False
     gate_0_passed: bool = False
+    double_maker_probe_implemented: bool = False
 
 
 DEFAULT_PROBE_PREREQUISITES = ExecutionProbePrerequisites()
@@ -718,21 +745,39 @@ class NeutralShadowEvidence:
     receipt_chain_verified: bool
     all_admitted_cohorts_included: bool
     scenario: str = "neutral"
+    expiry_count: int = 0
+    without_best_expiry_net_pnl: Decimal | None = None
+    without_best_direction_net_pnl: Decimal | None = None
+    minimum_rolling_window_net_pnl: Decimal | None = None
+    max_single_expiry_pnl_concentration: Decimal | None = None
 
     def __post_init__(self) -> None:
         if self.scenario != "neutral":
             raise ValueError("execution-probe shadow evidence must be neutral")
-        if self.realized_net_pnl is not None:
-            if isinstance(self.realized_net_pnl, (bool, float)):
-                raise TypeError("neutral shadow PnL must be an exact decimal")
-            parsed = (
-                self.realized_net_pnl
-                if isinstance(self.realized_net_pnl, Decimal)
-                else Decimal(str(self.realized_net_pnl))
-            )
+        if (
+            isinstance(self.expiry_count, bool)
+            or not isinstance(self.expiry_count, int)
+            or self.expiry_count < 0
+        ):
+            raise ValueError("neutral shadow expiry_count must be non-negative")
+        for name in (
+            "realized_net_pnl",
+            "without_best_expiry_net_pnl",
+            "without_best_direction_net_pnl",
+            "minimum_rolling_window_net_pnl",
+            "max_single_expiry_pnl_concentration",
+        ):
+            value = getattr(self, name)
+            if value is None:
+                continue
+            if isinstance(value, (bool, float)):
+                raise TypeError(f"{name} must be an exact decimal")
+            parsed = value if isinstance(value, Decimal) else Decimal(str(value))
             if not parsed.is_finite():
-                raise ValueError("neutral shadow PnL must be finite")
-            object.__setattr__(self, "realized_net_pnl", parsed)
+                raise ValueError(f"{name} must be finite")
+            if name == "max_single_expiry_pnl_concentration" and parsed < ZERO:
+                raise ValueError("shadow concentration cannot be negative")
+            object.__setattr__(self, name, parsed)
         for name in ("receipt_chain_verified", "all_admitted_cohorts_included"):
             if not isinstance(getattr(self, name), bool):
                 raise TypeError(f"{name} must be bool")
@@ -769,6 +814,33 @@ def evaluate_execution_probe_readiness(
             reasons.append("neutral_shadow_receipt_chain_unverified")
         if not neutral_shadow_evidence.all_admitted_cohorts_included:
             reasons.append("neutral_shadow_denominator_incomplete")
+        if (
+            neutral_shadow_evidence.expiry_count
+            < MINIMUM_STRUCTURAL_SHADOW_EXPIRIES
+        ):
+            reasons.append("fewer_than_200_neutral_shadow_expiries")
+        if (
+            neutral_shadow_evidence.without_best_expiry_net_pnl is None
+            or neutral_shadow_evidence.without_best_expiry_net_pnl <= ZERO
+        ):
+            reasons.append("neutral_shadow_not_positive_without_best_expiry")
+        if (
+            neutral_shadow_evidence.without_best_direction_net_pnl is None
+            or neutral_shadow_evidence.without_best_direction_net_pnl <= ZERO
+        ):
+            reasons.append("neutral_shadow_not_positive_without_best_direction")
+        if (
+            neutral_shadow_evidence.minimum_rolling_window_net_pnl is None
+            or neutral_shadow_evidence.minimum_rolling_window_net_pnl <= ZERO
+        ):
+            reasons.append("neutral_shadow_rolling_window_not_positive")
+        if neutral_shadow_evidence.max_single_expiry_pnl_concentration is None:
+            reasons.append("neutral_shadow_concentration_unverified")
+        elif (
+            neutral_shadow_evidence.max_single_expiry_pnl_concentration
+            > MAXIMUM_SINGLE_EXPIRY_PNL_CONCENTRATION
+        ):
+            reasons.append("neutral_shadow_concentration_above_20pct")
     if clean_common_terminal_cohort_count < 4:
         reasons.append("fewer_than_4_candidate_common_terminal_cohorts")
     if unique_complete_cohort_count < 4:
@@ -785,6 +857,12 @@ def evaluate_execution_probe_readiness(
         reasons.append("structural_floor_not_positive_after_cost")
     elif not structural_floor.probe_buffer_ok:
         reasons.append("all_in_cost_exceeds_0_99_probe_buffer")
+    elif (
+        structural_floor.selected_level is None
+        or structural_floor.selected_level.execution_mode
+        is not PairExecutionMode.MAKER_MAKER
+    ):
+        reasons.append("structural_floor_not_double_maker")
     if not prerequisites.service_continuously_healthy:
         reasons.append("service_continuous_health_unverified")
     if not prerequisites.authenticated_read_verified:
@@ -799,6 +877,8 @@ def evaluate_execution_probe_readiness(
         reasons.append("full_hedge_depth_unverified")
     if not prerequisites.gate_0_passed:
         reasons.append("gate_0_not_passed")
+    if not prerequisites.double_maker_probe_implemented:
+        reasons.append("double_maker_probe_not_implemented")
     return ExecutionProbeReadiness(
         eligible=not reasons,
         clean_common_terminal_cohort_count=unique_complete_cohort_count,

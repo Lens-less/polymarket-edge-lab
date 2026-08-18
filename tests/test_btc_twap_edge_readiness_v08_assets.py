@@ -52,6 +52,12 @@ def test_v08_preregistration_is_structural_only_fail_closed_and_no_go() -> None:
         "authenticated_endpoints_allowed": False,
         "production_probe_adapter_installed": False,
     }
+    assert service["pair_capture"]["token_scope"] == "paired_four_tokens_only"
+    assert service["pair_capture"]["persist_raw_clob_frames"] is False
+    assert service["pair_capture"]["persist_reconstructed_full_depth_frames"] is False
+    assert service["pair_capture"]["full_clob_snapshot_interval_seconds"] == 30
+    assert service["capacity_gate"]["maximum_capture_failure_rate"] == 0.05
+    assert service["capacity_gate"]["minimum_free_disk_bytes"] >= 10 * 1024**3
 
 
 def test_v08_deployment_installs_capture_health_but_no_probe_unit() -> None:

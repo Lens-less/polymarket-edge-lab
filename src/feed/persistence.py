@@ -12,6 +12,7 @@ import sqlite3
 import json
 import time
 import asyncio
+import gc
 from pathlib import Path
 from datetime import datetime
 from decimal import Decimal
@@ -21,12 +22,27 @@ from contextlib import contextmanager
 import logging
 
 import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
+try:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+except ModuleNotFoundError:  # pragma: no cover - environment dependent
+    pa = None
+    pq = None
 
 from src.models import OrderBook, PriceLevel, OrderSide
 
 logger = logging.getLogger(__name__)
+
+
+def _write_frame(path: Path, df: pd.DataFrame) -> None:
+    if pa is not None and pq is not None:
+        pq.write_table(pa.Table.from_pandas(df), str(path))
+        return
+    logger.warning(
+        "pyarrow is unavailable; writing line-delimited JSON fallback to %s",
+        path,
+    )
+    path.write_text(df.to_json(orient="records", lines=True), encoding="utf-8")
 
 
 @dataclass
@@ -398,10 +414,7 @@ class SQLiteStore:
                 rows = cursor.fetchall()
                 if rows:
                     df = pd.DataFrame(rows, columns=[c[0] for c in cursor.description])
-                    pq.write_table(
-                        pa.Table.from_pandas(df),
-                        str(output_path / f"{table}.parquet")
-                    )
+                    _write_frame(output_path / f"{table}.parquet", df)
                     logger.info(f"Exported {len(rows)} rows to {table}.parquet")
             except Exception as e:
                 logger.error(f"Failed to export {table}: {e}")
@@ -412,19 +425,18 @@ class SQLiteStore:
             rows = cursor.fetchall()
             if rows:
                 df = pd.DataFrame(rows, columns=[c[0] for c in cursor.description])
-                pq.write_table(
-                    pa.Table.from_pandas(df),
-                    str(output_path / "market_metadata.parquet")
-                )
+                _write_frame(output_path / "market_metadata.parquet", df)
                 logger.info(f"Exported {len(rows)} rows to market_metadata.parquet")
         except Exception as e:
             logger.error(f"Failed to export market_metadata: {e}")
 
     def close(self):
         """Close database connection."""
-        if hasattr(self._local, 'conn') and self._local.conn:
-            self._local.conn.close()
+        connection = getattr(self._local, "conn", None)
+        if connection is not None:
+            connection.close()
             self._local.conn = None
+            gc.collect()
 
 
 import threading

@@ -17,7 +17,6 @@ not acquire binary floating-point drift.
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import math
@@ -30,6 +29,8 @@ from decimal import Decimal, ROUND_FLOOR
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Iterable, Mapping, Optional, Sequence
+
+from .portable_fcntl import LOCK_EX, LOCK_SH, LOCK_UN, flock
 
 
 ZERO = Decimal("0")
@@ -407,7 +408,7 @@ class ExperimentRegistry:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         canonical_line = canonical_json(record.to_mapping())
         with self.path.open("a+", encoding="utf-8") as handle:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            flock(handle.fileno(), LOCK_EX)
             try:
                 _, rows_by_id = self._read_handle(handle)
                 previous = rows_by_id.get(record.experiment_id)
@@ -425,18 +426,18 @@ class ExperimentRegistry:
                 os.fsync(handle.fileno())
                 return True
             finally:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                flock(handle.fileno(), LOCK_UN)
 
     def read_all(self) -> tuple[ExperimentRecord, ...]:
         if not self.path.exists():
             return ()
         with self.path.open("r", encoding="utf-8") as handle:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_SH)
+            flock(handle.fileno(), LOCK_SH)
             try:
                 records, _ = self._read_handle(handle)
                 return tuple(records)
             finally:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                flock(handle.fileno(), LOCK_UN)
 
     def get(self, experiment_id: str) -> Optional[ExperimentRecord]:
         return next(

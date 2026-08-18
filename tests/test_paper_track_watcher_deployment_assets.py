@@ -81,6 +81,10 @@ def test_watch_timer_and_bootstrap_match_staged_manual_start() -> None:
     assert 'host["cpu_credit_region"] = region' in bootstrap_text
     assert 'host["cpu_credit_instance_id"] = instance_id' in bootstrap_text
     assert 'chmod 0644 "${RUNTIME_CONFIG_PATH}"' in bootstrap_text
+    assert 'POLYMM_SNS_TOPIC_ARN:?POLYMM_SNS_TOPIC_ARN is required' in bootstrap_text
+    assert "list-subscriptions-by-topic" in bootstrap_text
+    assert "PendingConfirmation" in bootstrap_text
+    assert "confirmed SNS subscription" in bootstrap_text
     assert "verified source archive" in bootstrap_text
     assert "systemctl daemon-reload" in bootstrap_text
     assert "systemctl enable polymm-watch.timer" in bootstrap_text

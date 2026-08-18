@@ -9,6 +9,7 @@ SERVICE_USER="${SERVICE_USER:-polybotwatch}"
 SERVICE_GROUP="${SERVICE_GROUP:-polybotwatch}"
 DEPLOYMENT_REVISION_PATH="${INSTALL_ROOT}/.deployment-revision"
 RUNTIME_CONFIG_PATH="${RUNTIME_CONFIG_PATH:-/etc/polymm-watch-config.json}"
+SNS_TOPIC_ARN="${POLYMM_SNS_TOPIC_ARN:?POLYMM_SNS_TOPIC_ARN is required for paging}"
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "Run as root." >&2
@@ -113,12 +114,23 @@ PY
 chown root:root "${RUNTIME_CONFIG_PATH}"
 chmod 0644 "${RUNTIME_CONFIG_PATH}"
 
-if [[ -n "${POLYMM_SNS_TOPIC_ARN:-}" ]]; then
-  command -v aws >/dev/null
-  printf 'POLYMM_SNS_TOPIC_ARN=%s\n' "${POLYMM_SNS_TOPIC_ARN}" \
-    >/etc/polymm-watch.env
-  chmod 0644 /etc/polymm-watch.env
+command -v aws >/dev/null
+SNS_REGION="${SNS_TOPIC_ARN#arn:aws:sns:}"
+SNS_REGION="${SNS_REGION%%:*}"
+CONFIRMED_SNS_SUBSCRIPTIONS="$(
+  aws sns list-subscriptions-by-topic \
+    --region "${SNS_REGION}" \
+    --topic-arn "${SNS_TOPIC_ARN}" \
+    --query "length(Subscriptions[?SubscriptionArn!='PendingConfirmation'])" \
+    --output text
+)"
+if [[ ! "${CONFIRMED_SNS_SUBSCRIPTIONS}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "SNS topic must have at least one confirmed SNS subscription." >&2
+  exit 1
 fi
+printf 'POLYMM_SNS_TOPIC_ARN=%s\n' "${SNS_TOPIC_ARN}" \
+  >/etc/polymm-watch.env
+chmod 0644 /etc/polymm-watch.env
 
 chown -R root:root "${INSTALL_ROOT}"
 chmod -R a+rX "${INSTALL_ROOT}"

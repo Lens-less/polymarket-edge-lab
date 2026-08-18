@@ -1,5 +1,5 @@
 {
-  "schema_version": "btc-5m-15m-edge-readiness-v08-service-config.v1",
+  "schema_version": "btc-5m-15m-edge-readiness-v08-service-config.v2",
   "track_id": "btc_5m_15m_edge_readiness_v08_2026_08_18",
   "mode": "public_capture_and_locked_structural_shadow",
   "data_root": "/var/lib/poly-mm-v08/data",
@@ -18,12 +18,23 @@
     "disconnect_policy": "dirty"
   },
   "pair_capture": {
-    "full_clob_snapshot_interval_seconds": 5,
-    "reconstructed_full_depth_interval_ms": 250,
-    "public_taker_trades_interval_seconds": 30,
+    "token_scope": "paired_four_tokens_only",
+    "persist_raw_clob_frames": false,
+    "persist_reconstructed_full_depth_frames": false,
+    "persist_top_of_book_changes": true,
+    "full_clob_snapshot_interval_seconds": 30,
+    "public_taker_trades_interval_seconds": 5,
     "rules_interval_seconds": 30,
     "retain_source_receipt_and_monotonic_timestamps": true,
     "single_recorder_leg_failure_policy": "dirty"
+  },
+  "capacity_gate": {
+    "maximum_capture_failure_rate": 0.05,
+    "minimum_free_disk_bytes": 10737418240,
+    "maximum_projected_daily_capture_bytes": 1073741824,
+    "minimum_memory_bytes": 2147483648,
+    "burstable_cpu_credit_exhaustion_allowed": false,
+    "failure_action": "stop_all_statistical_and_probe_promotion"
   },
   "safety": {
     "paper_only": true,

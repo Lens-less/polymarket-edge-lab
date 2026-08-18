@@ -4,9 +4,9 @@ CLOB Client wrapper with authentication support.
 Provides both read-only and authenticated client access.
 """
 
-from typing import Optional
-from py_clob_client.client import ClobClient
-from py_clob_client.clob_types import ApiCreds
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Optional
 
 from src.config import (
     CLOB_API_URL,
@@ -23,9 +23,27 @@ from src.utils import setup_logging
 
 logger = setup_logging()
 
+if TYPE_CHECKING:
+    from py_clob_client.client import ClobClient
+    from py_clob_client.clob_types import ApiCreds
+else:
+    ClobClient = Any
+    ApiCreds = Any
+
 # Module-level clients (singletons)
 _read_client: Optional[ClobClient] = None
 _auth_client: Optional[ClobClient] = None
+
+
+def _load_py_clob_client() -> tuple[type[ClobClient], type[ApiCreds]]:
+    try:
+        from py_clob_client.client import ClobClient as loaded_client
+        from py_clob_client.clob_types import ApiCreds as loaded_creds
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "py-clob-client is not installed. Legacy client access remains unavailable."
+        ) from exc
+    return loaded_client, loaded_creds
 
 
 def get_client() -> ClobClient:
@@ -40,7 +58,8 @@ def get_client() -> ClobClient:
     global _read_client
 
     if _read_client is None:
-        _read_client = ClobClient(
+        client_type, _api_creds_type = _load_py_clob_client()
+        _read_client = client_type(
             host=CLOB_API_URL,
             chain_id=CHAIN_ID
         )
@@ -65,6 +84,7 @@ def get_auth_client() -> ClobClient:
     global _auth_client
 
     if _auth_client is None:
+        client_type, api_creds_type = _load_py_clob_client()
         if not has_credentials():
             raise ValueError(
                 "Authentication credentials not configured. "
@@ -73,7 +93,7 @@ def get_auth_client() -> ClobClient:
             )
 
         # Create client with signing material. Some accounts also require funder/signature_type.
-        _auth_client = ClobClient(
+        _auth_client = client_type(
             host=CLOB_API_URL,
             chain_id=CHAIN_ID,
             key=POLY_PRIVATE_KEY,
@@ -82,7 +102,7 @@ def get_auth_client() -> ClobClient:
         )
 
         if all([POLY_API_KEY, POLY_API_SECRET, POLY_PASSPHRASE]):
-            _auth_client.set_api_creds(ApiCreds(
+            _auth_client.set_api_creds(api_creds_type(
                 api_key=POLY_API_KEY,
                 api_secret=POLY_API_SECRET,
                 api_passphrase=POLY_PASSPHRASE

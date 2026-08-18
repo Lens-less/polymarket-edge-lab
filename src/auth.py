@@ -10,11 +10,20 @@ from decimal import Decimal
 from src.client import get_auth_client
 from src.config import POLY_SIGNATURE_TYPE
 from src.utils import setup_logging
-from py_clob_client.clob_types import BalanceAllowanceParams, AssetType
 
 logger = setup_logging()
 
 TOKEN_DECIMALS = Decimal("1000000")
+
+
+def _load_balance_allowance_types():
+    try:
+        from py_clob_client.clob_types import BalanceAllowanceParams, AssetType
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "py-clob-client is not installed. Legacy allowance inspection is unavailable."
+        ) from exc
+    return BalanceAllowanceParams, AssetType
 
 
 def get_wallet_address() -> str:
@@ -37,6 +46,7 @@ def get_balances() -> Dict[str, Decimal]:
     # This is a placeholder - actual implementation depends on client version
 
     try:
+        BalanceAllowanceParams, AssetType = _load_balance_allowance_types()
         # Legacy V1 collateral lookup. New orders are blocked until this module
         # is replaced with a verified pUSD/V2 implementation.
         collateral = client.get_balance_allowance(
@@ -71,6 +81,7 @@ def check_allowances() -> Dict[str, Any]:
     client = get_auth_client()
 
     try:
+        BalanceAllowanceParams, AssetType = _load_balance_allowance_types()
         result = client.get_balance_allowance(
             BalanceAllowanceParams(
                 asset_type=AssetType.COLLATERAL,
@@ -104,6 +115,7 @@ def get_conditional_balance(token_id: str) -> Dict[str, Decimal]:
     client = get_auth_client()
 
     try:
+        BalanceAllowanceParams, AssetType = _load_balance_allowance_types()
         result = client.get_balance_allowance(
             BalanceAllowanceParams(
                 asset_type=AssetType.CONDITIONAL,

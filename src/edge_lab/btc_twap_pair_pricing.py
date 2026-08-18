@@ -5,12 +5,21 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import ROUND_CEILING, ROUND_DOWN, Decimal
+from enum import Enum
 
 from .btc_twap_relative_value import OrderBookSnapshot, TwapMarketContract
 
 ZERO = Decimal(0)
 ONE = Decimal(1)
 SIZE_QUANTUM = Decimal("0.000001")
+
+
+class PairExecutionMode(str, Enum):
+    """Execution-cost shapes used by structural readiness diagnostics."""
+
+    TAKER_TAKER = "taker_taker"
+    MAKER_TAKER = "maker_taker"
+    MAKER_MAKER = "maker_maker"
 
 
 @dataclass(frozen=True)
@@ -21,6 +30,7 @@ class PairPricingPolicy:
     minimum_market_price: Decimal = Decimal("0.05")
     maximum_market_price: Decimal = Decimal("0.95")
     pair_risk_usdc: Decimal | None = Decimal(25)
+    structural_only: bool = False
 
     def __post_init__(self) -> None:
         for name in (
@@ -49,6 +59,8 @@ class PairPricingPolicy:
             raise ValueError("market price bounds are invalid")
         if self.pair_risk_usdc is not None and self.pair_risk_usdc <= ZERO:
             raise ValueError("pair_risk_usdc must be positive")
+        if not isinstance(self.structural_only, bool):
+            raise TypeError("structural_only must be bool")
 
 
 @dataclass(frozen=True)
@@ -66,6 +78,8 @@ class PairBuyQuote:
     fee_per_pair: Decimal
     cost_per_pair: Decimal
     total_cost: Decimal
+    execution_mode: PairExecutionMode
+    maker_token_ids: tuple[str, ...]
 
 
 def quote_book_buy(
@@ -73,11 +87,19 @@ def quote_book_buy(
     *,
     quantity: Decimal,
     contract: TwapMarketContract,
+    maker: bool = False,
 ) -> BookBuyQuote | None:
-    """Walk every captured ask level and apply the captured rounded fee schedule."""
+    """Price a taker buy from asks or a hypothetical resting buy at best bid."""
 
     if quantity <= ZERO:
         raise ValueError("quantity must be positive")
+    if maker:
+        if book.best_bid is None:
+            return None
+        return BookBuyQuote(
+            notional=quantity * book.best_bid,
+            fee=contract.fee_schedule.fee(quantity, book.best_bid, maker=True),
+        )
     remaining = quantity
     notional = ZERO
     fee = ZERO
@@ -100,35 +122,77 @@ def quote_pair_buy(
     second_book: OrderBookSnapshot,
     first_contract: TwapMarketContract,
     second_contract: TwapMarketContract,
+    execution_mode: PairExecutionMode = PairExecutionMode.TAKER_TAKER,
 ) -> PairBuyQuote | None:
     """Return exact two-leg all-in cost at one common executable quantity."""
 
-    first_quote = quote_book_buy(
-        first_book,
-        quantity=quantity,
-        contract=first_contract,
+    mode = (
+        execution_mode
+        if isinstance(execution_mode, PairExecutionMode)
+        else PairExecutionMode(execution_mode)
     )
-    second_quote = quote_book_buy(
-        second_book,
-        quantity=quantity,
-        contract=second_contract,
+
+    def quote_roles(*, first_maker: bool, second_maker: bool) -> PairBuyQuote | None:
+        first_quote = quote_book_buy(
+            first_book,
+            quantity=quantity,
+            contract=first_contract,
+            maker=first_maker,
+        )
+        second_quote = quote_book_buy(
+            second_book,
+            quantity=quantity,
+            contract=second_contract,
+            maker=second_maker,
+        )
+        if first_quote is None or second_quote is None:
+            return None
+        total_cost = (
+            first_quote.notional
+            + first_quote.fee
+            + second_quote.notional
+            + second_quote.fee
+        )
+        maker_token_ids = tuple(
+            token_id
+            for token_id, maker in (
+                (first_book.token_id, first_maker),
+                (second_book.token_id, second_maker),
+            )
+            if maker
+        )
+        return PairBuyQuote(
+            quantity=quantity,
+            first=first_quote,
+            second=second_quote,
+            notional_per_pair=(
+                first_quote.notional + second_quote.notional
+            )
+            / quantity,
+            fee_per_pair=(first_quote.fee + second_quote.fee) / quantity,
+            cost_per_pair=total_cost / quantity,
+            total_cost=total_cost,
+            execution_mode=mode,
+            maker_token_ids=maker_token_ids,
+        )
+
+    if mode is PairExecutionMode.TAKER_TAKER:
+        return quote_roles(first_maker=False, second_maker=False)
+    if mode is PairExecutionMode.MAKER_MAKER:
+        return quote_roles(first_maker=True, second_maker=True)
+    alternatives = tuple(
+        quote
+        for quote in (
+            quote_roles(first_maker=True, second_maker=False),
+            quote_roles(first_maker=False, second_maker=True),
+        )
+        if quote is not None
     )
-    if first_quote is None or second_quote is None:
+    if not alternatives:
         return None
-    total_cost = (
-        first_quote.notional
-        + first_quote.fee
-        + second_quote.notional
-        + second_quote.fee
-    )
-    return PairBuyQuote(
-        quantity=quantity,
-        first=first_quote,
-        second=second_quote,
-        notional_per_pair=(first_quote.notional + second_quote.notional) / quantity,
-        fee_per_pair=(first_quote.fee + second_quote.fee) / quantity,
-        cost_per_pair=total_cost / quantity,
-        total_cost=total_cost,
+    return min(
+        alternatives,
+        key=lambda quote: quote.total_cost,
     )
 
 
@@ -138,8 +202,10 @@ def select_healthy_pair_books(
     second_token_id: str,
     books: Mapping[str, OrderBookSnapshot],
     policy: PairPricingPolicy,
+    first_contract: TwapMarketContract | None = None,
+    second_contract: TwapMarketContract | None = None,
 ) -> tuple[OrderBookSnapshot, OrderBookSnapshot] | None:
-    """Fail closed unless both captured books satisfy explicit price/spread bounds."""
+    """Fail closed unless both books are complete and satisfy the active policy."""
 
     first_book = books.get(first_token_id)
     second_book = books.get(second_token_id)
@@ -147,13 +213,34 @@ def select_healthy_pair_books(
         return None
     if first_book.token_id != first_token_id or second_book.token_id != second_token_id:
         return None
+    for book, contract in (
+        (first_book, first_contract),
+        (second_book, second_contract),
+    ):
+        if contract is None:
+            continue
+        if (
+            book.token_id not in {contract.up_token_id, contract.down_token_id}
+            or book.tick_size != contract.tick_size
+            or book.minimum_order_size != contract.minimum_order_size
+            or any(
+                level.price % book.tick_size != ZERO
+                for level in (*book.bids, *book.asks)
+            )
+        ):
+            return None
     for book in (first_book, second_book):
         if (
             book.best_bid is None
             or book.best_ask is None
             or book.spread is None
             or book.spread < ZERO
-            or book.spread > policy.maximum_spread_each_leg
+        ):
+            return None
+        if policy.structural_only:
+            continue
+        if (
+            book.spread > policy.maximum_spread_each_leg
             or not policy.minimum_market_price
             <= book.best_ask
             <= policy.maximum_market_price
@@ -254,6 +341,7 @@ def joint_quantity_breakpoints(
 __all__ = [
     "BookBuyQuote",
     "PairBuyQuote",
+    "PairExecutionMode",
     "PairPricingPolicy",
     "joint_quantity_breakpoints",
     "quote_book_buy",

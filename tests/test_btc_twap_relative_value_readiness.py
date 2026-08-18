@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from decimal import Decimal
 
-from src.edge_lab.btc_twap_pair_pricing import PairPricingPolicy
+from src.edge_lab.btc_twap_pair_pricing import PairExecutionMode, PairPricingPolicy
 from src.edge_lab.btc_twap_relative_value import (
     OrderBookSnapshot,
     PairAction,
@@ -12,6 +12,7 @@ from src.edge_lab.btc_twap_relative_value import (
 from src.edge_lab.btc_twap_relative_value_readiness import (
     CohortCoverageInput,
     ExecutionProbePrerequisites,
+    GATE_0_PAIR_PRICING_POLICY,
     NeutralShadowEvidence,
     PerfectInformationAttempt,
     StrategyLiveInputs,
@@ -36,6 +37,8 @@ def _book(
     ask: str,
     bid: str | None = None,
     size: str = "10",
+    tick_size: str = "0.01",
+    minimum_order_size: str = "5",
 ) -> OrderBookSnapshot:
     best_bid = D(ask) - D("0.01") if bid is None else D(bid)
     return OrderBookSnapshot.from_tuples(
@@ -43,8 +46,8 @@ def _book(
         bids=((best_bid, D(size)),),
         asks=((D(ask), D(size)),),
         timestamp_ms=1_000,
-        tick_size=D("0.01"),
-        minimum_order_size=D("1"),
+        tick_size=D(tick_size),
+        minimum_order_size=D(minimum_order_size),
     )
 
 
@@ -178,6 +181,89 @@ def test_structural_floor_distinguishes_c_equal_1_from_point_99_probe_buffer() -
     assert at_point_99.probe_buffer_ok is True
 
 
+def test_structural_floor_keeps_extreme_prices_when_split_probability_collapses() -> None:
+    original = _v07_pair()
+    fee_exempt = ExecutionFeeSchedule.fee_exempt(
+        reason="structural-boundary-test",
+        source_ref="unit-fixture",
+    )
+    pair = SameExpiryPair.from_contracts(
+        replace(
+            original.market_5,
+            fee_schedule=fee_exempt,
+            tick_size=D("0.001"),
+            rule_hash="3" * 64,
+        ),
+        replace(
+            original.market_15,
+            fee_schedule=fee_exempt,
+            tick_size=D("0.001"),
+            rule_hash="4" * 64,
+        ),
+    )
+    state = replace(
+        _settlement_state(original),
+        market_5_rule_hash=pair.market_5.rule_hash,
+        market_15_rule_hash=pair.market_15.rule_hash,
+        strike_5=D("100"),
+        strike_15=D("101"),
+    )
+
+    verdict = validate_structural_floor(
+        pair=pair,
+        settlement_state=state,
+        books={
+            pair.market_5.up_token_id: _book(
+                pair.market_5.up_token_id,
+                bid="0.009",
+                ask="0.010",
+                tick_size="0.001",
+            ),
+            pair.market_15.down_token_id: _book(
+                pair.market_15.down_token_id,
+                bid="0.979",
+                ask="0.980",
+                tick_size="0.001",
+            ),
+        },
+        pricing_policy=PairPricingPolicy(
+            structural_only=True,
+            pair_risk_usdc=D("10"),
+        ),
+    )
+
+    assert verdict.selected_level is not None
+    assert verdict.selected_level.all_in_cost_per_pair == D("0.99")
+    assert verdict.selected_level.positive_edge_after_cost is True
+
+
+def test_structural_floor_rejects_book_rules_that_do_not_match_the_contract() -> None:
+    pair = _v07_pair()
+    state = replace(
+        _settlement_state(pair),
+        strike_5=D("100"),
+        strike_15=D("101"),
+    )
+
+    verdict = validate_structural_floor(
+        pair=pair,
+        settlement_state=state,
+        books={
+            pair.market_5.up_token_id: _book(
+                pair.market_5.up_token_id,
+                ask="0.40",
+                tick_size="0.001",
+            ),
+            pair.market_15.down_token_id: _book(
+                pair.market_15.down_token_id,
+                ask="0.50",
+            ),
+        },
+    )
+
+    assert verdict.selected_level is None
+
+
 def test_perfect_information_upper_bound_is_gate_zero_and_stops_non_positive_route() -> (
     None
 ):
@@ -305,6 +391,53 @@ def test_gate_zero_upper_bound_is_not_truncated_by_v07_pair_risk_budget() -> Non
     assert max(item.quantity for item in structural_breakpoints) == D("100")
 
 
+def test_gate_zero_keeps_extreme_structural_books_near_zero_split_probability() -> (
+    None
+):
+    original = _v07_pair()
+    pair = SameExpiryPair.from_contracts(
+        replace(original.market_5, tick_size=D("0.001")),
+        replace(original.market_15, tick_size=D("0.001")),
+    )
+    attempt = PerfectInformationAttempt(
+        attempt_id="extreme-structural-books",
+        pair=pair,
+        settlement_state=replace(
+            _settlement_state(pair),
+            strike_5=D("101"),
+            strike_15=D("100"),
+        ),
+        books={
+            pair.market_15.up_token_id: _book(
+                pair.market_15.up_token_id,
+                ask="0.99",
+                bid="0.989",
+                tick_size="0.001",
+            ),
+            pair.market_5.down_token_id: _book(
+                pair.market_5.down_token_id,
+                ask="0.01",
+                bid="0.001",
+                tick_size="0.001",
+            ),
+        },
+        actual_5_up=True,
+        actual_15_up=True,
+        pricing_policy=GATE_0_PAIR_PRICING_POLICY,
+    )
+
+    report = evaluate_perfect_information_upper_bound((attempt,))
+
+    assert report.attempts[0].breakpoints
+    assert {
+        breakpoint.action for breakpoint in report.attempts[0].breakpoints
+    } == {PairAction.LONG_15_UP_LONG_5_DOWN}
+    assert (
+        report.attempts[0].breakpoints[0].all_in_cost_per_pair
+        == D("1.001388")
+    )
+
+
 def test_coverage_validator_requires_continuous_official_rtds_and_complete_inputs() -> (
     None
 ):
@@ -372,6 +505,7 @@ def test_probe_and_strategy_live_readiness_are_separated_and_fail_closed() -> No
         ),
         books=books,
         pricing_policy=PairPricingPolicy(pair_risk_usdc=D("5")),
+        execution_mode=PairExecutionMode.MAKER_MAKER,
     )
     coverage = tuple(
         validate_cohort_data_coverage(
@@ -398,6 +532,11 @@ def test_probe_and_strategy_live_readiness_are_separated_and_fail_closed() -> No
             realized_net_pnl=D("1"),
             receipt_chain_verified=True,
             all_admitted_cohorts_included=True,
+            expiry_count=200,
+            without_best_expiry_net_pnl=D("0.8"),
+            without_best_direction_net_pnl=D("0.5"),
+            minimum_rolling_window_net_pnl=D("0.1"),
+            max_single_expiry_pnl_concentration=D("0.10"),
         ),
         clean_common_terminal_cohort_count=4,
         coverage_results=coverage,
@@ -410,6 +549,7 @@ def test_probe_and_strategy_live_readiness_are_separated_and_fail_closed() -> No
             immutable_probe_preregistration_present=True,
             full_hedge_depth_verified=True,
             gate_0_passed=True,
+            double_maker_probe_implemented=True,
         ),
     )
     insufficient_unique_probe = evaluate_execution_probe_readiness(
@@ -417,6 +557,11 @@ def test_probe_and_strategy_live_readiness_are_separated_and_fail_closed() -> No
             realized_net_pnl=D("1"),
             receipt_chain_verified=True,
             all_admitted_cohorts_included=True,
+            expiry_count=200,
+            without_best_expiry_net_pnl=D("0.8"),
+            without_best_direction_net_pnl=D("0.5"),
+            minimum_rolling_window_net_pnl=D("0.1"),
+            max_single_expiry_pnl_concentration=D("0.10"),
         ),
         clean_common_terminal_cohort_count=4,
         coverage_results=(coverage[0], coverage[0], coverage[0], coverage[0]),
@@ -429,6 +574,7 @@ def test_probe_and_strategy_live_readiness_are_separated_and_fail_closed() -> No
             immutable_probe_preregistration_present=True,
             full_hedge_depth_verified=True,
             gate_0_passed=True,
+            double_maker_probe_implemented=True,
         ),
     )
 
