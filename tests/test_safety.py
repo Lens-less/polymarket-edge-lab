@@ -12,7 +12,7 @@ Tests:
 import pytest
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from src.models import Order, OrderSide, OrderStatus
 from src.trading import OrderError, check_balance_for_order
@@ -126,7 +126,34 @@ class TestStartupCleanup:
                 with patch('src.strategy.runner.cancel_all_orders', return_value=2) as mock_cancel:
                     result = cleanup_orphaned_orders("test_token")
                     assert result == 2
-                    mock_cancel.assert_called_once_with("test_token")
+                    mock_cancel.assert_called_once_with(
+                        "test_token",
+                        verify=True,
+                        raise_on_failure=True,
+                    )
+
+    def test_cleanup_returns_minus_one_when_cancel_verification_fails(self):
+        with patch('src.strategy.runner.DRY_RUN', False):
+            with patch(
+                'src.strategy.runner.get_open_orders',
+                return_value=[
+                    Order(
+                        id="order1",
+                        token_id="test_token",
+                        side=OrderSide.BUY,
+                        price=Decimal("0.50"),
+                        size=Decimal("10"),
+                        filled=Decimal("0"),
+                        status=OrderStatus.LIVE,
+                        is_simulated=False,
+                    )
+                ],
+            ):
+                with patch(
+                    'src.strategy.runner.cancel_all_orders',
+                    side_effect=RuntimeError("residual live orders remain"),
+                ):
+                    assert cleanup_orphaned_orders("test_token") == -1
 
 
 class TestStaleOrderDetection:
@@ -203,7 +230,7 @@ class TestBalanceMonitoring:
 
     def test_balance_drop_detection(self):
         """Test that large balance drops trigger kill switch."""
-        from src.strategy.market_maker import SmartMarketMaker, BALANCE_DROP_ALERT_PCT
+        from src.strategy.market_maker import SmartMarketMaker
 
         mm = SmartMarketMaker(token_id="test_token")
 

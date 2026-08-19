@@ -35,6 +35,7 @@ from src.edge_lab.btc_twap_execution_probe import (
     MAX_ISOLATED_BALANCE,
 )
 from src.edge_lab.btc_twap_relative_value_readiness import (
+    ExecutionProbePrerequisites,
     StrategyLiveInputs,
     evaluate_execution_probe_readiness,
     evaluate_strategy_live_readiness_inputs,
@@ -58,6 +59,9 @@ PROJECTED_CAPTURE_CONFIG_SCHEMA = "btc-5m-15m-relative-value-capture.v1"
 SOURCE_SUMMARY_SCHEMA_VERSION = "btc-twap-compact-forward-capture-summary.v1"
 MODE = "prospective_actual_market_counterfactual_shadow"
 STATUS_SCHEMA_VERSION = "btc-twap-relative-value-v07-shadow-status.v1"
+SERVICE_HEALTH_MAX_AGE_SECONDS = 90
+SERVICE_HEALTH_MIN_WINDOW_MS = 15_000
+DAILY_LEDGER_MAX_AGE_DAYS = 1
 SOURCE_MARKER_SCHEMA_VERSION = "btc-twap-relative-value-v07-shadow-source-marker.v1"
 REJECTED_SOURCE_CACHE_SCHEMA_VERSION = (
     "btc-twap-relative-value-v07-shadow-rejected-source-cache.v2"
@@ -1445,6 +1449,7 @@ def _report_summary(
         )
     except (TypeError, ValueError):
         structural_bootstrap = None
+    readiness_evaluated_at = datetime.now(timezone.utc)
     strategy_live = evaluate_strategy_live_readiness_inputs(
         StrategyLiveInputs(
             builder_verified_evidence_chain=(
@@ -1498,6 +1503,11 @@ def _report_summary(
             consecutive_profitable_utc_days=0,
             minimum_daily_net_pnl=None,
             peak_capital_deployed=None,
+            service_health_evaluation_utc_now=readiness_evaluated_at,
+            service_health_max_age_seconds=SERVICE_HEALTH_MAX_AGE_SECONDS,
+            service_health_min_window_ms=SERVICE_HEALTH_MIN_WINDOW_MS,
+            daily_ledger_evaluation_utc_now=readiness_evaluated_at,
+            daily_ledger_max_age_days=DAILY_LEDGER_MAX_AGE_DAYS,
         )
     )
     probe_readiness = evaluate_execution_probe_readiness(
@@ -1505,6 +1515,11 @@ def _report_summary(
         clean_common_terminal_cohort_count=len(projected),
         coverage_results=(),
         structural_floor=None,
+        prerequisites=ExecutionProbePrerequisites(
+            service_health_evaluation_utc_now=readiness_evaluated_at,
+            service_health_max_age_seconds=SERVICE_HEALTH_MAX_AGE_SECONDS,
+            service_health_min_window_ms=SERVICE_HEALTH_MIN_WINDOW_MS,
+        ),
     )
     heartbeat_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     train_count = min(len(projected), config.train_case_count)

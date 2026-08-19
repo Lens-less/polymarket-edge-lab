@@ -13,10 +13,11 @@ import pytest
 import src.edge_lab.data_manifest as data_manifest_module
 from src.edge_lab.data_manifest import (
     DataAuditBundle,
-    build_data_audit,
     write_data_audit,
 )
 from src.edge_lab.data_store import CaptureStore
+
+_build_data_audit = data_manifest_module.build_data_audit
 
 
 requires_posix_descriptor_reads = pytest.mark.skipif(
@@ -24,6 +25,60 @@ requires_posix_descriptor_reads = pytest.mark.skipif(
     or os.open not in os.supports_dir_fd,
     reason="requires POSIX descriptor-bound no-follow traversal",
 )
+
+
+def build_data_audit(**kwargs: object) -> DataAuditBundle:
+    """Run platform tests with an explicit portable-development opt-in."""
+
+    return _build_data_audit(
+        **kwargs,
+        allow_non_authoritative_portable_reads=(
+            not data_manifest_module._DESCRIPTOR_BOUND_READS_AVAILABLE
+        ),
+    )
+
+
+def test_portable_audit_is_fail_closed_without_explicit_non_authoritative_opt_in(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project_root, capture_root, legacy_root = _make_roots(tmp_path)
+    monkeypatch.setattr(
+        data_manifest_module,
+        "_DESCRIPTOR_BOUND_READS_AVAILABLE",
+        False,
+    )
+
+    with pytest.raises(
+        data_manifest_module.UnsafeInputPathError,
+        match="descriptor-bound audit reads are unavailable",
+    ):
+        _build_data_audit(
+            project_root=project_root,
+            capture_root=capture_root,
+            legacy_root=legacy_root,
+        )
+
+    bundle = _build_data_audit(
+        project_root=project_root,
+        capture_root=capture_root,
+        legacy_root=legacy_root,
+        allow_non_authoritative_portable_reads=True,
+    )
+    expected_binding = {
+        "mode": "portable_identity_revalidation",
+        "authoritative_for_readiness": False,
+        "guarantee": "best_effort_only_no_rename_race_proof",
+    }
+    assert bundle.manifest["read_binding"] == expected_binding
+    assert bundle.quality["read_binding"] == expected_binding
+    assert bundle.quality["status"] == "fail"
+    assert bundle.quality["levels"]["cross_source_latency_l2_ready"] is False
+    assert any(
+        gap["code"] == "non_authoritative_portable_read_binding"
+        and gap["severity"] == "error"
+        for gap in bundle.quality["gaps"]
+    )
 
 
 def _append_forward_book(

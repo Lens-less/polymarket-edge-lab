@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import time
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
@@ -40,6 +41,17 @@ ALLOWED_OUTCOMES = frozenset(
         "rtds_gap_dirty",
     }
 )
+WRITER_SOURCE_CLOCK_SKEW_TOLERANCE_MS = 2_000
+DEFAULT_SETTLEMENT_GRACE_SECONDS = 360
+_WRITER_SESSION_ID = hashlib.sha256(
+    b"|".join(
+        (
+            str(os.getpid()).encode("ascii"),
+            str(time.time_ns()).encode("ascii"),
+            os.urandom(16),
+        )
+    )
+).hexdigest()
 
 
 def _text(value: Any, *, name: str) -> str:
@@ -75,6 +87,7 @@ class RollingInclusionPolicy:
     locked_at_ms: int
     received_at_ms: int
     monotonic_ns: int
+    settlement_grace_seconds: int = DEFAULT_SETTLEMENT_GRACE_SECONDS
     track_id: str = TRACK_ID
     inclusion_rule_id: str = INCLUSION_RULE_ID
 
@@ -91,6 +104,7 @@ class RollingInclusionPolicy:
             "locked_at_ms",
             "received_at_ms",
             "monotonic_ns",
+            "settlement_grace_seconds",
         ):
             object.__setattr__(self, name, _integer(getattr(self, name), name=name))
         taus = tuple(
@@ -106,6 +120,8 @@ class RollingInclusionPolicy:
             raise ValueError("policy lock cannot postdate its receipt")
         if self.received_at_ms >= self.track_starts_at_ms:
             raise ValueError("rolling policy must be received before the track starts")
+        if self.settlement_grace_seconds <= 0:
+            raise ValueError("settlement_grace_seconds must be positive")
 
     @property
     def policy_sha256(self) -> str:
@@ -127,6 +143,7 @@ class RollingInclusionPolicy:
             "locked_at_ms": self.locked_at_ms,
             "received_at_ms": self.received_at_ms,
             "monotonic_ns": self.monotonic_ns,
+            "settlement_grace_seconds": self.settlement_grace_seconds,
             "attestation_model": LOCAL_ATTESTATION_MODEL,
         }
 
@@ -144,6 +161,7 @@ class RollingCohortAdmission:
     discovered_at_ms: int
     received_at_ms: int
     monotonic_ns: int
+    supporting_history_capture_attempt_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         for name in (
@@ -158,6 +176,23 @@ class RollingCohortAdmission:
             _text(getattr(self, name), name=name)
         for name in ("expiry_ms", "discovered_at_ms", "received_at_ms", "monotonic_ns"):
             object.__setattr__(self, name, _integer(getattr(self, name), name=name))
+        supporting_ids = tuple(
+            _text(value, name="supporting_history_capture_attempt_ids")
+            for value in self.supporting_history_capture_attempt_ids
+        )
+        if len(set(supporting_ids)) != len(supporting_ids):
+            raise ValueError(
+                "supporting_history_capture_attempt_ids cannot contain duplicates"
+            )
+        if self.capture_attempt_id in supporting_ids:
+            raise ValueError(
+                "supporting_history_capture_attempt_ids cannot include capture_attempt_id"
+            )
+        object.__setattr__(
+            self,
+            "supporting_history_capture_attempt_ids",
+            supporting_ids,
+        )
         if self.common_expiry_id != canonical_expiry_cluster_id(self.expiry_ms):
             raise ValueError("common_expiry_id is not canonical for expiry_ms")
         if self.discovered_at_ms > self.received_at_ms:
@@ -165,6 +200,9 @@ class RollingCohortAdmission:
 
     def to_document(self) -> dict[str, Any]:
         document = asdict(self)
+        document["supporting_history_capture_attempt_ids"] = list(
+            self.supporting_history_capture_attempt_ids
+        )
         document["schema_version"] = "btc-5m-15m-readiness-v08-cohort-admission.v1"
         return document
 
@@ -308,27 +346,91 @@ def _read_receipts(root: Path) -> tuple[dict[str, Any], ...]:
     return tuple(receipts)
 
 
+def _sample_writer_clock() -> tuple[int, int]:
+    recorded_at_ms = time.time_ns() // 1_000_000
+    monotonic_ns = time.monotonic_ns()
+    return recorded_at_ms, monotonic_ns
+
+
+def _writer_clock_precedes_source(
+    recorded_at_ms: int,
+    source_received_at_ms: int,
+) -> bool:
+    return (
+        recorded_at_ms + WRITER_SOURCE_CLOCK_SKEW_TOLERANCE_MS
+        < source_received_at_ms
+    )
+
+
 def _append_receipt(
     root: Path,
     *,
     kind: str,
     body: Mapping[str, Any],
-    recorded_at_ms: int,
-    monotonic_ns: int,
+    expected_receipt_count: int,
+    recorded_at_not_before_ms: int,
+    recorded_at_strictly_before_ms: int | None = None,
+    recorded_at_without_skew_not_before_ms: int | None = None,
+    before_error: str,
+    after_error: str | None = None,
+    without_skew_before_error: str | None = None,
 ) -> dict[str, Any]:
     root = _safe_root(root)
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     lock_path = root / ".append.lock"
-    lock_descriptor = os.open(lock_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        lock_descriptor = os.open(lock_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError as exc:
+        raise ValueError("rolling journal append lock is already held") from exc
     try:
         receipts = _read_receipts(root)
+        if len(receipts) != expected_receipt_count:
+            raise ValueError("rolling journal changed during append")
         previous = receipts[-1]["receipt_sha256"] if receipts else None
+        recorded_at_ms, monotonic_ns = _sample_writer_clock()
+        writer_session_id = _WRITER_SESSION_ID
+        if receipts:
+            last = receipts[-1]
+            previous_recorded_at_ms = _integer(
+                last.get("recorded_at_ms"),
+                name="previous recorded_at_ms",
+            )
+            previous_monotonic_ns = _integer(
+                last.get("monotonic_ns"),
+                name="previous monotonic_ns",
+            )
+            previous_writer_session_id = last.get("writer_session_id")
+            if recorded_at_ms < previous_recorded_at_ms:
+                raise ValueError("writer wall clock regressed relative to prior receipt")
+            if (
+                previous_writer_session_id == writer_session_id
+                and monotonic_ns <= previous_monotonic_ns
+            ):
+                raise ValueError(
+                    "writer monotonic clock regressed within the active process"
+                )
+        if (
+            recorded_at_without_skew_not_before_ms is not None
+            and recorded_at_ms < recorded_at_without_skew_not_before_ms
+        ):
+            raise ValueError(
+                without_skew_before_error
+                or "writer receipt precedes its causal deadline"
+            )
+        if _writer_clock_precedes_source(recorded_at_ms, recorded_at_not_before_ms):
+            raise ValueError(before_error)
+        if (
+            recorded_at_strictly_before_ms is not None
+            and recorded_at_ms >= recorded_at_strictly_before_ms
+        ):
+            raise ValueError(after_error or "writer receipt missed its deadline")
         envelope = {
             "schema_version": RECEIPT_SCHEMA,
             "sequence": len(receipts) + 1,
             "kind": _text(kind, name="kind"),
             "recorded_at_ms": _integer(recorded_at_ms, name="recorded_at_ms"),
             "monotonic_ns": _integer(monotonic_ns, name="monotonic_ns"),
+            "writer_session_id": writer_session_id,
             "previous_receipt_sha256": previous,
             "body": dict(body),
         }
@@ -379,16 +481,20 @@ def initialize_rolling_shadow(
     root: str | Path, policy: RollingInclusionPolicy
 ) -> dict[str, Any]:
     root = Path(root)
-    if _read_receipts(_safe_root(root)):
+    safe_root = _safe_root(root)
+    if _read_receipts(safe_root):
         raise ValueError("rolling shadow policy is already initialized")
     _append_receipt(
-        root,
+        safe_root,
         kind="policy_locked",
         body={"policy": policy.to_document(), "policy_sha256": policy.policy_sha256},
-        recorded_at_ms=policy.received_at_ms,
-        monotonic_ns=policy.monotonic_ns,
+        expected_receipt_count=0,
+        recorded_at_not_before_ms=policy.received_at_ms,
+        recorded_at_strictly_before_ms=policy.track_starts_at_ms,
+        before_error="policy writer clock precedes its source receipt",
+        after_error="policy receipt must be writer-recorded before track start",
     )
-    return audit_rolling_shadow(root)
+    return audit_rolling_shadow(safe_root)
 
 
 def admit_rolling_cohort(
@@ -405,18 +511,24 @@ def admit_rolling_cohort(
         admission.expiry_ms - max(policy["decision_tau_seconds"]) * 1_000
     )
     if admission.received_at_ms >= earliest_decision:
-        raise ValueError("cohort must be admitted before its first decision")
+        raise ValueError(
+            "cohort source receipt must precede its first locked decision"
+        )
+    safe_root = _safe_root(root)
     _append_receipt(
-        root,
+        safe_root,
         kind="cohort_admitted",
         body={
             "policy_sha256": state["policy_sha256"],
             "admission": admission.to_document(),
         },
-        recorded_at_ms=admission.received_at_ms,
-        monotonic_ns=admission.monotonic_ns,
+        expected_receipt_count=state["receipt_count"],
+        recorded_at_not_before_ms=admission.received_at_ms,
+        recorded_at_strictly_before_ms=earliest_decision,
+        before_error="cohort writer clock precedes its source receipt",
+        after_error="cohort must be writer-recorded before its first decision",
     )
-    return audit_rolling_shadow(root)
+    return audit_rolling_shadow(safe_root)
 
 
 def append_rolling_decision(
@@ -434,10 +546,9 @@ def append_rolling_decision(
     )
     if decision.decision_at_ms != expected_decision_at:
         raise ValueError("decision timestamp does not match expiry minus locked tau")
-    if decision.receipt_received_at_ms < decision.decision_at_ms:
-        raise ValueError("decision receipt cannot precede decision time")
     if decision.receipt_received_at_ms >= admission["expiry_ms"]:
-        raise ValueError("decision receipt must be strictly pre-label")
+        raise ValueError("decision source receipt must be strictly pre-label")
+    safe_root = _safe_root(root)
     identity = f"{decision.common_expiry_id}:{decision.decision_tau_seconds}"
     if identity in state["decisions"]:
         raise ValueError("decision receipt already exists and cannot be replaced")
@@ -451,13 +562,20 @@ def append_rolling_decision(
         raise ValueError("decision action is not a structural-floor action")
     _sha256(decision.action_payload_sha256, name="action_payload_sha256")
     _append_receipt(
-        root,
+        safe_root,
         kind="decision_locked",
         body={"decision": decision.to_document()},
-        recorded_at_ms=decision.receipt_received_at_ms,
-        monotonic_ns=decision.monotonic_ns,
+        expected_receipt_count=state["receipt_count"],
+        recorded_at_not_before_ms=decision.receipt_received_at_ms,
+        recorded_at_strictly_before_ms=admission["expiry_ms"],
+        recorded_at_without_skew_not_before_ms=decision.decision_at_ms,
+        before_error="decision receipt cannot be writer-recorded before decision time",
+        after_error="decision receipt must be writer-recorded strictly pre-label",
+        without_skew_before_error=(
+            "decision receipt cannot be writer-recorded before decision time"
+        ),
     )
-    return audit_rolling_shadow(root)
+    return audit_rolling_shadow(safe_root)
 
 
 def finalize_rolling_cohort(
@@ -472,14 +590,33 @@ def finalize_rolling_cohort(
         raise ValueError("cohort outcome already exists and cannot be replaced")
     if outcome.finalized_at_ms < admission["expiry_ms"]:
         raise ValueError("cohort cannot finalize before common expiry")
+    settlement_grace_ms = (
+        _integer(
+            state["policy"].get(
+                "settlement_grace_seconds",
+                DEFAULT_SETTLEMENT_GRACE_SECONDS,
+            ),
+            name="policy settlement_grace_seconds",
+        )
+        * 1_000
+    )
+    finalize_deadline_ms = admission["expiry_ms"] + settlement_grace_ms
+    if outcome.finalized_at_ms > finalize_deadline_ms:
+        raise ValueError("cohort finalization exceeds the locked settlement grace")
+    if outcome.received_at_ms > finalize_deadline_ms:
+        raise ValueError("outcome receipt exceeds the locked settlement grace")
+    safe_root = _safe_root(root)
     _append_receipt(
-        root,
+        safe_root,
         kind="cohort_finalized",
         body={"outcome": outcome.to_document()},
-        recorded_at_ms=outcome.received_at_ms,
-        monotonic_ns=outcome.monotonic_ns,
+        expected_receipt_count=state["receipt_count"],
+        recorded_at_not_before_ms=outcome.received_at_ms,
+        recorded_at_strictly_before_ms=finalize_deadline_ms + 1,
+        before_error="outcome receipt cannot be writer-recorded before finalization",
+        after_error="outcome receipt exceeds the locked settlement grace",
     )
-    return audit_rolling_shadow(root)
+    return audit_rolling_shadow(safe_root)
 
 
 def audit_rolling_shadow(root: str | Path) -> dict[str, Any]:
@@ -492,6 +629,9 @@ def audit_rolling_shadow(root: str | Path) -> dict[str, Any]:
     admissions: dict[str, dict[str, Any]] = {}
     decisions: dict[str, dict[str, Any]] = {}
     outcomes: dict[str, dict[str, Any]] = {}
+    previous_recorded_at_ms: int | None = None
+    previous_monotonic_ns: int | None = None
+    previous_writer_session_id: str | None = None
     for expected_sequence, receipt in enumerate(receipts, start=1):
         unsigned = {
             key: value for key, value in receipt.items() if key != "receipt_sha256"
@@ -502,6 +642,34 @@ def audit_rolling_shadow(root: str | Path) -> dict[str, Any]:
             errors.append(f"chain_break_at_{expected_sequence}")
         if receipt.get("receipt_sha256") != _digest(unsigned):
             errors.append(f"hash_mismatch_at_{expected_sequence}")
+        recorded_at_ms = receipt.get("recorded_at_ms")
+        monotonic_ns = receipt.get("monotonic_ns")
+        writer_session_id = receipt.get("writer_session_id")
+        if writer_session_id is not None and not isinstance(writer_session_id, str):
+            errors.append(f"writer_session_invalid_at_{expected_sequence}")
+            writer_session_id = None
+        if (
+            isinstance(recorded_at_ms, bool)
+            or not isinstance(recorded_at_ms, int)
+            or isinstance(monotonic_ns, bool)
+            or not isinstance(monotonic_ns, int)
+        ):
+            errors.append(f"writer_clock_invalid_at_{expected_sequence}")
+        else:
+            if (
+                previous_recorded_at_ms is not None
+                and recorded_at_ms < previous_recorded_at_ms
+            ):
+                errors.append(f"writer_clock_regressed_at_{expected_sequence}")
+            if (
+                previous_monotonic_ns is not None
+                and previous_writer_session_id == writer_session_id
+                and monotonic_ns <= previous_monotonic_ns
+            ):
+                errors.append(f"writer_monotonic_regressed_at_{expected_sequence}")
+            previous_recorded_at_ms = recorded_at_ms
+            previous_monotonic_ns = monotonic_ns
+            previous_writer_session_id = writer_session_id
         previous = receipt.get("receipt_sha256")
         body = receipt.get("body")
         if not isinstance(body, Mapping):
@@ -528,6 +696,11 @@ def audit_rolling_shadow(root: str | Path) -> dict[str, Any]:
             policy_sha256 = body.get("policy_sha256")
             if policy_sha256 != _digest(policy):
                 errors.append("policy_hash_mismatch")
+            if isinstance(recorded_at_ms, int):
+                if recorded_at_ms >= policy["track_starts_at_ms"]:
+                    errors.append("policy_writer_clock_not_before_track_start")
+                if _writer_clock_precedes_source(recorded_at_ms, policy["received_at_ms"]):
+                    errors.append("policy_writer_clock_precedes_body")
         elif kind == "cohort_admitted":
             candidate = body.get("admission")
             if not isinstance(candidate, dict):
@@ -552,6 +725,23 @@ def audit_rolling_shadow(root: str | Path) -> dict[str, Any]:
                     errors.append(f"admission_before_track_at_{expected_sequence}")
                 if admission.received_at_ms >= earliest_decision:
                     errors.append(f"admission_after_first_decision_at_{expected_sequence}")
+                if (
+                    isinstance(recorded_at_ms, int)
+                    and recorded_at_ms >= earliest_decision
+                ):
+                    errors.append(
+                        f"admission_writer_clock_after_first_decision_at_{expected_sequence}"
+                    )
+            if (
+                isinstance(recorded_at_ms, int)
+                and _writer_clock_precedes_source(
+                    recorded_at_ms,
+                    admission.received_at_ms,
+                )
+            ):
+                errors.append(
+                    f"admission_writer_clock_precedes_body_at_{expected_sequence}"
+                )
             admissions[cohort_id] = candidate
         elif kind == "decision_locked":
             candidate = body.get("decision")
@@ -580,6 +770,22 @@ def audit_rolling_shadow(root: str | Path) -> dict[str, Any]:
                 errors.append(f"decision_tau_outside_policy_at_{expected_sequence}")
             if decision.edge_basis != "structural":
                 errors.append(f"decision_edge_basis_invalid_at_{expected_sequence}")
+            if isinstance(recorded_at_ms, int):
+                if recorded_at_ms < decision.decision_at_ms:
+                    errors.append(
+                        f"decision_writer_clock_precedes_decision_at_{expected_sequence}"
+                    )
+                if recorded_at_ms >= admission["expiry_ms"]:
+                    errors.append(
+                        f"decision_writer_clock_post_label_at_{expected_sequence}"
+                    )
+                if _writer_clock_precedes_source(
+                    recorded_at_ms,
+                    decision.receipt_received_at_ms,
+                ):
+                    errors.append(
+                        f"decision_writer_clock_precedes_body_at_{expected_sequence}"
+                    )
             decisions[identity] = candidate
         elif kind == "cohort_finalized":
             candidate = body.get("outcome")
@@ -597,6 +803,37 @@ def audit_rolling_shadow(root: str | Path) -> dict[str, Any]:
                 continue
             if outcome.finalized_at_ms < admissions[cohort_id]["expiry_ms"]:
                 errors.append(f"outcome_pre_expiry_at_{expected_sequence}")
+            settlement_grace_ms = (
+                _integer(
+                    policy.get(
+                        "settlement_grace_seconds",
+                        DEFAULT_SETTLEMENT_GRACE_SECONDS,
+                    ),
+                    name="policy settlement_grace_seconds",
+                )
+                * 1_000
+                if policy is not None
+                else DEFAULT_SETTLEMENT_GRACE_SECONDS * 1_000
+            )
+            finalize_deadline_ms = admissions[cohort_id]["expiry_ms"] + settlement_grace_ms
+            if outcome.finalized_at_ms > finalize_deadline_ms:
+                errors.append(f"outcome_settlement_grace_exceeded_at_{expected_sequence}")
+            if outcome.received_at_ms > finalize_deadline_ms:
+                errors.append(
+                    f"outcome_receipt_settlement_grace_exceeded_at_{expected_sequence}"
+                )
+            if (
+                isinstance(recorded_at_ms, int)
+                and _writer_clock_precedes_source(
+                    recorded_at_ms,
+                    outcome.received_at_ms,
+                )
+            ):
+                errors.append(f"outcome_writer_clock_precedes_body_at_{expected_sequence}")
+            if isinstance(recorded_at_ms, int) and recorded_at_ms > finalize_deadline_ms:
+                errors.append(
+                    f"outcome_writer_clock_settlement_grace_exceeded_at_{expected_sequence}"
+                )
             outcomes[cohort_id] = candidate
         else:
             errors.append(f"unknown_kind_at_{expected_sequence}")

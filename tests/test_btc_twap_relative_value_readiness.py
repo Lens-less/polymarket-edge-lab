@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -37,6 +38,21 @@ from tests.test_btc_twap_relative_value_v07_replay import (
 )
 
 D = Decimal
+UTC = timezone.utc
+STRICT_TRACK_ID = readiness._strict_gate_0_parameters()["track_id"]
+PROBE_EVALUATION_NOW = datetime(2026, 8, 18, 12, 0, 30, tzinfo=UTC)
+LIVE_EVALUATION_NOW = datetime(2026, 8, 14, 12, 0, 30, tzinfo=UTC)
+SERVICE_HEALTH_MAX_AGE_SECONDS = 90
+SERVICE_HEALTH_MIN_WINDOW_MS = 15_000
+DAILY_LEDGER_MAX_AGE_DAYS = 1
+
+
+def _utc_text(value: datetime) -> str:
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _epoch_ms(value: datetime) -> int:
+    return int(value.astimezone(UTC).timestamp() * 1000)
 
 
 def _write_artifact(
@@ -116,11 +132,23 @@ def _gate_0_artifact(tmp_path: Path, *, passed: bool = True):
         },
         "execution_modes": {
             "maker_maker": {
+                "attempt_count": 1,
                 "evidence_complete": True,
+                "economic_gate_passed": passed,
                 "missing_fill_volume_bound_expiry_ids": [],
+                "aggregate_best_total_pnl": "5.0" if passed else "0.0",
+                "average_best_total_pnl_per_expiry": "5.0" if passed else "0.0",
+                "minimum_average_pnl_per_expiry": strict[
+                    "minimum_average_best_total_pnl_per_expiry_usdc"
+                ],
+                "gate_0_passed": passed,
+                "stop_recommended": not passed,
+                "rerun_required": False,
+                "decision": "PASS" if passed else "STOP",
                 "attempts": [
                     {
                         "attempt_id": "expiry-1",
+                        "best_total_pnl": "5.0" if passed else "0.0",
                         "selected_level": {"quantity": "5"},
                         "fill_volume_bound_source": (
                             "context.future_public_trades_by_token_id"
@@ -140,7 +168,12 @@ def _gate_0_artifact(tmp_path: Path, *, passed: bool = True):
     return _write_artifact(tmp_path, "gate0.json", payload)
 
 
-def _strategy_shadow_artifact(tmp_path: Path):
+def _strategy_shadow_artifact(
+    tmp_path: Path,
+    *,
+    trusted: bool = False,
+    self_hash_receipt: bool = False,
+):
     attempt = {
         "attempt_id": "attempt-1",
         "expiry_ms": 1,
@@ -168,23 +201,66 @@ def _strategy_shadow_artifact(tmp_path: Path):
     authority_payload: dict[str, object] = {
         "schema_version": "btc_twap_structural_shadow_report.v1",
         "issuer": "btc_twap_structural_shadow.finalized_capture_store_builder",
+        "trust_model": "local_hash_only_not_formal_readiness_authority",
+        "required_trust_primitives": [
+            "trusted_build_receipt",
+            "external_anchor",
+        ],
+        "track_id": STRICT_TRACK_ID,
         "source_input_sha256": "1" * 64,
         "preregistration_sha256": "2" * 64,
         "rolling_audit_sha256": "3" * 64,
-        "attempts": [attempt],
-        "locked_zero_cohorts": [zero],
+        "attempts": [
+            {
+                "attempt_id": attempt["attempt_id"],
+                "expiry_ms": attempt["expiry_ms"],
+                "capture_verification_sha256": readiness.sha256(
+                    readiness.canonical_json_bytes(attempt["capture_verification"])
+                ).hexdigest(),
+                "locked_action_payload_sha256": attempt["locked_action_payload_sha256"],
+                "source_evidence_sha256": attempt["source_evidence_sha256"],
+            }
+        ],
+        "locked_zero_cohorts": [
+            {
+                "attempt_id": zero["attempt_id"],
+                "expiry_ms": zero["expiry_ms"],
+                "outcome": zero["outcome"],
+                "capture_verification_sha256": readiness.sha256(
+                    readiness.canonical_json_bytes(zero["capture_verification"])
+                ).hexdigest(),
+                "source_evidence_sha256": zero["source_evidence_sha256"],
+                "locked_action_payload_sha256": zero["locked_action_payload_sha256"],
+                "dirty_reason_code": zero["dirty_reason_code"],
+            }
+        ],
     }
+    authority_sha256 = readiness.sha256(
+        readiness.canonical_json_bytes(authority_payload)
+    ).hexdigest()
     payload: dict[str, object] = {
         "schema_version": "btc_twap_structural_shadow_report.v1",
+        "track_id": STRICT_TRACK_ID,
         "source_input_sha256": "1" * 64,
         "preregistration_sha256": "2" * 64,
         "rolling_audit_sha256": "3" * 64,
         "builder_authority": {
             "issuer": authority_payload["issuer"],
             "authority_kind": "capture_store_finalized",
-            "authority_sha256": readiness.sha256(
-                readiness.canonical_json_bytes(authority_payload)
-            ).hexdigest(),
+            "authority_sha256": authority_sha256,
+            "trust_model": "local_hash_only_not_formal_readiness_authority",
+            "required_trust_primitives": [
+                "trusted_build_receipt",
+                "external_anchor",
+            ],
+            "missing_trust_primitives": [
+                "trusted_build_receipt",
+                "external_anchor",
+            ],
+            "trust_evidence_refs": {
+                "trusted_build_receipt": {"status": "missing"},
+                "external_anchor": {"status": "missing"},
+            },
         },
         "attempts": [attempt],
         "locked_zero_cohorts": [zero],
@@ -204,6 +280,74 @@ def _strategy_shadow_artifact(tmp_path: Path):
     payload["report_sha256"] = readiness.sha256(
         readiness.canonical_json_bytes(payload)
     ).hexdigest()
+    if trusted:
+        report_path = tmp_path / "shadow.json"
+        trust_bound_digest = readiness.sha256(
+            readiness.canonical_json_bytes(
+                {
+                    **{
+                        key: value
+                        for key, value in payload.items()
+                        if key != "report_sha256"
+                    },
+                    "builder_authority": {
+                        key: value
+                        for key, value in payload["builder_authority"].items()
+                        if key
+                        not in {"trust_evidence_refs", "missing_trust_primitives"}
+                    },
+                }
+            )
+        ).hexdigest()
+        trusted_receipt_payload = {
+            "schema_version": "btc-twap-structural-shadow-build-receipt.v1",
+            "track_id": STRICT_TRACK_ID,
+            "report_path": str(report_path),
+            "report_digest_sha256": trust_bound_digest,
+            "authority_sha256": authority_sha256,
+        }
+        trusted_receipt_ref = (
+            {
+                "path": str(report_path),
+                "sha256": readiness.sha256(
+                    json.dumps(payload, sort_keys=True).encode("utf-8")
+                ).hexdigest(),
+            }
+            if self_hash_receipt
+            else _write_support_file(
+                tmp_path,
+                "authority/trusted-build-receipt.json",
+                trusted_receipt_payload,
+            )
+        )
+        external_anchor_ref = _write_support_file(
+            tmp_path,
+            "authority/external-anchor.json",
+            {
+                "schema_version": "btc-twap-structural-shadow-external-anchor.v1",
+                "track_id": STRICT_TRACK_ID,
+                "report_digest_sha256": trust_bound_digest,
+                "trusted_build_receipt_sha256": trusted_receipt_ref["sha256"],
+                "authority_sha256": authority_sha256,
+            },
+        )
+        payload["builder_authority"]["missing_trust_primitives"] = []
+        payload["builder_authority"]["trust_evidence_refs"] = {
+            "trusted_build_receipt": {
+                "status": "bound",
+                **trusted_receipt_ref,
+            },
+            "external_anchor": {
+                "status": "bound",
+                "reference": external_anchor_ref["path"],
+                "sha256": external_anchor_ref["sha256"],
+            },
+        }
+        payload["report_sha256"] = readiness.sha256(
+            readiness.canonical_json_bytes(
+                {key: value for key, value in payload.items() if key != "report_sha256"}
+            )
+        ).hexdigest()
     return _write_artifact(tmp_path, "shadow.json", payload)
 
 
@@ -212,6 +356,8 @@ def _probe_bundle(
     *,
     include_shadow_artifact: bool = False,
 ) -> ExecutionProbeEvidenceBundle:
+    service_window_end = PROBE_EVALUATION_NOW - timedelta(seconds=30)
+    service_window_start = service_window_end - timedelta(seconds=30)
     return ExecutionProbeEvidenceBundle(
         gate_0_report_artifact=_gate_0_artifact(tmp_path),
         structural_shadow_artifact=(
@@ -222,7 +368,8 @@ def _probe_bundle(
             "capacity.json",
             {
                 "schema_version": readiness.CAPTURE_CAPACITY_ARTIFACT_SCHEMA,
-                "generated_at": "2026-08-18T12:00:00Z",
+                "generated_at": _utc_text(PROBE_EVALUATION_NOW),
+                "track": STRICT_TRACK_ID,
                 "capture_attempt_count": 1,
                 "capture_failure_count": 0,
                 "pending_attempt_count": 0,
@@ -237,6 +384,7 @@ def _probe_bundle(
                         {
                             "schema_version": "btc-twap-capture-attempt-receipt.v1",
                             "attempt_id": "attempt-1",
+                            "track_id": STRICT_TRACK_ID,
                             "created_at": "2026-08-18T11:00:00Z",
                             "started_at": "2026-08-18T11:00:00Z",
                             "terminal_at": "2026-08-18T11:10:00Z",
@@ -259,6 +407,7 @@ def _probe_bundle(
             {
                 "schema_version": readiness.SERVICE_HEALTH_ARTIFACT_SCHEMA,
                 "service_continuously_healthy": True,
+                "generated_at": _utc_text(PROBE_EVALUATION_NOW - timedelta(seconds=5)),
                 **{
                     f"heartbeat_source_{key}": value
                     for key, value in _write_support_file(
@@ -267,8 +416,8 @@ def _probe_bundle(
                         {"schema_version": "btc-twap-heartbeat-source.v1"},
                     ).items()
                 },
-                "window_started_at_ms": 1,
-                "window_ended_at_ms": 2,
+                "window_started_at_ms": _epoch_ms(service_window_start),
+                "window_ended_at_ms": _epoch_ms(service_window_end),
             },
         ),
         authenticated_read_artifact=_write_artifact(
@@ -346,6 +495,8 @@ def _probe_bundle(
 
 
 def _strategy_bundle(tmp_path: Path) -> StrategyLiveEvidenceBundle:
+    service_window_end = LIVE_EVALUATION_NOW - timedelta(seconds=30)
+    service_window_start = service_window_end - timedelta(seconds=30)
     return StrategyLiveEvidenceBundle(
         gate_0_report_artifact=_gate_0_artifact(tmp_path),
         structural_shadow_artifact=_strategy_shadow_artifact(tmp_path),
@@ -355,6 +506,7 @@ def _strategy_bundle(tmp_path: Path) -> StrategyLiveEvidenceBundle:
             {
                 "schema_version": readiness.SERVICE_HEALTH_ARTIFACT_SCHEMA,
                 "service_continuously_healthy": True,
+                "generated_at": _utc_text(LIVE_EVALUATION_NOW - timedelta(seconds=5)),
                 **{
                     f"heartbeat_source_{key}": value
                     for key, value in _write_support_file(
@@ -363,8 +515,8 @@ def _strategy_bundle(tmp_path: Path) -> StrategyLiveEvidenceBundle:
                         {"schema_version": "btc-twap-heartbeat-source.v1"},
                     ).items()
                 },
-                "window_started_at_ms": 1,
-                "window_ended_at_ms": 2,
+                "window_started_at_ms": _epoch_ms(service_window_start),
+                "window_ended_at_ms": _epoch_ms(service_window_end),
             },
         ),
         daily_ledger_artifact=_write_artifact(
@@ -372,7 +524,7 @@ def _strategy_bundle(tmp_path: Path) -> StrategyLiveEvidenceBundle:
             "daily.json",
             {
                 "schema_version": readiness.DAILY_LEDGER_ARTIFACT_SCHEMA,
-                "generated_at": "2026-08-14",
+                "generated_at": _utc_text(LIVE_EVALUATION_NOW - timedelta(minutes=5)),
                 "rows": [
                     {"utc_date": f"2026-08-{day:02d}", "net_pnl": "20"}
                     for day in range(1, 15)
@@ -406,6 +558,90 @@ def _strategy_bundle(tmp_path: Path) -> StrategyLiveEvidenceBundle:
                 ],
             },
         ),
+    )
+
+
+def _probe_prerequisites(
+    tmp_path: Path,
+    *,
+    include_shadow_artifact: bool = False,
+    structural_authority_trust_policy: readiness.StructuralAuthorityTrustPolicy | None = None,
+) -> ExecutionProbePrerequisites:
+    return ExecutionProbePrerequisites(
+        service_continuously_healthy=True,
+        authenticated_read_verified=True,
+        fill_stream_verified=True,
+        failure_drills_complete=True,
+        immutable_probe_preregistration_present=True,
+        full_hedge_depth_verified=True,
+        gate_0_passed=True,
+        double_maker_probe_implemented=True,
+        capture_capacity_gate_passed=True,
+        verified_evidence_bundle=_probe_bundle(
+            tmp_path,
+            include_shadow_artifact=include_shadow_artifact,
+        ),
+        structural_authority_trust_policy=structural_authority_trust_policy,
+        service_health_evaluation_utc_now=PROBE_EVALUATION_NOW,
+        service_health_max_age_seconds=SERVICE_HEALTH_MAX_AGE_SECONDS,
+        service_health_min_window_ms=SERVICE_HEALTH_MIN_WINDOW_MS,
+    )
+
+
+def _trusted_shadow_policy(tmp_path: Path) -> readiness.StructuralAuthorityTrustPolicy:
+    trusted_receipt_path = tmp_path / "authority" / "trusted-build-receipt.json"
+    external_anchor_path = tmp_path / "authority" / "external-anchor.json"
+    return readiness.StructuralAuthorityTrustPolicy(
+        trusted_build_receipt_path=str(trusted_receipt_path),
+        trusted_build_receipt_sha256=readiness.sha256(
+            trusted_receipt_path.read_bytes()
+        ).hexdigest(),
+        external_anchor_reference=str(external_anchor_path),
+        external_anchor_sha256=readiness.sha256(
+            external_anchor_path.read_bytes()
+        ).hexdigest(),
+    )
+
+
+def _strategy_live_inputs(
+    tmp_path: Path,
+    *,
+    trusted_shadow: bool = False,
+    structural_authority_trust_policy: readiness.StructuralAuthorityTrustPolicy | None = None,
+) -> StrategyLiveInputs:
+    base_bundle = _strategy_bundle(tmp_path)
+    shadow_artifact = _strategy_shadow_artifact(
+        tmp_path,
+        trusted=trusted_shadow,
+    )
+    bundle = replace(
+        base_bundle,
+        structural_shadow_artifact=shadow_artifact,
+    )
+    return StrategyLiveInputs(
+        builder_verified_evidence_chain=True,
+        auditable_prelabel_lock_evidence=True,
+        clean_prelabeled_common_terminal_cohort_count=200,
+        structural_settled_expiry_cluster_count=200,
+        structural_explainable_economic_attempt_count=200,
+        structural_bootstrap_cluster_mean_lower_95=D("0.01"),
+        structural_true_edge_gate_satisfied=True,
+        structural_qualified_net_pnl=D("10"),
+        structural_gate_0_passed=True,
+        structural_max_single_expiry_pnl_concentration=D("0.10"),
+        complete_real_execution_evidence=True,
+        all_locked_cohorts_in_pnl_distribution=True,
+        service_continuously_healthy=True,
+        consecutive_profitable_utc_days=14,
+        minimum_daily_net_pnl=D("20"),
+        peak_capital_deployed=D("2000"),
+        verified_evidence_bundle=bundle,
+        structural_authority_trust_policy=structural_authority_trust_policy,
+        service_health_evaluation_utc_now=LIVE_EVALUATION_NOW,
+        service_health_max_age_seconds=SERVICE_HEALTH_MAX_AGE_SECONDS,
+        service_health_min_window_ms=SERVICE_HEALTH_MIN_WINDOW_MS,
+        daily_ledger_evaluation_utc_now=LIVE_EVALUATION_NOW,
+        daily_ledger_max_age_days=DAILY_LEDGER_MAX_AGE_DAYS,
     )
 
 
@@ -918,57 +1154,17 @@ def test_probe_and_strategy_live_readiness_are_separated_and_fail_closed(
         clean_common_terminal_cohort_count=4,
         coverage_results=coverage,
         structural_floor=floor,
-        prerequisites=ExecutionProbePrerequisites(
-            service_continuously_healthy=True,
-            authenticated_read_verified=True,
-            fill_stream_verified=True,
-            failure_drills_complete=True,
-            immutable_probe_preregistration_present=True,
-            full_hedge_depth_verified=True,
-            gate_0_passed=True,
-            double_maker_probe_implemented=True,
-            capture_capacity_gate_passed=True,
-            verified_evidence_bundle=_probe_bundle(tmp_path),
-        ),
+        prerequisites=_probe_prerequisites(tmp_path),
     )
     insufficient_unique_probe = evaluate_execution_probe_readiness(
         structural_shadow_report=None,
         clean_common_terminal_cohort_count=4,
         coverage_results=(coverage[0], coverage[0], coverage[0], coverage[0]),
         structural_floor=floor,
-        prerequisites=ExecutionProbePrerequisites(
-            service_continuously_healthy=True,
-            authenticated_read_verified=True,
-            fill_stream_verified=True,
-            failure_drills_complete=True,
-            immutable_probe_preregistration_present=True,
-            full_hedge_depth_verified=True,
-            gate_0_passed=True,
-            double_maker_probe_implemented=True,
-            capture_capacity_gate_passed=True,
-            verified_evidence_bundle=_probe_bundle(tmp_path / "duplicate"),
-        ),
+        prerequisites=_probe_prerequisites(tmp_path / "duplicate"),
     )
 
-    common_live_inputs = StrategyLiveInputs(
-        builder_verified_evidence_chain=True,
-        auditable_prelabel_lock_evidence=True,
-        clean_prelabeled_common_terminal_cohort_count=200,
-        structural_settled_expiry_cluster_count=200,
-        structural_explainable_economic_attempt_count=200,
-        structural_bootstrap_cluster_mean_lower_95=D("0.01"),
-        structural_true_edge_gate_satisfied=True,
-        structural_qualified_net_pnl=D("10"),
-        structural_gate_0_passed=True,
-        structural_max_single_expiry_pnl_concentration=D("0.10"),
-        complete_real_execution_evidence=True,
-        all_locked_cohorts_in_pnl_distribution=True,
-        service_continuously_healthy=True,
-        consecutive_profitable_utc_days=14,
-        minimum_daily_net_pnl=D("20"),
-        peak_capital_deployed=D("2000"),
-        verified_evidence_bundle=_strategy_bundle(tmp_path / "live"),
-    )
+    common_live_inputs = _strategy_live_inputs(tmp_path / "live")
     live = evaluate_strategy_live_readiness_inputs(common_live_inputs)
     predictive_only = evaluate_strategy_live_readiness_inputs(
         replace(
@@ -983,7 +1179,8 @@ def test_probe_and_strategy_live_readiness_are_separated_and_fail_closed(
     assert "fewer_than_4_unique_complete_common_terminal_cohorts" in (
         insufficient_unique_probe.reason_codes
     )
-    assert live.eligible is True
+    assert live.eligible is False
+    assert "neutral_shadow_builder_authority_untrusted" in live.reason_codes
     assert predictive_only.eligible is False
     assert "structural_true_edge_gate_not_satisfied" in predictive_only.reason_codes
 
@@ -1032,6 +1229,9 @@ def test_probe_rejects_object_fallback_and_self_report_only_inputs(
             gate_0_passed=True,
             double_maker_probe_implemented=True,
             capture_capacity_gate_passed=True,
+            service_health_evaluation_utc_now=PROBE_EVALUATION_NOW,
+            service_health_max_age_seconds=SERVICE_HEALTH_MAX_AGE_SECONDS,
+            service_health_min_window_ms=SERVICE_HEALTH_MIN_WINDOW_MS,
         ),
     )
 
@@ -1060,6 +1260,11 @@ def test_live_requires_verified_bundle_even_when_all_self_reports_are_positive()
             consecutive_profitable_utc_days=14,
             minimum_daily_net_pnl=D("20"),
             peak_capital_deployed=D("2000"),
+            service_health_evaluation_utc_now=LIVE_EVALUATION_NOW,
+            service_health_max_age_seconds=SERVICE_HEALTH_MAX_AGE_SECONDS,
+            service_health_min_window_ms=SERVICE_HEALTH_MIN_WINDOW_MS,
+            daily_ledger_evaluation_utc_now=LIVE_EVALUATION_NOW,
+            daily_ledger_max_age_days=DAILY_LEDGER_MAX_AGE_DAYS,
         )
     )
 
@@ -1073,25 +1278,7 @@ def test_tampered_artifact_invalidates_preverified_live_bundle(tmp_path: Path) -
     daily_path.write_text("{}", encoding="utf-8")
 
     result = evaluate_strategy_live_readiness_inputs(
-        StrategyLiveInputs(
-            builder_verified_evidence_chain=True,
-            auditable_prelabel_lock_evidence=True,
-            clean_prelabeled_common_terminal_cohort_count=200,
-            structural_settled_expiry_cluster_count=200,
-            structural_explainable_economic_attempt_count=200,
-            structural_bootstrap_cluster_mean_lower_95=D("0.01"),
-            structural_true_edge_gate_satisfied=True,
-            structural_qualified_net_pnl=D("10"),
-            structural_gate_0_passed=True,
-            structural_max_single_expiry_pnl_concentration=D("0.10"),
-            complete_real_execution_evidence=True,
-            all_locked_cohorts_in_pnl_distribution=True,
-            service_continuously_healthy=True,
-            consecutive_profitable_utc_days=14,
-            minimum_daily_net_pnl=D("20"),
-            peak_capital_deployed=D("2000"),
-            verified_evidence_bundle=bundle,
-        )
+        replace(_strategy_live_inputs(tmp_path / "tampered"), verified_evidence_bundle=bundle)
     )
 
     assert result.eligible is False
@@ -1116,25 +1303,7 @@ def test_live_recomputes_daily_and_capital_thresholds_from_rows_not_summaries(
     )
 
     result = evaluate_strategy_live_readiness_inputs(
-        StrategyLiveInputs(
-            builder_verified_evidence_chain=True,
-            auditable_prelabel_lock_evidence=True,
-            clean_prelabeled_common_terminal_cohort_count=200,
-            structural_settled_expiry_cluster_count=200,
-            structural_explainable_economic_attempt_count=200,
-            structural_bootstrap_cluster_mean_lower_95=D("0.01"),
-            structural_true_edge_gate_satisfied=True,
-            structural_qualified_net_pnl=D("10"),
-            structural_gate_0_passed=True,
-            structural_max_single_expiry_pnl_concentration=D("0.10"),
-            complete_real_execution_evidence=True,
-            all_locked_cohorts_in_pnl_distribution=True,
-            service_continuously_healthy=True,
-            consecutive_profitable_utc_days=14,
-            minimum_daily_net_pnl=D("20"),
-            peak_capital_deployed=D("2000"),
-            verified_evidence_bundle=bundle,
-        )
+        replace(_strategy_live_inputs(tmp_path / "capital"), verified_evidence_bundle=bundle)
     )
 
     assert result.eligible is False
@@ -1145,24 +1314,9 @@ def test_live_recomputes_daily_and_capital_thresholds_from_rows_not_summaries(
 
 def test_gate_zero_is_mandatory_for_probe_and_live(tmp_path: Path) -> None:
     live = evaluate_strategy_live_readiness_inputs(
-        StrategyLiveInputs(
-            builder_verified_evidence_chain=True,
-            auditable_prelabel_lock_evidence=True,
-            clean_prelabeled_common_terminal_cohort_count=200,
-            structural_settled_expiry_cluster_count=200,
-            structural_explainable_economic_attempt_count=200,
-            structural_bootstrap_cluster_mean_lower_95=D("0.01"),
-            structural_true_edge_gate_satisfied=True,
-            structural_qualified_net_pnl=D("10"),
+        replace(
+            _strategy_live_inputs(tmp_path),
             structural_gate_0_passed=False,
-            structural_max_single_expiry_pnl_concentration=D("0.10"),
-            complete_real_execution_evidence=True,
-            all_locked_cohorts_in_pnl_distribution=True,
-            service_continuously_healthy=True,
-            consecutive_profitable_utc_days=14,
-            minimum_daily_net_pnl=D("20"),
-            peak_capital_deployed=D("2000"),
-            verified_evidence_bundle=_strategy_bundle(tmp_path),
         )
     )
 
@@ -1173,24 +1327,16 @@ def test_gate_zero_is_mandatory_for_probe_and_live(tmp_path: Path) -> None:
 def test_live_gate_requires_200_expiries_and_the_14_day_commercial_floor(
     tmp_path: Path,
 ) -> None:
-    inputs = StrategyLiveInputs(
-        builder_verified_evidence_chain=True,
-        auditable_prelabel_lock_evidence=True,
+    inputs = replace(
+        _strategy_live_inputs(tmp_path),
         clean_prelabeled_common_terminal_cohort_count=199,
         structural_settled_expiry_cluster_count=199,
         structural_explainable_economic_attempt_count=199,
-        structural_bootstrap_cluster_mean_lower_95=D("0.01"),
-        structural_true_edge_gate_satisfied=True,
         structural_qualified_net_pnl=D("100"),
-        structural_gate_0_passed=True,
         structural_max_single_expiry_pnl_concentration=D("0.20"),
-        complete_real_execution_evidence=True,
-        all_locked_cohorts_in_pnl_distribution=True,
-        service_continuously_healthy=True,
         consecutive_profitable_utc_days=13,
         minimum_daily_net_pnl=D("19.99"),
         peak_capital_deployed=D("2000.01"),
-        verified_evidence_bundle=_strategy_bundle(tmp_path),
     )
 
     result = evaluate_strategy_live_readiness_inputs(inputs)
@@ -1250,3 +1396,243 @@ def test_capture_capacity_gate_enforces_failure_storage_memory_and_cpu_limits() 
         "capture_memory_below_2gib",
         "burstable_cpu_credit_exhausted",
     }
+
+
+def test_gate_zero_report_rejects_non_mapping_maker_attempts_fail_closed(
+    tmp_path: Path,
+) -> None:
+    base = json.loads(Path(_gate_0_artifact(tmp_path).path).read_text(encoding="utf-8"))
+    base["execution_modes"]["maker_maker"]["attempts"] = ["not-a-mapping"]
+    base["report_sha256"] = readiness.sha256(
+        readiness.canonical_json_bytes(
+            {key: value for key, value in base.items() if key != "report_sha256"}
+        )
+    ).hexdigest()
+    artifact = _write_artifact(tmp_path, "gate0-invalid-attempts.json", base)
+
+    report, reasons = readiness._validated_gate_0_report_document(artifact)
+
+    assert report is None
+    assert reasons == ("gate_0_report_maker_maker_attempts_invalid",)
+
+
+def test_gate_zero_report_recomputes_maker_maker_economic_gate(
+    tmp_path: Path,
+) -> None:
+    base = json.loads(Path(_gate_0_artifact(tmp_path).path).read_text(encoding="utf-8"))
+    maker_maker = base["execution_modes"]["maker_maker"]
+    maker_maker["aggregate_best_total_pnl"] = "0.10"
+    maker_maker["average_best_total_pnl_per_expiry"] = "0.10"
+    maker_maker["economic_gate_passed"] = True
+    base["gate_0_passed"] = True
+    base["decision"] = "PASS"
+    base["stop_recommended"] = False
+    base["report_sha256"] = readiness.sha256(
+        readiness.canonical_json_bytes(
+            {key: value for key, value in base.items() if key != "report_sha256"}
+        )
+    ).hexdigest()
+    artifact = _write_artifact(tmp_path, "gate0-economic-mismatch.json", base)
+
+    report, reasons = readiness._validated_gate_0_report_document(artifact)
+
+    assert report is None
+    assert reasons == ("gate_0_report_maker_maker_economic_invalid",)
+
+
+def test_strategy_live_requires_explicit_evaluation_times_and_freshness(
+    tmp_path: Path,
+) -> None:
+    result = evaluate_strategy_live_readiness_inputs(
+        replace(
+            _strategy_live_inputs(tmp_path),
+            service_health_evaluation_utc_now=None,
+            daily_ledger_evaluation_utc_now=None,
+        )
+    )
+
+    assert result.eligible is False
+    assert "service_health_evaluation_now_missing" in result.reason_codes
+    assert "daily_ledger_evaluation_now_missing" in result.reason_codes
+
+
+def test_strategy_live_rejects_invalid_daily_generated_at_and_stale_service_health(
+    tmp_path: Path,
+) -> None:
+    inputs = _strategy_live_inputs(tmp_path)
+    daily_path = Path(inputs.verified_evidence_bundle.daily_ledger_artifact.path)
+    daily = json.loads(daily_path.read_text(encoding="utf-8"))
+    daily["generated_at"] = "not-a-timestamp"
+    daily_path.write_text(json.dumps(daily, sort_keys=True), encoding="utf-8")
+    service_path = Path(inputs.verified_evidence_bundle.service_health_artifact.path)
+    service = json.loads(service_path.read_text(encoding="utf-8"))
+    stale_end = LIVE_EVALUATION_NOW - timedelta(hours=1)
+    service["generated_at"] = _utc_text(stale_end)
+    service["window_started_at_ms"] = _epoch_ms(stale_end - timedelta(seconds=30))
+    service["window_ended_at_ms"] = _epoch_ms(stale_end)
+    service_path.write_text(json.dumps(service, sort_keys=True), encoding="utf-8")
+    reloaded_bundle = replace(
+        inputs.verified_evidence_bundle,
+        daily_ledger_artifact=load_verified_json_artifact(daily_path),
+        service_health_artifact=load_verified_json_artifact(service_path),
+    )
+
+    result = evaluate_strategy_live_readiness_inputs(
+        replace(inputs, verified_evidence_bundle=reloaded_bundle)
+    )
+
+    assert result.eligible is False
+    assert "daily_ledger_generated_at_invalid" in result.reason_codes
+    assert "service_health_artifact_stale" in result.reason_codes
+
+
+def test_service_health_fresh_generated_at_cannot_extend_old_window(
+    tmp_path: Path,
+) -> None:
+    inputs = _strategy_live_inputs(tmp_path)
+    service_path = Path(inputs.verified_evidence_bundle.service_health_artifact.path)
+    service = json.loads(service_path.read_text(encoding="utf-8"))
+    stale_end = LIVE_EVALUATION_NOW - timedelta(hours=1)
+    service["generated_at"] = _utc_text(LIVE_EVALUATION_NOW - timedelta(seconds=5))
+    service["window_started_at_ms"] = _epoch_ms(stale_end - timedelta(seconds=30))
+    service["window_ended_at_ms"] = _epoch_ms(stale_end)
+    service_path.write_text(json.dumps(service, sort_keys=True), encoding="utf-8")
+    reloaded_bundle = replace(
+        inputs.verified_evidence_bundle,
+        service_health_artifact=load_verified_json_artifact(service_path),
+    )
+
+    result = evaluate_strategy_live_readiness_inputs(
+        replace(inputs, verified_evidence_bundle=reloaded_bundle)
+    )
+
+    assert result.eligible is False
+    assert "service_health_artifact_stale" in result.reason_codes
+
+
+def test_probe_capture_capacity_requires_expected_v08_track_binding(
+    tmp_path: Path,
+) -> None:
+    prerequisites = _probe_prerequisites(tmp_path)
+    capacity_path = Path(prerequisites.verified_evidence_bundle.capture_capacity_artifact.path)
+    capacity = json.loads(capacity_path.read_text(encoding="utf-8"))
+    capacity["track"] = "other-track"
+    capacity["artifact_sha256"] = readiness.sha256(
+        readiness.canonical_json_bytes(
+            {key: value for key, value in capacity.items() if key != "artifact_sha256"}
+        )
+    ).hexdigest()
+    capacity_path.write_text(json.dumps(capacity, sort_keys=True), encoding="utf-8")
+
+    result = evaluate_execution_probe_readiness(
+        structural_shadow_report=None,
+        clean_common_terminal_cohort_count=4,
+        coverage_results=tuple(
+            CohortCoverageResult(
+                cohort_id=f"cohort-{index}",
+                complete=True,
+                reason_codes=(),
+            )
+            for index in range(4)
+        ),
+        structural_floor=validate_structural_floor(
+            pair=_v07_pair(),
+            settlement_state=replace(
+                _settlement_state(_v07_pair()),
+                strike_5=D("100"),
+                strike_15=D("101"),
+            ),
+            books=_books(),
+            pricing_policy=PairPricingPolicy(
+                pair_risk_usdc=D("5"),
+                maker_fill_cap_by_token_id={
+                    _v07_pair().market_5.up_token_id: D("5"),
+                    _v07_pair().market_15.down_token_id: D("5"),
+                },
+            ),
+            execution_mode=PairExecutionMode.MAKER_MAKER,
+        ),
+        prerequisites=replace(
+            prerequisites,
+            verified_evidence_bundle=replace(
+                prerequisites.verified_evidence_bundle,
+                capture_capacity_artifact=load_verified_json_artifact(capacity_path),
+            ),
+        ),
+    )
+
+    assert result.eligible is False
+    assert "capture_capacity_track_mismatch" in result.reason_codes
+
+
+def test_live_rejects_self_hash_authority_and_accepts_bound_synthetic_positive_path(
+    tmp_path: Path,
+) -> None:
+    no_policy = evaluate_strategy_live_readiness_inputs(
+        _strategy_live_inputs(tmp_path / "no-policy", trusted_shadow=True)
+    )
+    wrong_pin_root = tmp_path / "wrong-pin"
+    wrong_pin = evaluate_strategy_live_readiness_inputs(
+        _strategy_live_inputs(
+            wrong_pin_root,
+            trusted_shadow=True,
+            structural_authority_trust_policy=readiness.StructuralAuthorityTrustPolicy(
+                trusted_build_receipt_path=str(
+                    wrong_pin_root / "authority" / "trusted-build-receipt.json"
+                ),
+                trusted_build_receipt_sha256="0" * 64,
+                external_anchor_reference=str(
+                    wrong_pin_root / "authority" / "external-anchor.json"
+                ),
+                external_anchor_sha256="1" * 64,
+            ),
+        )
+    )
+    trusted_root = tmp_path / "trusted"
+    trusted_inputs = _strategy_live_inputs(
+        trusted_root,
+        trusted_shadow=True,
+    )
+    bound = evaluate_strategy_live_readiness_inputs(
+        replace(
+            trusted_inputs,
+            structural_authority_trust_policy=_trusted_shadow_policy(trusted_root),
+        )
+    )
+    self_ref_root = tmp_path / "self-ref"
+    self_hash_inputs = _strategy_live_inputs(self_ref_root)
+    self_hash_inputs = replace(
+        self_hash_inputs,
+        verified_evidence_bundle=replace(
+            self_hash_inputs.verified_evidence_bundle,
+            structural_shadow_artifact=_strategy_shadow_artifact(
+                self_ref_root,
+                trusted=True,
+                self_hash_receipt=True,
+            ),
+        ),
+        structural_authority_trust_policy=readiness.StructuralAuthorityTrustPolicy(
+            trusted_build_receipt_path=str(self_ref_root / "shadow.json"),
+            trusted_build_receipt_sha256=readiness.sha256(
+                (self_ref_root / "shadow.json").read_bytes()
+            ).hexdigest(),
+            external_anchor_reference=str(
+                self_ref_root / "authority" / "external-anchor.json"
+            ),
+            external_anchor_sha256=readiness.sha256(
+                (self_ref_root / "authority" / "external-anchor.json").read_bytes()
+            ).hexdigest(),
+        ),
+    )
+    fake_trust = evaluate_strategy_live_readiness_inputs(self_hash_inputs)
+
+    assert no_policy.eligible is False
+    assert "neutral_shadow_builder_authority_untrusted" in no_policy.reason_codes
+    assert wrong_pin.eligible is False
+    assert "neutral_shadow_builder_authority_policy_mismatch" in wrong_pin.reason_codes
+    assert fake_trust.eligible is False
+    assert {
+        "neutral_shadow_builder_authority_policy_mismatch",
+        "neutral_shadow_builder_authority_trusted_build_receipt_invalid",
+    } & set(fake_trust.reason_codes)
+    assert bound.eligible is True

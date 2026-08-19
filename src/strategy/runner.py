@@ -4,7 +4,6 @@ CLI runner for the market maker.
 
 import argparse
 import asyncio
-import sys
 from decimal import Decimal
 from src.config import DRY_RUN, get_mode_string
 from src.markets import fetch_active_markets
@@ -37,7 +36,11 @@ def cleanup_orphaned_orders(token_id: str) -> int:
             return 0
 
         logger.warning(f"[SAFETY] Found {len(orders)} orphaned orders - canceling")
-        canceled = cancel_all_orders(token_id)
+        canceled = cancel_all_orders(
+            token_id,
+            verify=True,
+            raise_on_failure=True,
+        )
         logger.info(f"[SAFETY] Canceled {canceled} orphaned orders")
         return canceled
 
@@ -187,7 +190,7 @@ def main():
     print("=" * 60)
     print("  POLYMARKET MARKET MAKER")
     print(f"  Mode: {get_mode_string()}")
-    print(f"  Strategy: SmartMarketMaker")
+    print("  Strategy: SmartMarketMaker")
     print("=" * 60)
 
     if not DRY_RUN:
@@ -213,7 +216,7 @@ def main():
             print("No suitable market found. Try --manual to select manually.")
             return
         token_id = market.token_ids[0]
-    print(f"\nStarting SmartMarketMaker...")
+    print("\nStarting SmartMarketMaker...")
     print(f"  Spread: {args.spread}")
     print(f"  Size: {args.size}")
     print(f"  Position Limit: {args.position_limit}")
@@ -280,7 +283,7 @@ def main():
             break
         except RuntimeError as e:
             if "CLOB" in str(e) and attempt < max_retries - 1:
-                print(f"\n⚠️  Market unavailable on CLOB. Auto-selecting new market...")
+                print("\n⚠️  Market unavailable on CLOB. Auto-selecting new market...")
                 market, score = auto_select_market()
                 if not market or market.token_ids[0] in tried_tokens:
                     print("No other suitable markets found. Exiting.")

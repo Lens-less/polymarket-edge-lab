@@ -22,6 +22,7 @@ from scripts.build_btc_twap_structural_shadow_report import (
     _source_evidence_document,
     _trade_events,
     _verify_capture_attempt,
+    _verify_zero_cohort,
     _write_report_atomic,
     build_report_from_payload,
     main,
@@ -910,6 +911,122 @@ def test_real_capture_verifier_rejects_omitted_flow_or_tampered_raw_data(
             payload,
             rolling_audit=audit,
             preregistration_sha256="f" * 64,
+        )
+
+
+def test_replay_history_roots_fail_closed_without_preregistered_supporting_ids(
+    tmp_path: Path,
+) -> None:
+    payload, audit, _verification = _build_real_capture_payload(tmp_path / "primary")
+    supporting_payload, _supporting_audit, _ = _build_real_capture_payload(
+        tmp_path / "supporting"
+    )
+    supporting_root = supporting_payload["attempts"][0]["capture_root"]  # type: ignore[index]
+    payload["attempts"][0]["history_capture_roots"] = [supporting_root]  # type: ignore[index]
+
+    with pytest.raises(ValueError, match="pre-registered history capture attempts"):
+        build_report_from_payload(
+            payload,
+            rolling_audit=audit,
+            preregistration_sha256="f" * 64,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "pattern"),
+    (
+        ("capture_attempt_id", "wrong-attempt", "different capture attempt"),
+        ("common_expiry_id", "wrong-expiry", "pair/expiry identity"),
+        ("canonical_pair_id", "wrong-pair", "pair/expiry identity"),
+        ("expiry_ms", 1, "pair/expiry identity"),
+        ("market_5_id", "wrong-market", "pair/expiry identity"),
+        ("condition_15_id", "wrong-condition", "pair/expiry identity"),
+    ),
+)
+def test_zero_cohort_requires_exact_admission_binding(
+    tmp_path: Path,
+    field: str,
+    value: object,
+    pattern: str,
+) -> None:
+    payload, audit, _verification = _build_real_capture_payload(tmp_path / "zero-binding")
+    attempt = payload["attempts"][0]  # type: ignore[index]
+    attempt_id = str(attempt["attempt_id"])
+    admission = dict(audit["admissions"][attempt_id])  # type: ignore[index]
+    admission[field] = value
+
+    with pytest.raises(ValueError, match=pattern):
+        _verify_zero_cohort(
+            cohort={
+                "attempt_id": attempt_id,
+                "capture_root": attempt["capture_root"],
+                "outcome": "no_trade",
+                "decision_at_ms": DECISION_MS,
+            },
+            admission=admission,
+            outcome_receipt=audit["outcomes"][attempt_id],  # type: ignore[index]
+        )
+
+
+def test_zero_cohort_history_roots_require_exact_preregistered_attempt_set(
+    tmp_path: Path,
+) -> None:
+    payload, audit, _verification = _build_real_capture_payload(tmp_path / "zero-primary")
+    supporting_payload, _supporting_audit, _ = _build_real_capture_payload(
+        tmp_path / "zero-supporting"
+    )
+    attempt = payload["attempts"][0]  # type: ignore[index]
+    attempt_id = str(attempt["attempt_id"])
+    supporting_root = Path(
+        supporting_payload["attempts"][0]["capture_root"]  # type: ignore[index]
+    )
+    no_trade_outcome_receipt = dict(audit["outcomes"][attempt_id])  # type: ignore[index]
+    no_trade_outcome_receipt["outcome"] = "no_trade"
+    no_trade_outcome_receipt["clean"] = True
+    no_trade_outcome_receipt["realized_net_pnl"] = "0"
+    cohort = {
+        "attempt_id": attempt_id,
+        "capture_root": attempt["capture_root"],
+        "history_capture_roots": [str(supporting_root)],
+        "outcome": "no_trade",
+        "decision_at_ms": DECISION_MS,
+    }
+
+    with pytest.raises(ValueError, match="pre-registered history capture attempts"):
+        _verify_zero_cohort(
+            cohort=cohort,
+            admission=audit["admissions"][attempt_id],  # type: ignore[index]
+            outcome_receipt=no_trade_outcome_receipt,
+        )
+
+    bound_admission = dict(audit["admissions"][attempt_id])  # type: ignore[index]
+    bound_admission["supporting_capture_attempt_ids"] = [supporting_root.name]
+    verification = _verify_zero_cohort(
+        cohort=cohort,
+        admission=bound_admission,
+        outcome_receipt=no_trade_outcome_receipt,
+    )
+    assert verification.capture_verification.supporting_capture_roots == (
+        str(supporting_root.resolve()),
+    )
+    assert verification.locked_action_payload_sha256 == hashlib.sha256(
+        canonical_json_bytes(
+            {
+                "schema_version": "btc_twap_structural_locked_action.v1",
+                "attempt_id": attempt_id,
+                "action": "no_trade",
+                "decision_at_ms": DECISION_MS,
+            }
+        )
+    ).hexdigest()
+
+    mismatched_admission = dict(bound_admission)
+    mismatched_admission["supporting_capture_attempt_ids"] = ["wrong-supporting-id"]
+    with pytest.raises(ValueError, match="pre-registered history capture attempts"):
+        _verify_zero_cohort(
+            cohort=cohort,
+            admission=mismatched_admission,
+            outcome_receipt=no_trade_outcome_receipt,
         )
 
 

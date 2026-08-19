@@ -9,6 +9,11 @@ from datetime import datetime, timezone
 from typing import Optional
 from decimal import Decimal, ROUND_DOWN
 
+from src.auth import (
+    PolymarketAdapterError,
+    require_sdk_field,
+    require_sdk_mapping,
+)
 from src.config import (
     DRY_RUN,
     MAX_POSITION_PER_MARKET,
@@ -28,6 +33,10 @@ class OrderError(Exception):
     pass
 
 
+class OrderCancellationError(OrderError):
+    """Raised when live order cancellation cannot be verified cleanly."""
+
+
 # Balance check state (cached to reduce API calls)
 _last_balance_check: float = 0
 _cached_balance: Optional[Decimal] = None
@@ -35,6 +44,8 @@ BALANCE_CACHE_SECONDS = 30
 MIN_BALANCE_FOR_ORDER = Decimal("1.0")  # Don't trade below $1
 _tick_size_cache: dict[str, str] = {}
 _neg_risk_cache: dict[str, bool] = {}
+_CANCEL_VERIFY_RETRY_SECONDS = 0.05
+_MAX_BULK_CANCEL_ATTEMPTS = 2
 
 
 def check_balance_for_order(price: Decimal, size: Decimal) -> None:
@@ -302,13 +313,40 @@ def cancel_order(order_id: str) -> bool:
     try:
         logger.info(f"[LIVE] Cancelling: {order_id}")
         response = get_auth_client().cancel_order(order_id=order_id)
-        return order_id in {str(item) for item in response.canceled}
+        canceled = {str(item) for item in require_sdk_field(response, "canceled")}
+        return order_id in canceled
+    except PolymarketAdapterError:
+        raise
     except Exception as e:
         logger.error(f"Cancel failed for {order_id}: {e}")
         return False
 
 
-def cancel_all_orders(token_id: Optional[str] = None) -> int:
+def _live_open_order_ids(token_id: Optional[str]) -> set[str]:
+    from src.orders import get_open_orders
+
+    return {
+        order.id
+        for order in get_open_orders(token_id, raise_on_error=True)
+        if order.is_live
+    }
+
+
+def _parse_cancel_response(response: object) -> tuple[set[str], dict[str, str]]:
+    canceled = {str(item) for item in require_sdk_field(response, "canceled")}
+    not_canceled = {
+        str(order_id): str(reason)
+        for order_id, reason in require_sdk_mapping(response, "not_canceled").items()
+    }
+    return canceled, not_canceled
+
+
+def cancel_all_orders(
+    token_id: Optional[str] = None,
+    *,
+    verify: bool = False,
+    raise_on_failure: bool = False,
+) -> int:
     """
     Cancel all open orders, optionally filtered by token.
 
@@ -318,22 +356,74 @@ def cancel_all_orders(token_id: Optional[str] = None) -> int:
         return get_simulator().cancel_all(token_id)
 
     if not has_credentials():
+        if verify or raise_on_failure:
+            raise OrderCancellationError(
+                "Unable to verify live order cancellation without credentials"
+            )
         return 0
 
     from src.client import get_auth_client
     client = get_auth_client()
-    try:
-        response = (
-            client.cancel_all()
-            if token_id is None
-            else client.cancel_market_orders(token_id=token_id)
-        )
-        cancelled = len(response.canceled)
-    except Exception as e:
-        logger.error(f"Cancel-all failed: {e}")
+    target_ids = _live_open_order_ids(token_id)
+    if not target_ids:
         return 0
 
-    if cancelled:
-        logger.info(f"[LIVE] Cancelled {cancelled} orders")
+    remaining_ids = set(target_ids)
+    canceled_ids: set[str] = set()
+    failure_reasons: dict[str, str] = {}
 
-    return cancelled
+    def refresh_remaining() -> set[str]:
+        return _live_open_order_ids(token_id) & target_ids
+
+    try:
+        for attempt in range(_MAX_BULK_CANCEL_ATTEMPTS):
+            try:
+                response = (
+                    client.cancel_all()
+                    if token_id is None
+                    else client.cancel_market_orders(token_id=token_id)
+                )
+                batch_canceled, batch_failures = _parse_cancel_response(response)
+                canceled_ids |= batch_canceled & target_ids
+                failure_reasons.update(
+                    {
+                        order_id: reason
+                        for order_id, reason in batch_failures.items()
+                        if order_id in target_ids
+                    }
+                )
+            except Exception as error:
+                logger.error(f"Cancel-all failed on attempt {attempt + 1}: {error}")
+
+            remaining_ids = refresh_remaining()
+            canceled_ids = target_ids - remaining_ids
+            if not remaining_ids:
+                break
+            time.sleep(_CANCEL_VERIFY_RETRY_SECONDS)
+
+        if remaining_ids:
+            for order_id in tuple(remaining_ids):
+                if cancel_order(order_id):
+                    canceled_ids.add(order_id)
+            remaining_ids = refresh_remaining()
+            canceled_ids = target_ids - remaining_ids
+
+    except PolymarketAdapterError:
+        raise
+
+    if remaining_ids:
+        failure_summary = ", ".join(
+            f"{order_id}={failure_reasons.get(order_id, 'still-open-after-verify')}"
+            for order_id in sorted(remaining_ids)
+        )
+        message = (
+            f"Unable to verify live order cancellation for {len(remaining_ids)}/"
+            f"{len(target_ids)} order(s): {failure_summary}"
+        )
+        logger.error(message)
+        if verify or raise_on_failure:
+            raise OrderCancellationError(message)
+    elif canceled_ids:
+        logger.info(f"[LIVE] Cancelled {len(canceled_ids)} orders")
+
+    return len(canceled_ids)

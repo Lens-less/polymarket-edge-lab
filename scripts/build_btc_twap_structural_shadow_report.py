@@ -13,7 +13,9 @@ Each attempt object keys, exactly:
 - `attempt_id`: journal-bound canonical common-expiry id
 - `capture_root`: finalized primary pair-capture directory bound by admission
 - `history_capture_roots`: optional finalized overlapping captures used only to
-  prove the complete official 60s TWAP window
+  prove the complete official 60s TWAP window; every root must be pre-registered
+  in rolling admission supporting/history capture-attempt ids and exactly match
+  the admitted pair/expiry/market/condition identity
 - `pair`: object with exact keys `market_5`, `market_15`
 - `settlement_state`: rule-hash-bound opening TWAP strikes and source receipts
 - `action`: one of `long_15_up_long_5_down`, `long_5_up_long_15_down`
@@ -762,6 +764,90 @@ def _history_capture_roots(attempt: Mapping[str, Any]) -> tuple[Path, ...]:
     return roots
 
 
+def _admission_history_capture_attempt_ids(
+    admission: Mapping[str, Any],
+    *,
+    name: str,
+) -> tuple[str, ...]:
+    candidates: list[tuple[str, tuple[str, ...]]] = []
+    for field in (
+        "supporting_capture_attempt_ids",
+        "history_capture_attempt_ids",
+    ):
+        if field not in admission:
+            continue
+        value = admission[field]
+        if not isinstance(value, Sequence) or isinstance(
+            value,
+            (str, bytes, bytearray),
+        ):
+            raise TypeError(f"{name}.{field} must be an array")
+        attempt_ids = tuple(
+            _text(item, name=f"{name}.{field}[{index}]")
+            for index, item in enumerate(value)
+        )
+        if len(attempt_ids) != len(set(attempt_ids)):
+            raise ValueError(f"{name}.{field} cannot contain duplicates")
+        candidates.append((field, attempt_ids))
+    if not candidates:
+        return ()
+    first = candidates[0][1]
+    for field, attempt_ids in candidates[1:]:
+        if set(attempt_ids) != set(first) or len(attempt_ids) != len(first):
+            raise ValueError(
+                f"{name}.{field} disagrees with the pre-registered history capture attempts"
+            )
+    return first
+
+
+def _configured_capture_attempt_id(config: Any, *, name: str) -> str:
+    data_root = getattr(config, "data_root", None)
+    if not isinstance(data_root, Path):
+        raise TypeError(f"{name} data_root is invalid")
+    attempt_id = data_root.name
+    if not attempt_id:
+        raise ValueError(f"{name} data_root must end in one capture attempt id")
+    return attempt_id
+
+
+def _validate_preregistered_history_attempts(
+    history_roots: Sequence[Path],
+    *,
+    history_configs: Mapping[Path, Any],
+    admission: Mapping[str, Any],
+    name: str,
+) -> None:
+    preregistered = _admission_history_capture_attempt_ids(admission, name=name)
+    if not preregistered:
+        if history_roots:
+            raise ValueError(
+                "history_capture_roots must exactly match pre-registered history capture attempts"
+            )
+        return
+    if not history_roots:
+        raise ValueError(
+            "pre-registered history capture attempts require matching history_capture_roots"
+        )
+    actual_attempt_ids = tuple(
+        _configured_capture_attempt_id(
+            history_configs[root],
+            name=f"{name} supporting capture",
+        )
+        for root in history_roots
+    )
+    if len(actual_attempt_ids) != len(set(actual_attempt_ids)):
+        raise ValueError(
+            "history_capture_roots must map to unique pre-registered history capture attempts"
+        )
+    if (
+        len(actual_attempt_ids) != len(preregistered)
+        or set(actual_attempt_ids) != set(preregistered)
+    ):
+        raise ValueError(
+            "history_capture_roots must exactly match pre-registered history capture attempts"
+        )
+
+
 def _boundary_event_ids(
     roots: Sequence[Path],
     *,
@@ -1297,6 +1383,12 @@ def _verify_capture_attempt(
     history_roots = _history_capture_roots(attempt)
     if root in history_roots:
         raise ValueError("primary capture cannot also be a history capture")
+    expected_tokens = {
+        pair.market_5.up_token_id,
+        pair.market_5.down_token_id,
+        pair.market_15.up_token_id,
+        pair.market_15.down_token_id,
+    }
     history_identities: dict[Path, Mapping[str, Any]] = {}
     history_inventories: dict[Path, _CaptureInventory] = {}
     history_configs = {}
@@ -1308,6 +1400,19 @@ def _verify_capture_attempt(
         history_config = load_capture_config(history_root / "capture-config.json")
         if history_config.data_root != history_root:
             raise ValueError("history capture config data_root is invalid")
+        history_pair, _ = _validate_pair_targets(tuple(history_config.targets))
+        if not _same_pair(history_pair, pair):
+            raise ValueError("history capture root is not the same captured pair")
+        if (
+            set(history_config.asset_ids) != expected_tokens
+            or set(history_config.condition_ids)
+            != {pair.market_5.condition_id, pair.market_15.condition_id}
+            or set(history_config.rule_market_ids)
+            != {pair.market_5.market_id, pair.market_15.market_id}
+        ):
+            raise ValueError(
+                "history capture root does not cover the exact pair identity"
+            )
         history_configs[history_root] = history_config
     config_path = root / "capture-config.json"
     config = load_capture_config(config_path)
@@ -1317,12 +1422,6 @@ def _verify_capture_attempt(
     captured_pair, _targets_by_horizon = _validate_pair_targets(targets)
     if not _same_pair(captured_pair, pair):
         raise ValueError("input pair is not the captured pair")
-    expected_tokens = {
-        pair.market_5.up_token_id,
-        pair.market_5.down_token_id,
-        pair.market_15.up_token_id,
-        pair.market_15.down_token_id,
-    }
     if (
         set(config.asset_ids) != expected_tokens
         or set(config.condition_ids)
@@ -1344,7 +1443,10 @@ def _verify_capture_attempt(
         admission.get("capture_attempt_id"),
         name="rolling admission capture_attempt_id",
     )
-    if capture_attempt_id != root.name:
+    if capture_attempt_id != _configured_capture_attempt_id(
+        config,
+        name="capture config",
+    ):
         raise ValueError("rolling admission is bound to a different capture attempt")
     if (
         admission.get("common_expiry_id") != attempt_id
@@ -1352,6 +1454,12 @@ def _verify_capture_attempt(
         or admission.get("canonical_pair_id") != canonical_event_cluster_id(pair)
     ):
         raise ValueError("rolling admission pair/expiry identity is invalid")
+    _validate_preregistered_history_attempts(
+        history_roots,
+        history_configs=history_configs,
+        admission=admission,
+        name="rolling admission",
+    )
     submitted_at_ms = _integer(
         attempt.get("submitted_at_ms"),
         name="submitted_at_ms",
@@ -1615,6 +1723,26 @@ def _verify_zero_cohort(
         != {pair.market_5.market_id, pair.market_15.market_id}
     ):
         raise ValueError("zero cohort capture config does not cover the exact pair")
+    capture_attempt_id = _text(
+        admission.get("capture_attempt_id"),
+        name="rolling admission capture_attempt_id",
+    )
+    if capture_attempt_id != _configured_capture_attempt_id(
+        config,
+        name="zero cohort capture config",
+    ):
+        raise ValueError("rolling admission is bound to a different capture attempt")
+    if (
+        admission.get("common_expiry_id") != attempt_id
+        or attempt_id != canonical_expiry_cluster_id(pair.expires_at_ms)
+        or admission.get("canonical_pair_id") != canonical_event_cluster_id(pair)
+        or admission.get("expiry_ms") != pair.expires_at_ms
+        or admission.get("market_5_id") != pair.market_5.market_id
+        or admission.get("market_15_id") != pair.market_15.market_id
+        or admission.get("condition_5_id") != pair.market_5.condition_id
+        or admission.get("condition_15_id") != pair.market_15.condition_id
+    ):
+        raise ValueError("rolling admission pair/expiry identity is invalid")
     history_roots = _history_capture_roots(cohort)
     if root in history_roots:
         raise ValueError("primary capture cannot also be a history capture")
@@ -1636,7 +1764,23 @@ def _verify_zero_cohort(
         history_pair, _ = _validate_pair_targets(tuple(history_config.targets))
         if history_pair != pair:
             raise ValueError("history capture root is not the same captured pair")
+        if (
+            set(history_config.asset_ids) != expected_tokens
+            or set(history_config.condition_ids)
+            != {pair.market_5.condition_id, pair.market_15.condition_id}
+            or set(history_config.rule_market_ids)
+            != {pair.market_5.market_id, pair.market_15.market_id}
+        ):
+            raise ValueError(
+                "history capture root does not cover the exact pair identity"
+            )
         history_configs[history_root] = history_config
+    _validate_preregistered_history_attempts(
+        history_roots,
+        history_configs=history_configs,
+        admission=admission,
+        name="rolling admission",
+    )
     capture_starts = (
         config.capture_started_at_ms,
         *(item.capture_started_at_ms for item in history_configs.values()),
@@ -1717,10 +1861,7 @@ def _verify_zero_cohort(
         raise TypeError("capture tree identity omitted its SHA-256")
     verification = StructuralCaptureVerification(
         attempt_id=attempt_id,
-        capture_attempt_id=_text(
-            admission.get("capture_attempt_id", root.name),
-            name="rolling admission capture_attempt_id",
-        ),
+        capture_attempt_id=capture_attempt_id,
         capture_root=str(root),
         capture_tree_sha256=tree_sha256,
         manifest_count=inventory.manifest_count,
@@ -1748,6 +1889,18 @@ def _verify_zero_cohort(
             )
         )
     ).hexdigest()
+    locked_action_payload_sha256 = (
+        None
+        if outcome != "no_trade" or decision_at_ms is None
+        else hashlib.sha256(
+            canonical_json_bytes(
+                _no_trade_locked_action_document(
+                    attempt_id=attempt_id,
+                    decision_at_ms=decision_at_ms,
+                )
+            )
+        ).hexdigest()
+    )
     return LockedZeroCohort(
         attempt_id=attempt_id,
         expiry_ms=_integer(
@@ -1760,7 +1913,7 @@ def _verify_zero_cohort(
         source_evidence_sha256=source_evidence_sha256,
         dirty_reason_code=dirty_reason_code,
         decision_at_ms=decision_at_ms,
-        locked_action_payload_sha256=None,
+        locked_action_payload_sha256=locked_action_payload_sha256,
     )
 
 

@@ -16,7 +16,7 @@ import sys
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -40,7 +40,6 @@ from src.edge_lab.data_store import canonical_json_bytes
 REPORT_SCHEMA = "btc-5m-15m-gate-0-executable-upper-bound-report.v3"
 ZERO = Decimal(0)
 ONE = Decimal(1)
-MINIMUM_AVERAGE_PNL_PER_EXPIRY = Decimal("0.5")
 V08_PREREGISTRATION_PATH = (
     PROJECT_ROOT
     / "research"
@@ -51,6 +50,18 @@ V08_PREREGISTRATION_PATH = (
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _positive_decimal(value: Any, *, label: str) -> Decimal:
+    if isinstance(value, bool):
+        raise ValueError(f"{label} must be a positive decimal")
+    try:
+        parsed = Decimal(str(value))
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError(f"{label} must be a positive decimal") from exc
+    if not parsed.is_finite() or parsed <= ZERO:
+        raise ValueError(f"{label} must be a positive decimal")
+    return parsed
 
 
 def _load_gate_0_contract(
@@ -102,6 +113,12 @@ def _load_gate_0_contract(
         if not strict:
             return {}
         raise ValueError("Gate-0 prereg scan window must descend to expiry")
+    minimum_average = gate_0.get("minimum_average_best_total_pnl_per_expiry_usdc")
+    if strict:
+        minimum_average = _positive_decimal(
+            minimum_average,
+            label="Gate-0 prereg minimum average best total pnl per expiry",
+        )
     return {
         "track_id": document.get("track_id"),
         "preregistration_path": str(preregistration_path),
@@ -110,9 +127,7 @@ def _load_gate_0_contract(
         "scan_ttc_seconds_inclusive": [scan_start, scan_end],
         "candidate_ttc_count": scan_start - scan_end + 1,
         "decision_execution_mode": gate_0.get("decision_execution_mode"),
-        "minimum_average_best_total_pnl_per_expiry_usdc": gate_0.get(
-            "minimum_average_best_total_pnl_per_expiry_usdc"
-        ),
+        "minimum_average_best_total_pnl_per_expiry_usdc": minimum_average,
         "incomplete_existing_41_evidence_action": gate_0.get(
             "incomplete_existing_41_evidence_action"
         ),
@@ -182,6 +197,7 @@ def _execution_mode_diagnostics(
         ],
     ],
     required_observation_count_per_expiry: int,
+    minimum_average_pnl_per_expiry: Decimal,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     incomplete_expiry_ids = tuple(
         expiry_id
@@ -266,7 +282,7 @@ def _execution_mode_diagnostics(
         attempt_count = len(attempts)
         average = ZERO if attempt_count == 0 else aggregate / attempt_count
         economic_gate_passed = (
-            aggregate > ZERO and average >= MINIMUM_AVERAGE_PNL_PER_EXPIRY
+            aggregate > ZERO and average >= minimum_average_pnl_per_expiry
         )
         evidence_complete = not incomplete_expiry_ids and not missing_fill_cap_expiry_ids
         gate_passed = economic_gate_passed and evidence_complete
@@ -281,7 +297,7 @@ def _execution_mode_diagnostics(
                 Decimal(item["best_total_pnl"]) > ZERO for item in attempts
             ),
             "minimum_average_pnl_per_expiry": str(
-                MINIMUM_AVERAGE_PNL_PER_EXPIRY
+                minimum_average_pnl_per_expiry
             ),
             "required_observation_count_per_expiry": (
                 required_observation_count_per_expiry
@@ -449,6 +465,10 @@ def build_upper_bound_report(
     manifest_path = manifest_path.expanduser().resolve()
     contexts, strategy, preregistration_path = _load_contexts(manifest_path)
     gate_0_contract = _load_gate_0_contract(V08_PREREGISTRATION_PATH)
+    minimum_average_pnl_per_expiry = _positive_decimal(
+        gate_0_contract["minimum_average_best_total_pnl_per_expiry_usdc"],
+        label="Gate-0 prereg minimum average best total pnl per expiry",
+    )
     pricing_policy = PairPricingPolicy(
         maximum_spread_each_leg=strategy.maximum_spread_each_leg,
         minimum_market_price=strategy.minimum_market_price,
@@ -489,16 +509,7 @@ def build_upper_bound_report(
         context: Any,
         books: Mapping[str, Any],
     ) -> tuple[Mapping[str, Decimal] | None, str | None]:
-        explicit_caps = getattr(context, "future_public_trade_caps_by_token_id", None)
-        if isinstance(explicit_caps, Mapping):
-            return (
-                {
-                    str(token_id): Decimal(str(quantity))
-                    for token_id, quantity in explicit_caps.items()
-                },
-                "diagnostic.precomputed_fill_cap_summary",
-            )
-        future_trades = getattr(context, "future_public_trades_by_token_id", None)
+        future_trades = context.future_public_trades_by_token_id
         if isinstance(future_trades, Mapping):
             expected_token_ids = set(books)
             if {str(token_id) for token_id in future_trades} != expected_token_ids:
@@ -724,6 +735,7 @@ def build_upper_bound_report(
             required_observation_count_per_expiry=(
                 301 if decision_tau_seconds is None else 1
             ),
+            minimum_average_pnl_per_expiry=minimum_average_pnl_per_expiry,
         )
     )
     maker_maker_gate = execution_modes[PairExecutionMode.MAKER_MAKER.value]
@@ -841,7 +853,7 @@ def build_upper_bound_report(
             "route": "structural_floor_only",
             "decision_route": PairExecutionMode.MAKER_MAKER.value,
             "minimum_average_pnl_per_expiry": str(
-                MINIMUM_AVERAGE_PNL_PER_EXPIRY
+                minimum_average_pnl_per_expiry
             ),
             "dynamic_captured_fees_and_rounding": True,
             "no_trade_available": True,

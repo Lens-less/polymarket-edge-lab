@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+import inspect
 import re
 
 import pytest
 import requests
+from importlib.metadata import version as installed_version
+from polymarket import SecureClient
+from polymarket.models.clob.account import BalanceAllowance, OpenOrder
+from polymarket.models.clob.cancel import CancelOrdersResponse
 
 import src.client as client_module
 from src.edge_lab import compatibility
@@ -76,6 +81,22 @@ def test_client_factory_constructs_official_public_and_secure_clients(
     assert secure_args["private_key"] == "private-key"
     assert secure_args["wallet"] == "0xdeposit"
     assert isinstance(secure_args["credentials"], FakeCreds)
+
+
+def test_installed_polymarket_contract_matches_runtime_expectations() -> None:
+    assert installed_version("polymarket-client") == "0.6.0"
+    assert str(inspect.signature(SecureClient.cancel_all)) == "(self) -> polymarket.models.clob.cancel.CancelOrdersResponse"
+    assert str(inspect.signature(SecureClient.cancel_market_orders)) == "(self, *, market: str | None = None, token_id: str | None = None) -> polymarket.models.clob.cancel.CancelOrdersResponse"
+    assert str(inspect.signature(SecureClient.list_open_orders)) == "(self, *, token_id: str | None = None, id: str | None = None, market: str | None = None) -> polymarket.pagination.Paginator[polymarket.models.clob.account.OpenOrder]"
+    assert BalanceAllowance.__annotations__ == {
+        "balance": "int",
+        "allowances": "dict[str, int]",
+    }
+    assert OpenOrder.__annotations__["status"] == "str"
+    assert CancelOrdersResponse.__annotations__ == {
+        "canceled": "tuple[OrderId, ...]",
+        "not_canceled": "dict[OrderId, str]",
+    }
 
 
 def test_live_order_boundary_cannot_be_released_by_a_boolean_mapping() -> None:

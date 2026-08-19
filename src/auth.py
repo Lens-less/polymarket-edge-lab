@@ -4,7 +4,8 @@ Authentication utilities.
 Helper functions for wallet and credential management.
 """
 
-from typing import Optional, Dict, Any
+from collections.abc import Mapping
+from typing import Any, Dict
 from decimal import Decimal
 
 from src.client import get_auth_client
@@ -15,14 +16,61 @@ logger = setup_logging()
 TOKEN_DECIMALS = Decimal("1000000")
 
 
+class PolymarketAdapterError(RuntimeError):
+    """Raised when the installed SDK returns an unexpected contract shape."""
+
+
+def require_sdk_field(subject: object, field_name: str) -> object:
+    """Return a required SDK field or raise a typed adapter error."""
+    if not hasattr(subject, field_name):
+        raise PolymarketAdapterError(
+            f"{type(subject).__module__}.{type(subject).__name__} "
+            f"is missing required field '{field_name}'"
+        )
+    return getattr(subject, field_name)
+
+
+def require_sdk_mapping(subject: object, field_name: str) -> Mapping[object, object]:
+    """Return a required SDK mapping field or raise a typed adapter error."""
+    value = require_sdk_field(subject, field_name)
+    if not isinstance(value, Mapping):
+        raise PolymarketAdapterError(
+            f"{type(subject).__module__}.{type(subject).__name__}.{field_name} "
+            f"must be a mapping, got {type(value).__name__}"
+        )
+    return value
+
+
+def require_sdk_iter_items(response: object):
+    """Return an SDK paginator iterator or raise a typed adapter error."""
+    iter_items = require_sdk_field(response, "iter_items")
+    if not callable(iter_items):
+        raise PolymarketAdapterError(
+            f"{type(response).__module__}.{type(response).__name__}.iter_items "
+            "must be callable"
+        )
+    return iter_items()
+
+
+def normalize_sdk_scalar(value: object, *, field_name: str) -> str:
+    """Normalize enum-like SDK scalars to plain strings."""
+    normalized = value.value if hasattr(value, "value") else value
+    if isinstance(normalized, str):
+        return normalized
+    raise PolymarketAdapterError(
+        f"SDK field '{field_name}' must be a string or enum-like string, "
+        f"got {type(normalized).__name__}"
+    )
+
+
 def _balance_allowance(*, token_id: str | None = None) -> tuple[Decimal, Decimal]:
     client = get_auth_client()
     result = client.get_balance_allowance(
         asset_type="COLLATERAL" if token_id is None else "CONDITIONAL",
         token_id=token_id,
     )
-    raw_balance = Decimal(str(getattr(result, "balance", 0)))
-    allowances = getattr(result, "allowances", {}) or {}
+    raw_balance = Decimal(str(require_sdk_field(result, "balance")))
+    allowances = require_sdk_mapping(result, "allowances")
     max_allowance = max(
         (Decimal(str(value)) for value in allowances.values()),
         default=Decimal("0"),
@@ -33,7 +81,7 @@ def _balance_allowance(*, token_id: str | None = None) -> tuple[Decimal, Decimal
 def get_wallet_address() -> str:
     """Get the wallet address associated with the authenticated client."""
     client = get_auth_client()
-    return str(client.wallet)
+    return str(require_sdk_field(client, "wallet"))
 
 
 def get_balances() -> Dict[str, Decimal]:
@@ -43,8 +91,6 @@ def get_balances() -> Dict[str, Decimal]:
     Returns:
         Dict with 'matic' and 'usdc' balances
     """
-    client = get_auth_client()
-
     try:
         balance, allowance = _balance_allowance()
 
@@ -55,6 +101,8 @@ def get_balances() -> Dict[str, Decimal]:
             'usdc_allowance': balance,
             'usdc_allowance_max': allowance,
         }
+    except PolymarketAdapterError:
+        raise
     except Exception as e:
         logger.error(f"Error getting balances: {e}")
         return {
@@ -70,8 +118,6 @@ def check_allowances() -> Dict[str, Any]:
     Returns:
         Dict indicating which allowances are set
     """
-    client = get_auth_client()
-
     try:
         _balance, allowance = _balance_allowance()
         has_allowance = allowance > Decimal("0")
@@ -81,6 +127,8 @@ def check_allowances() -> Dict[str, Any]:
             'usdc_approved': has_allowance,
             'allowance_amount': allowance,
         }
+    except PolymarketAdapterError:
+        raise
     except Exception as e:
         logger.error(f"Error checking allowances: {e}")
         return {
@@ -95,8 +143,6 @@ def get_conditional_balance(token_id: str) -> Dict[str, Decimal]:
 
     Values are normalized to token units (6 decimals).
     """
-    client = get_auth_client()
-
     try:
         balance, allowance = _balance_allowance(token_id=token_id)
         return {
@@ -104,6 +150,8 @@ def get_conditional_balance(token_id: str) -> Dict[str, Decimal]:
             "allowance": allowance,
             "sellable": min(balance, allowance),
         }
+    except PolymarketAdapterError:
+        raise
     except Exception as e:
         logger.error(f"Error getting conditional balance for {token_id[:16]}...: {e}")
         return {
@@ -126,10 +174,17 @@ def set_allowances() -> bool:
 
     try:
         handle = client.setup_trading_approvals()
-        handle.wait()
+        wait = require_sdk_field(handle, "wait")
+        if not callable(wait):
+            raise PolymarketAdapterError(
+                f"{type(handle).__module__}.{type(handle).__name__}.wait must be callable"
+            )
+        wait()
         approved = bool(check_allowances().get("pusd_approved"))
         logger.info("Trading approvals confirmed: %s", approved)
         return approved
+    except PolymarketAdapterError:
+        raise
     except Exception as e:
         logger.error(f"Error setting allowances: {e}")
         return False

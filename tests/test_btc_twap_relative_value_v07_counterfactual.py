@@ -933,6 +933,7 @@ def test_split_policy_rejects_one_expiry_renamed_into_100_pairs() -> None:
         closing_source_event_id="closing",
         resolution_source_event_ids={},
         resolution_received_at_ms={},
+        future_public_trades_by_token_id=None,
         immutable_public_capture_evidence=False,
         capture_config_evidence={},
     )

@@ -21,7 +21,6 @@ from dataclasses import dataclass, field
 from collections import deque
 
 from src.config import (
-    DRY_RUN,
     RISK_ENFORCE,
     RISK_MAX_DAILY_LOSS,
     RISK_MAX_POSITION,
@@ -39,7 +38,7 @@ from src.config import (
     MAX_CORRELATED_EXPOSURE,
 )
 from src.models import OrderSide
-from src.orders import get_open_orders, get_position, get_trades
+from src.orders import get_open_orders, get_position
 from src.trading import cancel_all_orders
 from src.utils import setup_logging
 
@@ -409,6 +408,12 @@ class RiskManager:
         self._killed = True
         self._kill_reason = reason
         logger.critical(f"KILL SWITCH: {reason}")
+        try:
+            cancel_all_orders(verify=True, raise_on_failure=True)
+        except Exception as e:
+            self.record_error(f"Kill switch cancel verification failed: {e}")
+            logger.critical(f"KILL SWITCH teardown incomplete: {e}")
+            raise
 
     def reset_kill_switch(self):
         """Reset kill switch (use with caution)."""

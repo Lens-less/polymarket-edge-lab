@@ -5,6 +5,12 @@ Order queries - unified interface for real and simulated orders.
 from typing import List, Optional
 from decimal import Decimal
 
+from src.auth import (
+    PolymarketAdapterError,
+    normalize_sdk_scalar,
+    require_sdk_field,
+    require_sdk_iter_items,
+)
 from src.config import DRY_RUN, has_credentials
 from src.models import Order, Trade, OrderSide, OrderStatus
 from src.simulator import get_simulator
@@ -30,16 +36,25 @@ def get_open_orders(
         response = get_auth_client().list_open_orders(token_id=token_id)
         orders = []
 
-        for item in response.iter_items():
-            if str(item.status).upper() != 'LIVE':
+        for item in require_sdk_iter_items(response):
+            status = normalize_sdk_scalar(
+                require_sdk_field(item, "status"),
+                field_name="status",
+            )
+            if status.upper() != 'LIVE':
                 continue
             order = Order(
-                id=str(item.id),
-                token_id=str(item.token_id),
-                side=OrderSide(item.side),
-                price=Decimal(str(item.price)),
-                size=Decimal(str(item.original_size)),
-                filled=Decimal(str(item.size_matched)),
+                id=str(require_sdk_field(item, "id")),
+                token_id=str(require_sdk_field(item, "token_id")),
+                side=OrderSide(
+                    normalize_sdk_scalar(
+                        require_sdk_field(item, "side"),
+                        field_name="side",
+                    )
+                ),
+                price=Decimal(str(require_sdk_field(item, "price"))),
+                size=Decimal(str(require_sdk_field(item, "original_size"))),
+                filled=Decimal(str(require_sdk_field(item, "size_matched"))),
                 status=OrderStatus.LIVE,
                 is_simulated=False
             )
@@ -47,6 +62,8 @@ def get_open_orders(
                 orders.append(order)
         return orders
 
+    except PolymarketAdapterError:
+        raise
     except Exception as e:
         if raise_on_error:
             raise
@@ -75,14 +92,19 @@ def get_trades(
         response = get_auth_client().list_account_trades(token_id=token_id)
         trades = []
 
-        for item in response.iter_items():
+        for item in require_sdk_iter_items(response):
             trade = Trade(
-                id=str(item.id),
-                order_id=str(item.taker_order_id),
-                token_id=str(item.token_id),
-                side=OrderSide(item.side),
-                price=Decimal(str(item.price)),
-                size=Decimal(str(item.size)),
+                id=str(require_sdk_field(item, "id")),
+                order_id=str(require_sdk_field(item, "taker_order_id")),
+                token_id=str(require_sdk_field(item, "token_id")),
+                side=OrderSide(
+                    normalize_sdk_scalar(
+                        require_sdk_field(item, "side"),
+                        field_name="side",
+                    )
+                ),
+                price=Decimal(str(require_sdk_field(item, "price"))),
+                size=Decimal(str(require_sdk_field(item, "size"))),
                 is_simulated=False
             )
             if token_id is None or trade.token_id == token_id:
@@ -92,6 +114,8 @@ def get_trades(
 
         return trades
 
+    except PolymarketAdapterError:
+        raise
     except Exception as e:
         if raise_on_error:
             raise

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+import src.edge_lab.btc_twap_locked_shadow_v08 as locked_shadow
 from src.edge_lab.btc_twap_pair_pricing import PairExecutionMode, PairPricingPolicy
 from src.edge_lab.btc_twap_relative_value import (
     OrderBookSnapshot,
@@ -351,7 +352,7 @@ def _probe_evidence_bundle(
     *,
     structural_shadow_document: dict[str, object],
 ) -> ExecutionProbeEvidenceBundle:
-    artifact_root = Path.cwd() / ".tmp_shadow_artifacts" / root.name
+    artifact_root = root / "shadow-artifacts"
     artifact_root.mkdir(parents=True, exist_ok=True)
 
     def write_json(name: str, document: dict[str, object]) -> VerifiedJsonArtifact:
@@ -421,6 +422,12 @@ def _probe_evidence_bundle(
     authority_payload = {
         "schema_version": shadow_document.get("schema_version"),
         "issuer": "btc_twap_structural_shadow.finalized_capture_store_builder",
+        "trust_model": "local_hash_only_not_formal_readiness_authority",
+        "required_trust_primitives": [
+            "trusted_build_receipt",
+            "external_anchor",
+        ],
+        "track_id": shadow_document.get("track_id"),
         "source_input_sha256": shadow_document.get("source_input_sha256"),
         "preregistration_sha256": shadow_document.get("preregistration_sha256"),
         "rolling_audit_sha256": shadow_document.get("rolling_audit_sha256"),
@@ -428,11 +435,13 @@ def _probe_evidence_bundle(
             {
                 "attempt_id": item.get("attempt_id"),
                 "expiry_ms": item.get("expiry_ms"),
-                "capture_tree_sha256": item.get("capture_verification", {}).get(
-                    "capture_tree_sha256"
-                )
-                if isinstance(item.get("capture_verification"), dict)
-                else None,
+                "capture_verification_sha256": (
+                    None
+                    if not isinstance(item.get("capture_verification"), dict)
+                    else hashlib.sha256(
+                        canonical_json_bytes(item["capture_verification"])
+                    ).hexdigest()
+                ),
                 "locked_action_payload_sha256": item.get(
                     "locked_action_payload_sha256"
                 ),
@@ -446,11 +455,13 @@ def _probe_evidence_bundle(
                 "attempt_id": item.get("attempt_id"),
                 "expiry_ms": item.get("expiry_ms"),
                 "outcome": item.get("outcome"),
-                "capture_tree_sha256": item.get("capture_verification", {}).get(
-                    "capture_tree_sha256"
-                )
-                if isinstance(item.get("capture_verification"), dict)
-                else None,
+                "capture_verification_sha256": (
+                    None
+                    if not isinstance(item.get("capture_verification"), dict)
+                    else hashlib.sha256(
+                        canonical_json_bytes(item["capture_verification"])
+                    ).hexdigest()
+                ),
                 "source_evidence_sha256": item.get("source_evidence_sha256"),
                 "locked_action_payload_sha256": item.get(
                     "locked_action_payload_sha256"
@@ -467,6 +478,27 @@ def _probe_evidence_bundle(
         "authority_sha256": hashlib.sha256(
             canonical_json_bytes(authority_payload)
         ).hexdigest(),
+        "trust_model": "local_hash_only_not_formal_readiness_authority",
+        "required_trust_primitives": [
+            "trusted_build_receipt",
+            "external_anchor",
+        ],
+        "missing_trust_primitives": [
+            "trusted_build_receipt",
+            "external_anchor",
+        ],
+        "trust_evidence_refs": {
+            "trusted_build_receipt": {
+                "status": "missing",
+                "path": None,
+                "sha256": None,
+            },
+            "external_anchor": {
+                "status": "missing",
+                "reference": None,
+                "sha256": None,
+            },
+        },
     }
     shadow_unsigned = dict(shadow_document)
     shadow_unsigned.pop("report_sha256", None)
@@ -734,6 +766,49 @@ def test_report_builder_emits_complete_3x3_matrix_and_neutral_evidence(
     )
     assert report.neutral_shadow_evidence.realized_net_pnl > D("0")
     assert report.neutral_shadow_evidence.receipt_chain_verified is True
+    probe_readiness = evaluate_execution_probe_readiness(
+        structural_shadow_report=report,
+        clean_common_terminal_cohort_count=4,
+        coverage_results=tuple(
+            CohortCoverageResult(
+                cohort_id=f"probe-{index}",
+                complete=True,
+                reason_codes=(),
+            )
+            for index in range(4)
+        ),
+        structural_floor=validate_structural_floor(
+            pair=SameExpiryPair.from_contracts(
+                plans[0]._contract_for_horizon("5m"),
+                plans[0]._contract_for_horizon("15m"),
+            ),
+            settlement_state=plans[0].settlement_state,
+            books=_books(),
+            pricing_policy=PairPricingPolicy(
+                pair_risk_usdc=D("5"),
+                structural_only=True,
+            ),
+            execution_mode=PairExecutionMode.MAKER_MAKER,
+        ),
+        prerequisites=ExecutionProbePrerequisites(
+            service_continuously_healthy=True,
+            authenticated_read_verified=True,
+            fill_stream_verified=True,
+            failure_drills_complete=True,
+            immutable_probe_preregistration_present=True,
+            full_hedge_depth_verified=True,
+            gate_0_passed=True,
+            double_maker_probe_implemented=True,
+            capture_capacity_gate_passed=True,
+            verified_evidence_bundle=_probe_evidence_bundle(
+                tmp_path,
+                structural_shadow_document=report.to_document(),
+            ),
+        ),
+    )
+    assert probe_readiness.eligible is False
+    assert "neutral_shadow_builder_authority_untrusted" in probe_readiness.reason_codes
+    assert "neutral_shadow_builder_authority_hash_invalid" not in probe_readiness.reason_codes
 
 
 def test_direct_low_level_build_stays_unverified_and_probe_readiness_rejects(
@@ -811,10 +886,65 @@ def test_direct_low_level_build_stays_unverified_and_probe_readiness_rejects(
     )
 
     assert readiness.eligible is False
-    assert {
-        "neutral_shadow_builder_authority_hash_invalid",
-        "gate_0_not_passed",
-    } & set(readiness.reason_codes)
+    assert "neutral_shadow_builder_authority_untrusted" in readiness.reason_codes
+
+
+def test_verified_report_builder_authority_uses_structured_missing_refs() -> None:
+    plan = _plan()
+    evidence_hash = hashlib.sha256(b"plan-evidence").hexdigest()
+    locked_action_hash = hashlib.sha256(b"plan-action").hexdigest()
+    report = build_structural_shadow_report(
+        (plan,),
+        locked_zero_cohorts=(),
+        capture_verification_by_attempt=_capture_verifications((plan,)),
+        public_events_by_attempt={plan.attempt_id: ()},
+        neutral_disposition=SingleLegDisposition.PASSIVE_WAIT,
+        rolling_window_size=20,
+        minimum_expiries=200,
+        rolling_audit=_rolling_audit(
+            (plan,),
+            {plan.attempt_id: evidence_hash},
+            {plan.attempt_id: locked_action_hash},
+            realized_net_pnl="0",
+        ),
+        source_input_sha256="e" * 64,
+        preregistration_sha256=PREREGISTRATION_SHA256,
+        locked_action_payload_sha256_by_attempt={plan.attempt_id: locked_action_hash},
+        source_evidence_sha256_by_attempt={plan.attempt_id: evidence_hash},
+        verified_finalized_bundle=_verified_bundle(
+            (plan,),
+            capture_verifications=_capture_verifications((plan,)),
+            evidence_hashes={plan.attempt_id: evidence_hash},
+            locked_action_hashes={plan.attempt_id: locked_action_hash},
+            audit=_rolling_audit(
+                (plan,),
+                {plan.attempt_id: evidence_hash},
+                {plan.attempt_id: locked_action_hash},
+                realized_net_pnl="0",
+            ),
+        ),
+    )
+
+    authority = report.to_document()["builder_authority"]
+    assert authority is not None
+    assert authority["missing_trust_primitives"] == [
+        "trusted_build_receipt",
+        "external_anchor",
+    ]
+    assert authority["trust_evidence_refs"] == {
+        "trusted_build_receipt": {
+            "status": "missing",
+            "path": None,
+            "sha256": None,
+        },
+        "external_anchor": {
+            "status": "missing",
+            "reference": None,
+            "sha256": None,
+        },
+    }
+    assert "trusted_build_receipt_present" not in authority
+    assert "external_anchor_present" not in authority
 
 
 def test_shadow_robustness_removes_best_expiry_direction_and_rolling_window() -> None:
@@ -1258,3 +1388,93 @@ def test_supporting_capture_root_cannot_serve_as_another_primary() -> None:
                 dirty.attempt_id: dirty.source_evidence_sha256,
             },
         )
+
+
+def test_rolling_journal_writer_samples_receipt_clock_not_body_clock(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "journal"
+    samples = iter(((5_000, 9_000),))
+    monkeypatch.setattr(
+        locked_shadow,
+        "_sample_writer_clock",
+        lambda: next(samples),
+    )
+    policy = locked_shadow.RollingInclusionPolicy(
+        preregistration_sha256="a" * 64,
+        track_starts_at_ms=10_000,
+        decision_tau_seconds=(60,),
+        locked_at_ms=1,
+        received_at_ms=2,
+        monotonic_ns=3,
+    )
+
+    locked_shadow.initialize_rolling_shadow(root, policy)
+
+    receipt = json.loads(next((root / "receipts").glob("*.json")).read_text(encoding="utf-8"))
+    assert receipt["recorded_at_ms"] == 5_000
+    assert receipt["recorded_at_ms"] != policy.received_at_ms
+    assert receipt["monotonic_ns"] == 9_000
+    assert receipt["monotonic_ns"] != policy.monotonic_ns
+
+
+def test_rolling_journal_rejects_post_expiry_writer_clock_and_audits_tamper(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "journal-audit"
+    samples = iter(((5_000, 9_000), (30_000, 9_001), (180_000, 9_002)))
+    monkeypatch.setattr(
+        locked_shadow,
+        "_sample_writer_clock",
+        lambda: next(samples),
+    )
+    policy = locked_shadow.RollingInclusionPolicy(
+        preregistration_sha256="a" * 64,
+        track_starts_at_ms=100_000,
+        decision_tau_seconds=(60,),
+        locked_at_ms=1,
+        received_at_ms=2,
+        monotonic_ns=3,
+    )
+    locked_shadow.initialize_rolling_shadow(root, policy)
+    admission = locked_shadow.RollingCohortAdmission(
+        common_expiry_id=locked_shadow.canonical_expiry_cluster_id(180_000),
+        canonical_pair_id="pair-1",
+        expiry_ms=180_000,
+        capture_attempt_id="capture-1",
+        market_5_id="m5",
+        market_15_id="m15",
+        condition_5_id="c5",
+        condition_15_id="c15",
+        discovered_at_ms=10_000,
+        received_at_ms=20_000,
+        monotonic_ns=4,
+    )
+    locked_shadow.admit_rolling_cohort(root, admission)
+    decision = locked_shadow.RollingDecisionReceipt(
+        common_expiry_id=admission.common_expiry_id,
+        decision_tau_seconds=60,
+        decision_at_ms=120_000,
+        receipt_received_at_ms=120_001,
+        monotonic_ns=5,
+        action="no_trade",
+        action_payload_sha256="b" * 64,
+    )
+    with pytest.raises(ValueError, match="writer-recorded strictly pre-label"):
+        locked_shadow.append_rolling_decision(root, decision)
+
+    second_path = sorted((root / "receipts").glob("*.json"))[1]
+    second = json.loads(second_path.read_text(encoding="utf-8"))
+    second["recorded_at_ms"] = 200_000
+    unsigned = {key: value for key, value in second.items() if key != "receipt_sha256"}
+    second["receipt_sha256"] = hashlib.sha256(
+        canonical_json_bytes(unsigned)
+    ).hexdigest()
+    second_path.chmod(0o600)
+    second_path.write_text(json.dumps(second, sort_keys=True), encoding="utf-8")
+
+    audit = locked_shadow.audit_rolling_shadow(root)
+    assert audit["valid"] is False
+    assert "admission_writer_clock_after_first_decision_at_2" in audit["errors"]

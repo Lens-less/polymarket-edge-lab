@@ -467,63 +467,95 @@ def _capture_capacity_snapshot(
             ],
             "capture_attempt_count": 0,
         }
+    recent_cutoff = now - timedelta(hours=track.attempt_receipt_recent_window_hours)
     failures = 0
     successes = 0
     pending = 0
     total_duration_ms = 0
     capture_roots: set[Path] = set()
     extra_reasons: list[str] = []
-    seen_attempt_ids: set[str] = set()
     summary_paths: list[Path] = []
+    recent_integrity_reasons: list[str] = []
+    historical_integrity_reasons: list[str] = []
+
+    def _receipt_is_recent_by_mtime(path: Path) -> bool:
+        try:
+            modified_at = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+        except OSError:
+            return False
+        return modified_at >= recent_cutoff
+
+    def _record_receipt_integrity_issue(code: str, *, recent: bool) -> None:
+        if recent:
+            recent_integrity_reasons.append(code)
+        else:
+            historical_integrity_reasons.append(code)
+
+    def _evidence_integrity_document() -> dict[str, Any]:
+        return {
+            "recent_issue_count": len(recent_integrity_reasons),
+            "recent_reason_codes": list(dict.fromkeys(recent_integrity_reasons)),
+            "historical_issue_count": len(historical_integrity_reasons),
+            "historical_reason_codes": list(dict.fromkeys(historical_integrity_reasons)),
+        }
+
     indexed_receipts: list[tuple[Path, dict[str, Any], datetime]] = []
     for receipt_path in receipt_paths:
+        recent_by_mtime = _receipt_is_recent_by_mtime(receipt_path)
         try:
             receipt_path.relative_to(data_root)
         except ValueError:
-            failures += 1
+            _record_receipt_integrity_issue(
+                "attempt_receipt_path_out_of_scope",
+                recent=recent_by_mtime,
+            )
             continue
         document = _read_object(receipt_path)
         if document is None:
-            failures += 1
+            _record_receipt_integrity_issue(
+                "attempt_receipt_unreadable",
+                recent=recent_by_mtime,
+            )
             continue
-        attempt_id = document.get("attempt_id")
-        if not isinstance(attempt_id, str) or not attempt_id:
-            failures += 1
-            continue
-        if receipt_path.stem != attempt_id:
-            failures += 1
-            extra_reasons.append("attempt_receipt_filename_mismatch")
-            continue
-        if attempt_id in seen_attempt_ids:
-            failures += 1
-            extra_reasons.append("duplicate_attempt_receipt_id")
-            continue
-        seen_attempt_ids.add(attempt_id)
         created_at = _parse_utc(
             document.get("created_at")
             if isinstance(document.get("created_at"), str)
             else None
         )
         if created_at is None:
-            failures += 1
-            extra_reasons.append("attempt_receipt_timestamp_invalid")
+            _record_receipt_integrity_issue(
+                "attempt_receipt_timestamp_invalid",
+                recent=recent_by_mtime,
+            )
             continue
         indexed_receipts.append((receipt_path, document, created_at))
-    recent_cutoff = now - timedelta(hours=track.attempt_receipt_recent_window_hours)
     selected_receipts = [
         item for item in indexed_receipts if item[2] >= recent_cutoff
     ]
     selected_receipts.sort(key=lambda item: (item[2], item[0].name), reverse=True)
     selected_receipts = selected_receipts[: track.attempt_receipt_recent_window_count]
     if not selected_receipts:
+        evidence_integrity = _evidence_integrity_document()
         return {
             "passed": False,
-            "reason_codes": ["capture_capacity_terminal_evidence_unavailable"],
+            "reason_codes": list(
+                dict.fromkeys(
+                    (
+                        *(
+                            ("attempt_receipt_evidence_integrity_recent",)
+                            if evidence_integrity["recent_issue_count"]
+                            else ()
+                        ),
+                        "capture_capacity_terminal_evidence_unavailable",
+                    )
+                )
+            ),
             "capture_attempt_count": 0,
             "capture_failure_count": 0,
             "successful_attempt_count": 0,
             "pending_attempt_count": 0,
             "receipt_count": len(indexed_receipts),
+            "evidence_integrity": evidence_integrity,
             "selection_rule": {
                 "created_at_not_before": _utc_text(recent_cutoff),
                 "maximum_receipts": track.attempt_receipt_recent_window_count,
@@ -531,9 +563,30 @@ def _capture_capacity_snapshot(
         }
     seen_capture_roots: set[Path] = set()
     seen_summary_paths: set[Path] = set()
+    seen_attempt_ids: set[str] = set()
     terminal_receipt_paths: list[Path] = []
     pending_receipt_paths: list[Path] = []
     for _receipt_path, document, _created_at in selected_receipts:
+        attempt_id = document.get("attempt_id")
+        if not isinstance(attempt_id, str) or not attempt_id:
+            _record_receipt_integrity_issue(
+                "attempt_receipt_id_missing",
+                recent=True,
+            )
+            continue
+        if _receipt_path.stem != attempt_id:
+            _record_receipt_integrity_issue(
+                "attempt_receipt_filename_mismatch",
+                recent=True,
+            )
+            continue
+        if attempt_id in seen_attempt_ids:
+            _record_receipt_integrity_issue(
+                "duplicate_attempt_receipt_id",
+                recent=True,
+            )
+            continue
+        seen_attempt_ids.add(attempt_id)
         status = document.get("status")
         if status == "failed":
             terminal_receipt_paths.append(_receipt_path)
@@ -543,11 +596,17 @@ def _capture_capacity_snapshot(
             marker = _parse_utc(
                 document.get("updated_at")
                 if isinstance(document.get("updated_at"), str)
-                else document.get("created_at")
+                else None
+            ) or _parse_utc(
+                document.get("created_at")
+                if isinstance(document.get("created_at"), str)
+                else None
             )
             if marker is None:
-                failures += 1
-                extra_reasons.append("attempt_receipt_timestamp_invalid")
+                _record_receipt_integrity_issue(
+                    "attempt_receipt_timestamp_invalid",
+                    recent=True,
+                )
             elif now - marker >= timedelta(seconds=track.started_receipt_stale_seconds):
                 terminal_receipt_paths.append(_receipt_path)
                 failures += 1
@@ -557,34 +616,46 @@ def _capture_capacity_snapshot(
                 pending += 1
             continue
         if status != "succeeded":
-            failures += 1
-            extra_reasons.append("attempt_receipt_status_invalid")
+            _record_receipt_integrity_issue(
+                "attempt_receipt_status_invalid",
+                recent=True,
+            )
             continue
         terminal_receipt_paths.append(_receipt_path)
         capture_root_value = document.get("capture_root")
         if not isinstance(capture_root_value, str) or not capture_root_value:
-            failures += 1
-            extra_reasons.append("attempt_receipt_capture_root_missing")
+            _record_receipt_integrity_issue(
+                "attempt_receipt_capture_root_missing",
+                recent=True,
+            )
             continue
         capture_root = Path(capture_root_value).expanduser().resolve()
         try:
             capture_root.relative_to(data_root)
         except ValueError:
-            failures += 1
-            extra_reasons.append("attempt_receipt_capture_root_out_of_scope")
+            _record_receipt_integrity_issue(
+                "attempt_receipt_capture_root_out_of_scope",
+                recent=True,
+            )
             continue
         if capture_root in seen_capture_roots:
-            failures += 1
-            extra_reasons.append("duplicate_capture_root_in_recent_window")
+            _record_receipt_integrity_issue(
+                "duplicate_capture_root_in_recent_window",
+                recent=True,
+            )
             continue
         summary_path = _receipt_capture_summary_path(document, data_root=data_root)
         if summary_path is None:
-            failures += 1
-            extra_reasons.append("attempt_receipt_capture_root_missing")
+            _record_receipt_integrity_issue(
+                "attempt_receipt_capture_root_missing",
+                recent=True,
+            )
             continue
         if summary_path in seen_summary_paths:
-            failures += 1
-            extra_reasons.append("duplicate_capture_summary_in_recent_window")
+            _record_receipt_integrity_issue(
+                "duplicate_capture_summary_in_recent_window",
+                recent=True,
+            )
             continue
         seen_capture_roots.add(capture_root)
         seen_summary_paths.add(summary_path)
@@ -592,16 +663,20 @@ def _capture_capacity_snapshot(
     for summary_path in summary_paths:
         document = _read_object(summary_path)
         if document is None:
-            failures += 1
-            extra_reasons.append("capture_summary_missing_for_success_receipt")
+            _record_receipt_integrity_issue(
+                "capture_summary_missing_for_success_receipt",
+                recent=True,
+            )
             continue
         if (
             document.get("schema_version")
             != "btc-twap-compact-forward-capture-summary.v1"
             or document.get("data_root") != str(summary_path.parent.resolve())
         ):
-            failures += 1
-            extra_reasons.append("capture_summary_identity_mismatch")
+            _record_receipt_integrity_issue(
+                "capture_summary_identity_mismatch",
+                recent=True,
+            )
             continue
         capture_roots.add(summary_path.parent)
         integrity = document.get("integrity")
@@ -675,11 +750,17 @@ def _capture_capacity_snapshot(
         cpu_exhausted = float(cpu_balance) <= 0
     terminal_attempt_count = successes + failures
     if terminal_attempt_count == 0:
+        evidence_integrity = _evidence_integrity_document()
         return {
             "passed": False,
             "reason_codes": list(
                 dict.fromkeys(
                     (
+                        *(
+                            ("attempt_receipt_evidence_integrity_recent",)
+                            if recent_integrity_reasons
+                            else ()
+                        ),
                         *extra_reasons,
                         "capture_capacity_terminal_evidence_unavailable",
                         *(("capture_attempts_pending",) if pending else ()),
@@ -691,6 +772,7 @@ def _capture_capacity_snapshot(
             "successful_attempt_count": successes,
             "pending_attempt_count": pending,
             "receipt_count": len(indexed_receipts),
+            "evidence_integrity": evidence_integrity,
             "selection_rule": {
                 "created_at_not_before": _utc_text(recent_cutoff),
                 "maximum_receipts": track.attempt_receipt_recent_window_count,
@@ -705,10 +787,16 @@ def _capture_capacity_snapshot(
         burstable_cpu_credit_exhausted=cpu_exhausted,
     )
     verdict = evaluate_capture_capacity(evidence)
+    evidence_integrity = _evidence_integrity_document()
     reasons = tuple(
         dict.fromkeys(
             (
                 *verdict.reason_codes,
+                *(
+                    ("attempt_receipt_evidence_integrity_recent",)
+                    if recent_integrity_reasons
+                    else ()
+                ),
                 *extra_reasons,
                 *(("capture_attempts_pending",) if pending else ()),
             )
@@ -741,13 +829,19 @@ def _capture_capacity_snapshot(
                 if host_status.get("cpu_credit_balance") is None
                 else str(host_status.get("cpu_credit_balance"))
             ),
-            "cpu_credit_telemetry_unavailable": host_status.get(
-                "cpu_credit_telemetry_unavailable"
-            ),
+                "cpu_credit_telemetry_unavailable": host_status.get(
+                    "cpu_credit_telemetry_unavailable"
+                ),
         },
+        "evidence_integrity": evidence_integrity,
         "verdict": {
             **verdict.to_document(),
-            "passed": verdict.passed and not extra_reasons and pending == 0,
+            "passed": (
+                verdict.passed
+                and not recent_integrity_reasons
+                and not extra_reasons
+                and pending == 0
+            ),
             "reason_codes": list(reasons),
             "capture_attempt_count": evidence.capture_attempt_count,
             "capture_failure_count": evidence.capture_failure_count,
@@ -766,16 +860,20 @@ def _capture_capacity_snapshot(
             },
         },
     }
-    artifact_sha256 = hashlib.sha256(canonical_json_bytes(unsigned)).hexdigest()
-    return {
+    document = {
         **unsigned["verdict"],
         "schema_version": unsigned["schema_version"],
         "generated_at": unsigned["generated_at"],
+        "track": unsigned["track"],
         "attempt_receipts": unsigned["attempt_receipts"],
         "pending_attempt_receipts": unsigned["pending_attempt_receipts"],
         "host_metrics": unsigned["host_metrics"],
-        "artifact_sha256": artifact_sha256,
+        "evidence_integrity": unsigned["evidence_integrity"],
     }
+    document["artifact_sha256"] = hashlib.sha256(
+        canonical_json_bytes(document)
+    ).hexdigest()
+    return document
 
 
 def evaluate_watch(

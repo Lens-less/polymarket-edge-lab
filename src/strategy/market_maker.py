@@ -19,7 +19,6 @@ BALANCE_DROP_ALERT_PCT = Decimal("0.20")  # Alert if drops 20%
 
 from src.config import (
     DRY_RUN,
-    MM_SPREAD,
     MM_SIZE,
     MM_REQUOTE_THRESHOLD,
     MM_POSITION_LIMIT,
@@ -38,11 +37,17 @@ from src.config import (
     MARKET_MAX_PRICE,
 )
 from src.models import Order, OrderSide, OrderStatus, Trade
-from src.trading import place_order, cancel_order, cancel_all_orders, OrderError
-from src.orders import get_open_orders, get_position, get_trades
+from src.trading import (
+    place_order,
+    cancel_order,
+    cancel_all_orders,
+    OrderCancellationError,
+    OrderError,
+)
+from src.orders import get_open_orders, get_trades
 from src.feed import MarketFeed
 from src.pricing import get_order_book
-from src.risk import RiskManager, RiskStatus, get_risk_manager
+from src.risk import RiskStatus, get_risk_manager
 from src.simulator import get_simulator
 from src.utils import setup_logging
 from src.strategy.volatility import VolatilityTracker
@@ -223,16 +228,33 @@ class SmartMarketMaker:
             tokens_to_watch = [self.token_id]
             if self.complement_token_id:
                 tokens_to_watch.append(self.complement_token_id)
-                logger.info(f"Subscribing to YES + NO tokens for arbitrage")
+                logger.info("Subscribing to YES + NO tokens for arbitrage")
             await self.feed.start(tokens_to_watch)
 
             # SAFETY: Register callback to cancel orders on disconnect
             def on_ws_disconnect():
                 logger.warning("[SAFETY] WebSocket disconnected - canceling all orders")
                 try:
-                    if not self._cancel_all_quotes_sync():
-                        logger.error("[SAFETY] One or more disconnect cancels failed")
+                    cancelled = cancel_all_orders(
+                        self.token_id,
+                        verify=True,
+                        raise_on_failure=True,
+                    )
+                    self._sync_live_orders()
+                    if cancelled:
+                        logger.warning(
+                            "[SAFETY] Disconnect teardown cancelled %s live order(s)",
+                            cancelled,
+                        )
+                except OrderCancellationError as e:
+                    self.risk.record_error(f"Disconnect teardown left live orders: {e}")
+                    self.stop()
+                    self.risk.kill_switch(f"Disconnect teardown incomplete: {e}")
+                    logger.critical("[SAFETY] %s", e)
                 except Exception as e:
+                    self.risk.record_error(f"Disconnect teardown failed: {e}")
+                    self.stop()
+                    self.risk.kill_switch(f"Disconnect teardown failed: {e}")
                     logger.error(f"[SAFETY] Failed to cancel orders on disconnect: {e}")
 
             self.feed.register_connection_lost_callback(on_ws_disconnect)
@@ -757,7 +779,7 @@ class SmartMarketMaker:
 
     def _cancel_all_quotes_sync(self) -> bool:
         """Cancel tracked quotes and preserve local state if cancel fails."""
-        success = True
+        live_orders: list[tuple[str, str, Order]] = []
 
         for attr_name, label in (("bid_order", "bid"), ("ask_order", "ask")):
             order = getattr(self, attr_name)
@@ -777,9 +799,39 @@ class SmartMarketMaker:
             if cancelled:
                 setattr(self, attr_name, None)
             else:
-                success = False
+                live_orders.append((attr_name, label, order))
+
+        if not live_orders or DRY_RUN:
+            for _attr_name, label, order in live_orders:
                 self.risk.record_error(f"Failed to cancel {label} order {order.id}")
                 logger.error(f"Cancel request did not complete for {label} order {order.id}")
+            return not live_orders
+
+        try:
+            open_order_ids = {
+                order.id
+                for order in get_open_orders(self.token_id, raise_on_error=True)
+                if order.is_live
+            }
+        except Exception as e:
+            for _attr_name, label, order in live_orders:
+                self.risk.record_error(f"Failed to cancel {label} order {order.id}")
+                logger.error(f"Cancel verification failed for {label} order {order.id}: {e}")
+            return False
+
+        success = True
+        for attr_name, label, order in live_orders:
+            if order.id not in open_order_ids:
+                logger.info(
+                    "%s order %s already absent after cancel verification",
+                    label.upper(),
+                    order.id[:16],
+                )
+                setattr(self, attr_name, None)
+                continue
+            success = False
+            self.risk.record_error(f"Failed to cancel {label} order {order.id}")
+            logger.error(f"Cancel request did not complete for {label} order {order.id}")
 
         return success
 
@@ -941,10 +993,11 @@ class SmartMarketMaker:
     async def _shutdown(self):
         """Clean shutdown."""
         logger.info("Shutting down smart market maker...")
+        cancellation_error: Exception | None = None
 
         summary = self.risk.get_risk_event_summary()
         if summary["total_events"] > 0:
-            logger.info(f"Risk Event Summary:")
+            logger.info("Risk Event Summary:")
             logger.info(f"  Total events: {summary['total_events']}")
             logger.info(f"  STOP events: {summary['stop_events']} (enforced: {summary['enforced_events']})")
             logger.info(f"  WARN events: {summary['warn_events']}")
@@ -952,19 +1005,29 @@ class SmartMarketMaker:
 
         # Log smart MM specific stats
         if self._last_state:
-            logger.info(f"Final state:")
+            logger.info("Final state:")
             logger.info(f"  Volatility: {self._last_state.volatility_level} ({self._last_state.realized_vol:.1%})")
             logger.info(f"  Inventory: {self._last_state.inventory_level} ({self._last_state.inventory_pct:.1f}%)")
             logger.info(f"  Unrealized P&L: {self._last_state.unrealized_pnl}")
 
         logger.info("Cancelling all orders...")
-        cancel_all_orders(self.token_id)
+        try:
+            cancel_all_orders(
+                self.token_id,
+                verify=True,
+                raise_on_failure=True,
+            )
+        except Exception as e:
+            cancellation_error = e
+            logger.critical("[SAFETY] %s", e)
 
         if self.feed:
             logger.info("Stopping feed...")
             await self.feed.stop()
 
         logger.info("Smart market maker stopped.")
+        if cancellation_error is not None:
+            raise cancellation_error
 
 
 async def run_smart_market_maker(token_id: str, **kwargs):

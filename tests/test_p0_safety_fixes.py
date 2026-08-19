@@ -88,6 +88,33 @@ def test_cancel_all_quotes_keeps_references_when_cancel_fails():
     assert mm.ask_order is not None
 
 
+def test_cancel_all_quotes_clears_terminal_race_orders_after_verification():
+    from src.strategy.market_maker import SmartMarketMaker
+
+    reset_risk_manager()
+    mm = SmartMarketMaker(token_id="token")
+    mm.risk.record_error = MagicMock()
+    mm.bid_order = Order(
+        id="bid-1",
+        token_id="token",
+        side=OrderSide.BUY,
+        price=Decimal("0.49"),
+        size=Decimal("10"),
+        filled=Decimal("0"),
+        status=OrderStatus.LIVE,
+        is_simulated=False,
+    )
+
+    with patch('src.strategy.market_maker.DRY_RUN', False):
+        with patch('src.strategy.market_maker.cancel_order', return_value=False):
+            with patch('src.strategy.market_maker.get_open_orders', return_value=[]):
+                result = asyncio.run(mm._cancel_all_quotes())
+
+    assert result is True
+    assert mm.bid_order is None
+    mm.risk.record_error.assert_not_called()
+
+
 def test_live_sync_records_trade_once_and_clears_filled_order():
     from src.strategy.market_maker import SmartMarketMaker
 

@@ -17,6 +17,7 @@ from .btc_twap_relative_value import (
     SameExpiryPair,
     TwapMarketContract,
 )
+from .btc_twap_locked_shadow_v08 import TRACK_ID as READINESS_V08_TRACK_ID
 from .btc_twap_relative_value_readiness import (
     MINIMUM_STRUCTURAL_SHADOW_EXPIRIES,
     NeutralShadowEvidence,
@@ -48,6 +49,7 @@ MAXIMUM_SINGLE_EXPIRY_CONCENTRATION = Decimal("0.20")
 REGISTERED_ROLLING_WINDOW_EXPIRIES = 20
 STRUCTURAL_SHADOW_REPORT_SCHEMA = "btc_twap_structural_shadow_report.v1"
 ROLLING_SHADOW_AUDIT_SCHEMA = "btc-5m-15m-readiness-v08-rolling-audit.v1"
+UNTRUSTED_LOCAL_AUTHORITY_MODEL = "local_hash_only_not_formal_readiness_authority"
 
 
 def _decimal(value: Any, *, name: str) -> Decimal:
@@ -1124,6 +1126,27 @@ class LockedZeroCohort:
 _BUILDER_CAPABILITY = object()
 
 
+def _missing_trust_evidence_refs() -> dict[str, object]:
+    return {
+        "missing_trust_primitives": [
+            "trusted_build_receipt",
+            "external_anchor",
+        ],
+        "trust_evidence_refs": {
+            "trusted_build_receipt": {
+                "status": "missing",
+                "path": None,
+                "sha256": None,
+            },
+            "external_anchor": {
+                "status": "missing",
+                "reference": None,
+                "sha256": None,
+            },
+        },
+    }
+
+
 def _builder_authority_digest(
     *,
     source_input_sha256: str,
@@ -1135,6 +1158,12 @@ def _builder_authority_digest(
     payload = {
         "schema_version": STRUCTURAL_SHADOW_REPORT_SCHEMA,
         "issuer": "btc_twap_structural_shadow.finalized_capture_store_builder",
+        "trust_model": UNTRUSTED_LOCAL_AUTHORITY_MODEL,
+        "required_trust_primitives": [
+            "trusted_build_receipt",
+            "external_anchor",
+        ],
+        "track_id": READINESS_V08_TRACK_ID,
         "source_input_sha256": source_input_sha256,
         "preregistration_sha256": preregistration_sha256,
         "rolling_audit_sha256": rolling_audit_sha256,
@@ -1173,6 +1202,8 @@ class _StructuralShadowBuilderAuthority:
     issuer: str
     authority_kind: str
     authority_sha256: str
+    trust_model: str
+    required_trust_primitives: tuple[str, ...]
     _capability: object = field(repr=False, compare=False, default=None)
 
     def __post_init__(self) -> None:
@@ -1182,6 +1213,13 @@ class _StructuralShadowBuilderAuthority:
             raise ValueError("unsupported builder authority issuer")
         if self.authority_kind != "capture_store_finalized":
             raise ValueError("unsupported builder authority kind")
+        if self.trust_model != UNTRUSTED_LOCAL_AUTHORITY_MODEL:
+            raise ValueError("unsupported builder authority trust model")
+        if self.required_trust_primitives != (
+            "trusted_build_receipt",
+            "external_anchor",
+        ):
+            raise ValueError("unsupported builder authority trust primitive set")
         if (
             not isinstance(self.authority_sha256, str)
             or len(self.authority_sha256) != 64
@@ -1189,11 +1227,14 @@ class _StructuralShadowBuilderAuthority:
         ):
             raise ValueError("builder authority digest must be a lowercase SHA-256")
 
-    def to_document(self) -> dict[str, str]:
+    def to_document(self) -> dict[str, object]:
         return {
             "issuer": self.issuer,
             "authority_kind": self.authority_kind,
             "authority_sha256": self.authority_sha256,
+            "trust_model": self.trust_model,
+            "required_trust_primitives": list(self.required_trust_primitives),
+            **_missing_trust_evidence_refs(),
         }
 
 
@@ -1353,6 +1394,7 @@ class StructuralShadowReport:
         evidence = self.neutral_shadow_evidence
         unsigned = {
             "schema_version": STRUCTURAL_SHADOW_REPORT_SCHEMA,
+            "track_id": READINESS_V08_TRACK_ID,
             "builder_authority": (
                 None
                 if self._builder_authority is None
@@ -1920,6 +1962,11 @@ def build_structural_shadow_report(
                     rolling_audit_sha256=audit_binding.rolling_audit_sha256,
                     attempts=tuple(attempt_reports),
                     locked_zero_cohorts=ordered_zero_cohorts,
+                ),
+                trust_model=UNTRUSTED_LOCAL_AUTHORITY_MODEL,
+                required_trust_primitives=(
+                    "trusted_build_receipt",
+                    "external_anchor",
                 ),
                 _capability=_BUILDER_CAPABILITY,
             )
