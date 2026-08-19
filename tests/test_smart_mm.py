@@ -6,7 +6,7 @@ Run: pytest tests/test_smart_mm.py -v
 
 import pytest
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 
 class TestVolatilityTracker:
@@ -164,7 +164,7 @@ class TestInventoryManager:
 
         assert state.inventory_level == "LONG"
         assert state.bid_skew < 0  # Lower bid to discourage buying
-        assert state.ask_skew == 0  # Keep ask unchanged
+        assert state.ask_skew == state.bid_skew  # Lower ask to encourage selling
         print(f"Long position: bid_skew={state.bid_skew}")
 
     @patch('src.strategy.inventory.get_position')
@@ -182,7 +182,7 @@ class TestInventoryManager:
         state = inv.get_state(mid_price=Decimal("0.50"))
 
         assert state.inventory_level == "SHORT"
-        assert state.bid_skew == 0  # Keep bid unchanged
+        assert state.bid_skew == state.ask_skew  # Raise bid to encourage buying
         assert state.ask_skew > 0  # Raise ask to discourage selling
         print(f"Short position: ask_skew={state.ask_skew}")
 

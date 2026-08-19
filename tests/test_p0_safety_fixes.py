@@ -27,30 +27,16 @@ def test_feed_unhealthy_immediately_after_connection_lost():
     assert feed.is_healthy is False
 
 
-def test_get_position_uses_full_trade_history():
+def test_get_position_uses_authoritative_conditional_balance():
     from src.orders import get_position
 
-    trades = [
-        Trade(
-            id=f"trade-{i}",
-            order_id=f"order-{i}",
-            token_id="token",
-            side=OrderSide.BUY,
-            price=Decimal("0.50"),
-            size=Decimal("1"),
-            is_simulated=False,
-        )
-        for i in range(60)
-    ]
-
-    def fake_get_trades(token_id=None, limit=50, raise_on_error=False):
-        assert token_id == "token"
-        assert limit is None
-        return trades
-
     with patch('src.orders.DRY_RUN', False):
-        with patch('src.orders.get_trades', side_effect=fake_get_trades):
+        with patch(
+            'src.auth.get_conditional_balance',
+            return_value={"balance": Decimal("60")},
+        ) as get_balance:
             assert get_position("token") == Decimal("60")
+    get_balance.assert_called_once_with("token", raise_on_error=True)
 
 
 def test_cancel_all_quotes_keeps_references_when_cancel_fails():

@@ -8,7 +8,7 @@ import asyncio
 import signal
 import traceback
 from datetime import datetime, timezone, timedelta
-from decimal import Decimal
+from decimal import Decimal, ROUND_DOWN, ROUND_UP
 from typing import Optional
 from dataclasses import dataclass
 
@@ -41,6 +41,8 @@ from src.trading import (
     place_order,
     cancel_order,
     cancel_all_orders,
+    get_tick_size,
+    round_to_tick,
     OrderCancellationError,
     OrderError,
 )
@@ -210,6 +212,7 @@ class SmartMarketMaker:
         # Computed values (for TUI display)
         self._last_state: Optional[SmartMMState] = None
         self._seen_trade_ids: set[str] = set()
+        self._disconnect_teardown_task: Optional[asyncio.Task[None]] = None
 
     async def run(self, install_signals: bool = True):
         """Main loop. Runs until stopped."""
@@ -233,29 +236,20 @@ class SmartMarketMaker:
 
             # SAFETY: Register callback to cancel orders on disconnect
             def on_ws_disconnect():
-                logger.warning("[SAFETY] WebSocket disconnected - canceling all orders")
-                try:
-                    cancelled = cancel_all_orders(
-                        self.token_id,
-                        verify=True,
-                        raise_on_failure=True,
+                if loop.is_closed():
+                    logger.critical(
+                        "[SAFETY] Disconnect callback arrived after the strategy loop closed"
                     )
-                    self._sync_live_orders()
-                    if cancelled:
-                        logger.warning(
-                            "[SAFETY] Disconnect teardown cancelled %s live order(s)",
-                            cancelled,
-                        )
-                except OrderCancellationError as e:
-                    self.risk.record_error(f"Disconnect teardown left live orders: {e}")
-                    self.stop()
-                    self.risk.kill_switch(f"Disconnect teardown incomplete: {e}")
-                    logger.critical("[SAFETY] %s", e)
-                except Exception as e:
-                    self.risk.record_error(f"Disconnect teardown failed: {e}")
-                    self.stop()
-                    self.risk.kill_switch(f"Disconnect teardown failed: {e}")
-                    logger.error(f"[SAFETY] Failed to cancel orders on disconnect: {e}")
+                    return
+                if (
+                    self._disconnect_teardown_task is not None
+                    and not self._disconnect_teardown_task.done()
+                ):
+                    logger.warning("[SAFETY] Disconnect teardown already in progress")
+                    return
+                self._disconnect_teardown_task = loop.create_task(
+                    self._handle_disconnect_teardown()
+                )
 
             self.feed.register_connection_lost_callback(on_ws_disconnect)
 
@@ -299,6 +293,49 @@ class SmartMarketMaker:
         logger.info("Stop requested...")
         self._running = False
         self._shutdown_event.set()
+
+    async def _handle_disconnect_teardown(self) -> None:
+        """Cancel and reconcile orders without blocking the feed event loop."""
+        logger.warning("[SAFETY] WebSocket disconnected - canceling all orders")
+        try:
+            cancelled = await asyncio.to_thread(
+                cancel_all_orders,
+                self.token_id,
+                verify=True,
+                raise_on_failure=True,
+            )
+            await asyncio.to_thread(self._sync_live_orders)
+            if cancelled:
+                logger.warning(
+                    "[SAFETY] Disconnect teardown cancelled %s live order(s)",
+                    cancelled,
+                )
+        except OrderCancellationError as error:
+            reason = f"Disconnect teardown incomplete: {error}"
+            self.risk.record_error(f"Disconnect teardown left live orders: {error}")
+            self.stop()
+            try:
+                await asyncio.to_thread(
+                    self.risk.kill_switch,
+                    reason,
+                    token_id=self.token_id,
+                )
+            except Exception as kill_error:
+                logger.critical("[SAFETY] Kill-switch teardown also failed: %s", kill_error)
+            logger.critical("[SAFETY] %s", error)
+        except Exception as error:
+            reason = f"Disconnect teardown failed: {error}"
+            self.risk.record_error(reason)
+            self.stop()
+            try:
+                await asyncio.to_thread(
+                    self.risk.kill_switch,
+                    reason,
+                    token_id=self.token_id,
+                )
+            except Exception as kill_error:
+                logger.critical("[SAFETY] Kill-switch teardown also failed: %s", kill_error)
+            logger.error("[SAFETY] Failed to cancel orders on disconnect: %s", error)
 
     def get_state_for_tui(self) -> dict:
         """Get current state for TUI rendering."""
@@ -593,57 +630,46 @@ class SmartMarketMaker:
         spread = self.base_spread * Decimal(str(vol_mult)) * Decimal(str(inv_mult))
         spread = max(self.min_spread, min(self.max_spread, spread))
 
-        # 5. Calculate bid/ask with all adjustments
-        half_spread = spread / 2
-
-        # Base prices
-        bid_price = mid - half_spread
-        ask_price = mid + half_spread
-
-        # Add inventory skew
-        bid_price = bid_price + inv_state.bid_skew
-        ask_price = ask_price + inv_state.ask_skew
-
-        # Add imbalance adjustment (shift both in same direction)
-        bid_price = bid_price + imbalance_adj
-        ask_price = ask_price + imbalance_adj
-
-        # 6. Alpha signal adjustments
-
-        # 6a. Arbitrage detector - skew quotes based on YES/NO price divergence
-        bid_price, ask_price = self.arb_detector.get_quote_adjustment(
-            self.token_id, bid_price, ask_price
-        )
-
-        # 6b. Event tracker spread adjustment (should_trade already checked)
+        # 5. Event tracker spread adjustment (should_trade already checked).
+        # Apply this before prices are built so later alpha adjustments cannot
+        # be overwritten by a second base-price calculation.
         if event_signal.spread_multiplier != 1.0:
             logger.info(
                 f"[EVENT] Spread multiplier: {event_signal.spread_multiplier:.2f}x - {event_signal.reason}"
             )
-            # Widen spread near events (risk management)
             spread = spread * Decimal(str(event_signal.spread_multiplier))
-            half_spread_evt = spread / 2
-            bid_price = mid - half_spread_evt + inv_state.bid_skew + imbalance_adj
-            ask_price = mid + half_spread_evt + inv_state.ask_skew + imbalance_adj
 
-        # Recalculate prices after all adjustments
-        half_spread_final = spread / 2
-        bid_price = mid - half_spread_final + inv_state.bid_skew + imbalance_adj
-        ask_price = mid + half_spread_final + inv_state.ask_skew + imbalance_adj
+        # 6. Build prices once from all risk adjustments, then apply alpha.
+        half_spread = spread / 2
+        bid_price = mid - half_spread + inv_state.bid_skew + imbalance_adj
+        ask_price = mid + half_spread + inv_state.ask_skew + imbalance_adj
+        bid_price, ask_price = self.arb_detector.get_quote_adjustment(
+            self.token_id, bid_price, ask_price
+        )
 
-        # Round to tick
-        bid_price = (bid_price * 100).quantize(Decimal("1")) / 100
-        ask_price = (ask_price * 100).quantize(Decimal("1")) / 100
+        # Use the venue tick for both quote construction and order validation.
+        # Bids round down and asks round up so quantization never narrows the
+        # intended spread or accidentally crosses the market.
+        tick_size = get_tick_size(self.token_id)
+        bid_price = round_to_tick(bid_price, tick_size, rounding=ROUND_DOWN)
+        ask_price = round_to_tick(ask_price, tick_size, rounding=ROUND_UP)
 
-        # Ensure valid range and don't cross
-        bid_price = max(Decimal("0.01"), min(Decimal("0.98"), bid_price))
-        ask_price = max(Decimal("0.02"), min(Decimal("0.99"), ask_price))
+        minimum_price = tick_size
+        maximum_price = Decimal("1") - tick_size
+        bid_price = max(minimum_price, min(maximum_price, bid_price))
+        ask_price = max(minimum_price, min(maximum_price, ask_price))
         if bid_price >= ask_price:
-            # Revert to simple spread around mid
+            # Revert to the risk-adjusted spread around mid.  If the requested
+            # spread is smaller than one tick, enforce one full tick.
             bid_price = mid - half_spread
             ask_price = mid + half_spread
-            bid_price = (bid_price * 100).quantize(Decimal("1")) / 100
-            ask_price = (ask_price * 100).quantize(Decimal("1")) / 100
+            bid_price = round_to_tick(bid_price, tick_size, rounding=ROUND_DOWN)
+            ask_price = round_to_tick(ask_price, tick_size, rounding=ROUND_UP)
+            bid_price = max(minimum_price, min(maximum_price, bid_price))
+            ask_price = max(minimum_price, min(maximum_price, ask_price))
+            if bid_price >= ask_price:
+                bid_price = min(bid_price, Decimal("1") - (tick_size * 2))
+                ask_price = bid_price + tick_size
 
         # Build state for TUI
         state = SmartMMState(
@@ -690,7 +716,7 @@ class SmartMarketMaker:
         return False
 
     async def _update_quotes(self, mid: Decimal, bid_price: Decimal, ask_price: Decimal):
-        """Cancel old quotes and place new ones with size adjustments."""
+        """Reconcile each quote independently, preserving unchanged queue priority."""
         logger.info(f"Mid: {mid:.2f} -> Bid: {bid_price:.2f}, Ask: {ask_price:.2f}")
 
         if self._last_state:
@@ -699,10 +725,6 @@ class SmartMarketMaker:
                 f"(vol={self._last_state.vol_multiplier:.2f}x, "
                 f"inv={self._last_state.inv_multiplier:.2f}x)"
             )
-
-        if not await self._cancel_all_quotes():
-            logger.warning("Skipping quote refresh because existing quotes could not be cancelled cleanly")
-            return
 
         # Get size multipliers from inventory
         bid_size_mult, ask_size_mult = self.inventory.get_size_multipliers()
@@ -722,7 +744,10 @@ class SmartMarketMaker:
         if not DRY_RUN:
             from src.auth import get_conditional_balance
 
-            conditional = get_conditional_balance(self.token_id)
+            conditional = get_conditional_balance(
+                self.token_id,
+                raise_on_error=True,
+            )
             ask_size = min(ask_size, conditional["sellable"])
 
         # Log quote update
@@ -739,23 +764,111 @@ class SmartMarketMaker:
         # Place quotes (respecting inventory limits via size reduction, not hard stops)
         inv_state = self.inventory.get_state()
         self._quote_bid_enabled = inv_state.inventory_level != "MAX_LONG"
+        has_sellable_ask = ask_size >= MIN_ORDER_SIZE
         self._quote_ask_enabled = (
-            inv_state.inventory_level != "MAX_SHORT" and ask_size >= MIN_ORDER_SIZE
+            inv_state.inventory_level != "MAX_SHORT" and has_sellable_ask
         )
 
-        # Only skip side entirely if at absolute max
-        if self._quote_bid_enabled:
-            self.bid_order = self._place_quote(OrderSide.BUY, bid_price, bid_size)
-        else:
-            logger.info("MAX_LONG - skipping bid")
+        # A zero-inventory live start cannot offer a real ask.  Do not turn
+        # that condition into a directional long strategy by leaving only the
+        # bid active.  True dual-outcome quoting needs an explicitly modelled
+        # complementary-token leg; until then, this state fails closed.
+        if not DRY_RUN and not has_sellable_ask:
+            self._quote_bid_enabled = False
 
-        if self._quote_ask_enabled:
-            self.ask_order = self._place_quote(OrderSide.SELL, ask_price, ask_size)
-        else:
+        if not self._quote_bid_enabled:
+            if inv_state.inventory_level == "MAX_LONG":
+                logger.info("MAX_LONG - skipping bid")
+            else:
+                logger.warning(
+                    "[SAFETY] Skipping bid because a two-sided live quote cannot be funded"
+                )
+        if not self._quote_ask_enabled:
             if inv_state.inventory_level == "MAX_SHORT":
                 logger.info("MAX_SHORT - skipping ask")
             else:
                 logger.info("Skipping ask: no sellable outcome token balance/allowance")
+
+        self._reconcile_quote(
+            attr_name="bid_order",
+            label="bid",
+            enabled=self._quote_bid_enabled,
+            side=OrderSide.BUY,
+            price=bid_price,
+            size=bid_size,
+        )
+        self._reconcile_quote(
+            attr_name="ask_order",
+            label="ask",
+            enabled=self._quote_ask_enabled,
+            side=OrderSide.SELL,
+            price=ask_price,
+            size=ask_size,
+        )
+
+    def _reconcile_quote(
+        self,
+        *,
+        attr_name: str,
+        label: str,
+        enabled: bool,
+        side: OrderSide,
+        price: Decimal,
+        size: Decimal,
+    ) -> bool:
+        """Cancel/replace one side only when its desired order changed."""
+        order = getattr(self, attr_name)
+        if order is not None and not order.is_live:
+            setattr(self, attr_name, None)
+            order = None
+
+        if (
+            order is not None
+            and enabled
+            and order.token_id == self.token_id
+            and order.side == side
+            and order.price == price
+            and order.size == size
+        ):
+            logger.debug("Keeping unchanged %s order %s in queue", label, order.id[:16])
+            return True
+
+        if order is not None:
+            try:
+                cancelled = cancel_order(order.id)
+            except Exception as error:
+                cancelled = False
+                logger.error("Failed to cancel %s order: %s", label, error)
+
+            if not cancelled and not DRY_RUN:
+                try:
+                    open_ids = {
+                        item.id
+                        for item in get_open_orders(
+                            order.token_id,
+                            raise_on_error=True,
+                        )
+                        if item.is_live
+                    }
+                    cancelled = order.id not in open_ids
+                except Exception as error:
+                    logger.error(
+                        "Cancel verification failed for %s order %s: %s",
+                        label,
+                        order.id,
+                        error,
+                    )
+
+            if not cancelled:
+                self.risk.record_error(f"Failed to cancel {label} order {order.id}")
+                return False
+            setattr(self, attr_name, None)
+
+        if enabled:
+            replacement = self._place_quote(side, price, size)
+            setattr(self, attr_name, replacement)
+            return replacement is not None
+        return True
 
     def _place_quote(self, side: OrderSide, price: Decimal, size: Decimal) -> Optional[Order]:
         """Place a single quote."""
@@ -880,15 +993,24 @@ class SmartMarketMaker:
                         f"[SAFETY] Balance dropped {drop_pct:.1%}: "
                         f"${self._initial_balance:.2f} -> ${current:.2f} - TRIGGERING KILL SWITCH"
                     )
-                    self.risk.kill_switch("Balance dropped >20%")
                     self.stop()
+                    try:
+                        self.risk.kill_switch(
+                            "Balance dropped >20%",
+                            token_id=self.token_id,
+                        )
+                    except Exception as error:
+                        logger.critical(
+                            "[SAFETY] Balance kill-switch teardown incomplete: %s",
+                            error,
+                        )
 
         except Exception as e:
             logger.warning(f"Balance check failed: {e}")
 
     def _prime_live_trade_state(self):
         """Ignore pre-existing trades so only new session fills are processed."""
-        recent_trades = get_trades(self.token_id, limit=100, raise_on_error=True)
+        recent_trades = get_trades(self.token_id, limit=None, raise_on_error=True)
         self._seen_trade_ids = {trade.id for trade in recent_trades if trade.id}
 
     def _sync_live_state(self):
@@ -898,13 +1020,13 @@ class SmartMarketMaker:
 
     def _sync_live_trades(self):
         """Process newly observed live trades."""
-        recent_trades = get_trades(self.token_id, limit=100, raise_on_error=True)
+        recent_trades = get_trades(self.token_id, limit=None, raise_on_error=True)
         new_trades = [
             trade for trade in recent_trades
             if trade.id and trade.id not in self._seen_trade_ids
         ]
 
-        for trade in reversed(new_trades):
+        for trade in new_trades:
             self._record_trade_fill(trade, fill_type="live")
             self._seen_trade_ids.add(trade.id)
 
@@ -993,7 +1115,14 @@ class SmartMarketMaker:
     async def _shutdown(self):
         """Clean shutdown."""
         logger.info("Shutting down smart market maker...")
-        cancellation_error: Exception | None = None
+        disconnect_task = self._disconnect_teardown_task
+        if (
+            disconnect_task is not None
+            and disconnect_task is not asyncio.current_task()
+            and not disconnect_task.done()
+        ):
+            logger.info("Waiting for disconnect teardown to finish...")
+            await asyncio.shield(disconnect_task)
 
         summary = self.risk.get_risk_event_summary()
         if summary["total_events"] > 0:
@@ -1018,7 +1147,7 @@ class SmartMarketMaker:
                 raise_on_failure=True,
             )
         except Exception as e:
-            cancellation_error = e
+            self.risk.record_error(f"Shutdown cancellation verification failed: {e}")
             logger.critical("[SAFETY] %s", e)
 
         if self.feed:
@@ -1026,8 +1155,6 @@ class SmartMarketMaker:
             await self.feed.stop()
 
         logger.info("Smart market maker stopped.")
-        if cancellation_error is not None:
-            raise cancellation_error
 
 
 async def run_smart_market_maker(token_id: str, **kwargs):

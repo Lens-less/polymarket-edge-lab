@@ -137,7 +137,11 @@ def check_allowances() -> Dict[str, Any]:
         }
 
 
-def get_conditional_balance(token_id: str) -> Dict[str, Decimal]:
+def get_conditional_balance(
+    token_id: str,
+    *,
+    raise_on_error: bool = False,
+) -> Dict[str, Decimal]:
     """
     Get spendable balance/allowance for a specific outcome token.
 
@@ -153,6 +157,8 @@ def get_conditional_balance(token_id: str) -> Dict[str, Decimal]:
     except PolymarketAdapterError:
         raise
     except Exception as e:
+        if raise_on_error:
+            raise
         logger.error(f"Error getting conditional balance for {token_id[:16]}...: {e}")
         return {
             "balance": Decimal("0"),

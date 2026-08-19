@@ -105,7 +105,7 @@ def get_tick_size(token_id: str) -> Decimal:
     """
     Get tick size for a token.
 
-    In live mode prefer the exchange-provided tick size and fall back to 0.01.
+    In live mode require the exchange-provided tick size.
     """
     if token_id in _tick_size_cache:
         return Decimal(_tick_size_cache[token_id])
@@ -120,8 +120,9 @@ def get_tick_size(token_id: str) -> Decimal:
         _tick_size_cache[token_id] = tick_size
         return Decimal(tick_size)
     except Exception as e:
-        logger.warning(f"Falling back to default tick size for {token_id[:16]}...: {e}")
-        return Decimal("0.01")
+        raise OrderError(
+            f"Unable to verify exchange tick size for {token_id[:16]}..."
+        ) from e
 
 
 def get_order_creation_options(token_id: str) -> dict[str, object]:
@@ -145,9 +146,14 @@ def get_order_creation_options(token_id: str) -> dict[str, object]:
     }
 
 
-def round_to_tick(price: Decimal, tick_size: Decimal) -> Decimal:
-    """Round price down to nearest tick."""
-    return (price / tick_size).quantize(Decimal("1"), rounding=ROUND_DOWN) * tick_size
+def round_to_tick(
+    price: Decimal,
+    tick_size: Decimal,
+    *,
+    rounding: str = ROUND_DOWN,
+) -> Decimal:
+    """Round a price to an exchange tick with an explicit direction."""
+    return (price / tick_size).quantize(Decimal("1"), rounding=rounding) * tick_size
 
 
 def validate_price(price: Decimal, token_id: str) -> Decimal:
@@ -364,52 +370,89 @@ def cancel_all_orders(
 
     from src.client import get_auth_client
     client = get_auth_client()
-    target_ids = _live_open_order_ids(token_id)
-    if not target_ids:
-        return 0
 
-    remaining_ids = set(target_ids)
-    canceled_ids: set[str] = set()
-    failure_reasons: dict[str, str] = {}
-
-    def refresh_remaining() -> set[str]:
-        return _live_open_order_ids(token_id) & target_ids
-
+    # Listing orders is useful for counting and targeted retries, but it must
+    # never gate the emergency bulk-cancel request.  A disconnect can take the
+    # read path down before the write path, and an eventually-consistent read
+    # can briefly report an empty book while orders are still live.
+    initial_list_error: Exception | None = None
     try:
-        for attempt in range(_MAX_BULK_CANCEL_ATTEMPTS):
-            try:
-                response = (
-                    client.cancel_all()
-                    if token_id is None
-                    else client.cancel_market_orders(token_id=token_id)
-                )
-                batch_canceled, batch_failures = _parse_cancel_response(response)
-                canceled_ids |= batch_canceled & target_ids
-                failure_reasons.update(
-                    {
-                        order_id: reason
-                        for order_id, reason in batch_failures.items()
-                        if order_id in target_ids
-                    }
-                )
-            except Exception as error:
-                logger.error(f"Cancel-all failed on attempt {attempt + 1}: {error}")
+        target_ids: set[str] | None = _live_open_order_ids(token_id)
+    except Exception as error:
+        target_ids = None
+        initial_list_error = error
+        logger.error(
+            "Unable to list live orders before cancel; sending blind bulk cancel: %s",
+            error,
+        )
 
-            remaining_ids = refresh_remaining()
-            canceled_ids = target_ids - remaining_ids
-            if not remaining_ids:
-                break
+    remaining_ids = set(target_ids or ())
+    canceled_ids: set[str] = set()
+    reported_canceled_ids: set[str] = set()
+    failure_reasons: dict[str, str] = {}
+    verification_error: Exception | None = initial_list_error
+    bulk_succeeded = False
+
+    for attempt in range(_MAX_BULK_CANCEL_ATTEMPTS):
+        try:
+            response = (
+                client.cancel_all()
+                if token_id is None
+                else client.cancel_market_orders(token_id=token_id)
+            )
+            bulk_succeeded = True
+            batch_canceled, batch_failures = _parse_cancel_response(response)
+            reported_canceled_ids |= batch_canceled
+            failure_reasons.update(batch_failures)
+        except Exception as error:
+            logger.error(f"Cancel-all failed on attempt {attempt + 1}: {error}")
+
+        try:
+            current_ids = _live_open_order_ids(token_id)
+            verification_error = None
+            if target_ids is not None:
+                canceled_ids |= target_ids - current_ids
+            canceled_ids |= reported_canceled_ids
+            # Reconcile against everything currently visible in scope, not
+            # only the preflight snapshot; this also closes placement races.
+            remaining_ids = current_ids
+        except Exception as error:
+            verification_error = error
+            logger.error(
+                "Unable to verify cancel-all attempt %s: %s",
+                attempt + 1,
+                error,
+            )
+            if target_ids is not None:
+                remaining_ids = target_ids - reported_canceled_ids
+
+        if verification_error is None and not remaining_ids and bulk_succeeded:
+            break
+        if attempt + 1 < _MAX_BULK_CANCEL_ATTEMPTS:
             time.sleep(_CANCEL_VERIFY_RETRY_SECONDS)
 
-        if remaining_ids:
-            for order_id in tuple(remaining_ids):
-                if cancel_order(order_id):
-                    canceled_ids.add(order_id)
-            remaining_ids = refresh_remaining()
-            canceled_ids = target_ids - remaining_ids
+    if verification_error is None and remaining_ids:
+        for order_id in tuple(remaining_ids):
+            if cancel_order(order_id):
+                reported_canceled_ids.add(order_id)
 
-    except PolymarketAdapterError:
-        raise
+        try:
+            current_ids = _live_open_order_ids(token_id)
+            if target_ids is not None:
+                canceled_ids |= target_ids - current_ids
+            canceled_ids |= reported_canceled_ids
+            remaining_ids = current_ids
+        except Exception as error:
+            verification_error = error
+            logger.error(f"Unable to verify individual cancel retries: {error}")
+
+    canceled_ids |= reported_canceled_ids
+
+    uncertainty: str | None = None
+    if not bulk_succeeded:
+        uncertainty = "no bulk cancellation request completed successfully"
+    elif verification_error is not None:
+        uncertainty = f"post-cancel order listing failed: {verification_error}"
 
     if remaining_ids:
         failure_summary = ", ".join(
@@ -420,6 +463,11 @@ def cancel_all_orders(
             f"Unable to verify live order cancellation for {len(remaining_ids)}/"
             f"{len(target_ids)} order(s): {failure_summary}"
         )
+        logger.error(message)
+        if verify or raise_on_failure:
+            raise OrderCancellationError(message)
+    elif uncertainty is not None:
+        message = f"Unable to verify live order cancellation: {uncertainty}"
         logger.error(message)
         if verify or raise_on_failure:
             raise OrderCancellationError(message)

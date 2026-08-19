@@ -134,48 +134,31 @@ async def test_parity_overpriced_cancels_existing_quotes():
     mm._cancel_all_quotes.assert_awaited_once()
 
 
-def test_disconnect_generic_cancel_failure_triggers_kill_switch_and_stop():
+@pytest.mark.asyncio
+async def test_disconnect_generic_cancel_failure_triggers_kill_switch_and_stop():
     from src.strategy.market_maker import SmartMarketMaker
 
     mm = SmartMarketMaker(token_id="token")
     mm.risk.record_error = MagicMock()
     mm.risk.kill_switch = MagicMock()
     mm.stop = MagicMock()
-    callback: object = None
-
-    class FeedStub:
-        def register_connection_lost_callback(self, cb):
-            nonlocal callback
-            callback = cb
-
-        async def start(self, token_ids):
-            return None
-
-        async def stop(self):
-            return None
-
-    async def fail_wait():
-        raise RuntimeError("stop after registration")
-
-    with patch("src.strategy.market_maker.MarketFeed", return_value=FeedStub()):
-        with patch.object(mm, "_wait_for_data", side_effect=fail_wait):
-            with pytest.raises(RuntimeError, match="stop after registration"):
-                asyncio.run(mm.run(install_signals=False))
-
-    assert callable(callback)
 
     with patch(
         "src.strategy.market_maker.cancel_all_orders",
         side_effect=RuntimeError("cancel transport exploded"),
     ):
-        callback()
+        await mm._handle_disconnect_teardown()
 
     mm.risk.record_error.assert_called()
-    mm.risk.kill_switch.assert_called_once()
+    mm.risk.kill_switch.assert_called_once_with(
+        "Disconnect teardown failed: cancel transport exploded",
+        token_id="token",
+    )
     mm.stop.assert_called_once()
 
 
-def test_disconnect_order_cancellation_error_stops_before_kill_switch_raises():
+@pytest.mark.asyncio
+async def test_disconnect_order_cancellation_error_stops_before_kill_switch_raises():
     from src.strategy.market_maker import SmartMarketMaker
 
     mm = SmartMarketMaker(token_id="token")
@@ -184,44 +167,23 @@ def test_disconnect_order_cancellation_error_stops_before_kill_switch_raises():
         side_effect=OrderCancellationError("kill switch teardown failed")
     )
     mm.stop = MagicMock()
-    callback: object = None
-
-    class FeedStub:
-        def register_connection_lost_callback(self, cb):
-            nonlocal callback
-            callback = cb
-
-        async def start(self, token_ids):
-            return None
-
-        async def stop(self):
-            return None
-
-    async def fail_wait():
-        raise RuntimeError("stop after registration")
-
-    with patch("src.strategy.market_maker.MarketFeed", return_value=FeedStub()):
-        with patch.object(mm, "_wait_for_data", side_effect=fail_wait):
-            with pytest.raises(RuntimeError, match="stop after registration"):
-                asyncio.run(mm.run(install_signals=False))
-
-    assert callable(callback)
 
     with patch(
         "src.strategy.market_maker.cancel_all_orders",
         side_effect=OrderCancellationError("residual live orders remain"),
     ):
-        with pytest.raises(
-            OrderCancellationError, match="kill switch teardown failed"
-        ):
-            callback()
+        await mm._handle_disconnect_teardown()
 
     mm.stop.assert_called_once()
     mm.risk.record_error.assert_called()
-    mm.risk.kill_switch.assert_called_once()
+    mm.risk.kill_switch.assert_called_once_with(
+        "Disconnect teardown incomplete: residual live orders remain",
+        token_id="token",
+    )
 
 
-def test_disconnect_generic_error_stops_before_kill_switch_runtime_error():
+@pytest.mark.asyncio
+async def test_disconnect_generic_error_stops_before_kill_switch_runtime_error():
     from src.strategy.market_maker import SmartMarketMaker
 
     mm = SmartMarketMaker(token_id="token")
@@ -230,39 +192,19 @@ def test_disconnect_generic_error_stops_before_kill_switch_runtime_error():
         side_effect=RuntimeError("kill switch runtime failure")
     )
     mm.stop = MagicMock()
-    callback: object = None
-
-    class FeedStub:
-        def register_connection_lost_callback(self, cb):
-            nonlocal callback
-            callback = cb
-
-        async def start(self, token_ids):
-            return None
-
-        async def stop(self):
-            return None
-
-    async def fail_wait():
-        raise RuntimeError("stop after registration")
-
-    with patch("src.strategy.market_maker.MarketFeed", return_value=FeedStub()):
-        with patch.object(mm, "_wait_for_data", side_effect=fail_wait):
-            with pytest.raises(RuntimeError, match="stop after registration"):
-                asyncio.run(mm.run(install_signals=False))
-
-    assert callable(callback)
 
     with patch(
         "src.strategy.market_maker.cancel_all_orders",
         side_effect=RuntimeError("cancel transport exploded"),
     ):
-        with pytest.raises(RuntimeError, match="kill switch runtime failure"):
-            callback()
+        await mm._handle_disconnect_teardown()
 
     mm.stop.assert_called_once()
     mm.risk.record_error.assert_called()
-    mm.risk.kill_switch.assert_called_once()
+    mm.risk.kill_switch.assert_called_once_with(
+        "Disconnect teardown failed: cancel transport exploded",
+        token_id="token",
+    )
 
 
 def test_risk_manager_stops_on_pending_order_exposure():
@@ -400,18 +342,22 @@ def test_run_tui_aborts_when_orphan_cleanup_cannot_verify_state():
     assert mock_run.await_count == 0
 
 
-def test_shutdown_raises_when_verified_cancel_leaves_residual_orders():
+def test_shutdown_records_when_verified_cancel_leaves_residual_orders():
     from src.strategy.market_maker import SmartMarketMaker
 
     mm = SmartMarketMaker(token_id="token")
     mm.feed = MagicMock()
     mm.feed.stop = AsyncMock()
+    mm.risk.record_error = MagicMock()
 
     with patch(
         "src.strategy.market_maker.cancel_all_orders",
         side_effect=OrderCancellationError("residual live orders remain"),
     ):
-        with pytest.raises(OrderCancellationError, match="residual live orders remain"):
-            asyncio.run(mm._shutdown())
+        shutdown_error = asyncio.run(mm._shutdown())
 
     mm.feed.stop.assert_awaited_once()
+    assert isinstance(shutdown_error, OrderCancellationError)
+    mm.risk.record_error.assert_called_once_with(
+        "Shutdown cancellation verification failed: residual live orders remain"
+    )

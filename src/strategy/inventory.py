@@ -208,12 +208,10 @@ class InventoryManager:
         Calculate bid and ask price skews based on inventory.
 
         When long (positive position):
-        - Lower bid (less aggressive buying)
-        - Keep ask unchanged (encourage sells)
+        - Shift both quotes lower (less aggressive buying, more aggressive selling)
 
         When short (negative position):
-        - Keep bid unchanged (encourage buys)
-        - Raise ask (less aggressive selling)
+        - Shift both quotes higher (more aggressive buying, less aggressive selling)
 
         Skew increases linearly with position size.
         """
@@ -224,23 +222,11 @@ class InventoryManager:
         inv_ratio = position / self.position_limit
         inv_ratio = max(Decimal("-1"), min(Decimal("1"), inv_ratio))
 
-        if inv_ratio > 0:
-            # Long position - skew bid down to discourage buying
-            bid_skew = -self.skew_max * inv_ratio
-            ask_skew = Decimal("0")
-        elif inv_ratio < 0:
-            # Short position - skew ask up to discourage selling
-            bid_skew = Decimal("0")
-            ask_skew = -self.skew_max * inv_ratio  # Note: inv_ratio is negative
-        else:
-            bid_skew = Decimal("0")
-            ask_skew = Decimal("0")
-
-        # Round to tick
-        bid_skew = (bid_skew * 100).quantize(Decimal("1")) / 100
-        ask_skew = (ask_skew * 100).quantize(Decimal("1")) / 100
-
-        return bid_skew, ask_skew
+        # Shift the quote centre rather than widening only the inventory-
+        # building side.  Final prices are quantized once, using the venue's
+        # actual tick size, by SmartMarketMaker._calculate_quotes().
+        centre_skew = -self.skew_max * inv_ratio
+        return centre_skew, centre_skew
 
     def _calculate_size_multipliers(self, position: Decimal) -> tuple[float, float]:
         """

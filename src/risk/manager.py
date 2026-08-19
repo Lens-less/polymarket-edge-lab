@@ -398,7 +398,12 @@ class RiskManager:
         self._errors.append((time.time(), error))
         logger.warning(f"Error recorded: {error}")
 
-    def kill_switch(self, reason: str = "Manual"):
+    def kill_switch(
+        self,
+        reason: str = "Manual",
+        *,
+        token_id: Optional[str] = None,
+    ):
         """
         Trigger kill switch - immediate stop.
 
@@ -409,7 +414,14 @@ class RiskManager:
         self._kill_reason = reason
         logger.critical(f"KILL SWITCH: {reason}")
         try:
-            cancel_all_orders(verify=True, raise_on_failure=True)
+            if token_id is None:
+                cancel_all_orders(verify=True, raise_on_failure=True)
+            else:
+                cancel_all_orders(
+                    token_id,
+                    verify=True,
+                    raise_on_failure=True,
+                )
         except Exception as e:
             self.record_error(f"Kill switch cancel verification failed: {e}")
             logger.critical(f"KILL SWITCH teardown incomplete: {e}")
