@@ -167,6 +167,26 @@ def test_cli_writes_deterministic_machine_readable_pack(tmp_path):
     assert output.read_bytes() == first
 
 
+def test_build_pack_ignores_ambient_runtime_trade_logs(monkeypatch) -> None:
+    clean_pack = build_pack(REPO_ROOT)
+    original_glob = Path.glob
+    unrelated_jsonl = (
+        REPO_ROOT
+        / "research/profit_redesign_2026-07-24/singapore_28_observe.jsonl"
+    )
+
+    def polluted_glob(path: Path, pattern: str):
+        if path.resolve() == (REPO_ROOT / "logs").resolve() and pattern == (
+            "trades_*.jsonl"
+        ):
+            return iter((unrelated_jsonl,))
+        return original_glob(path, pattern)
+
+    monkeypatch.setattr(Path, "glob", polluted_glob)
+
+    assert build_pack(REPO_ROOT) == clean_pack
+
+
 def test_builder_rejects_a_repo_root_that_does_not_own_the_loaded_methods(
     tmp_path,
 ):

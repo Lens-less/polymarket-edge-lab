@@ -6,6 +6,7 @@ SmartMarketMaker: Dynamic spread, inventory skewing, volatility-aware
 
 import asyncio
 import signal
+import time
 import traceback
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal, ROUND_DOWN, ROUND_UP
@@ -16,6 +17,10 @@ from dataclasses import dataclass
 STALE_ORDER_THRESHOLD_SECONDS = 300  # 5 minutes
 BALANCE_CHECK_INTERVAL = 60  # seconds
 BALANCE_DROP_ALERT_PCT = Decimal("0.20")  # Alert if drops 20%
+ORDER_TEARDOWN_TIMEOUT_SECONDS = 10.0
+LIVE_ACCOUNT_CACHE_SECONDS = 1.0
+LIVE_TRADE_POLL_SECONDS = 1.0
+LIVE_TRADE_OVERLAP_SECONDS = 60
 
 from src.config import (
     DRY_RUN,
@@ -37,6 +42,7 @@ from src.config import (
     MARKET_MAX_PRICE,
 )
 from src.models import Order, OrderSide, OrderStatus, Trade
+from src.auth import PolymarketAdapterError
 from src.trading import (
     place_order,
     cancel_order,
@@ -54,7 +60,7 @@ from src.simulator import get_simulator
 from src.utils import setup_logging
 from src.strategy.volatility import VolatilityTracker
 from src.strategy.book_analyzer import BookAnalyzer
-from src.strategy.inventory import InventoryManager
+from src.strategy.inventory import InventoryManager, InventoryState
 from src.strategy.parity import check_parity, ParityStatus
 from src.strategy.timing import AdaptiveTimer
 from src.risk.market_pnl import MarketPnLTracker
@@ -70,6 +76,7 @@ from src.config import (
     ARB_MIN_PROFIT_BPS,
     FLOW_WINDOW_SECONDS,
 )
+from src.edge_lab.compatibility import LiveExecutionBlocked
 
 logger = setup_logging()
 
@@ -100,6 +107,17 @@ class SmartMMState:
     # P&L
     unrealized_pnl: Decimal
     vwap_entry: Optional[Decimal]
+
+
+@dataclass(frozen=True)
+class LiveAccountSnapshot:
+    """One internally consistent, short-lived view of live account state."""
+
+    captured_at: float
+    balance: Decimal
+    allowance: Decimal
+    sellable: Decimal
+    open_orders: tuple[Order, ...]
 
 
 class SmartMarketMaker:
@@ -213,6 +231,12 @@ class SmartMarketMaker:
         self._last_state: Optional[SmartMMState] = None
         self._seen_trade_ids: set[str] = set()
         self._disconnect_teardown_task: Optional[asyncio.Task[None]] = None
+        self._shutdown_cancel_task: Optional[asyncio.Task[int]] = None
+        self._live_account_snapshot: Optional[LiveAccountSnapshot] = None
+        self._latest_inventory_state: Optional[InventoryState] = None
+        self._last_live_trade_poll: float = 0.0
+        self._trade_sync_watermark: Optional[int] = None
+        self._seen_trade_timestamps: dict[str, int] = {}
 
     async def run(self, install_signals: bool = True):
         """Main loop. Runs until stopped."""
@@ -225,6 +249,7 @@ class SmartMarketMaker:
             for sig in (signal.SIGINT, signal.SIGTERM):
                 loop.add_signal_handler(sig, self._handle_signal)
 
+        primary_error: BaseException | None = None
         try:
             self.feed = MarketFeed()
             # Subscribe to both tokens if we have a complement (for arbitrage)
@@ -270,6 +295,11 @@ class SmartMarketMaker:
             while self._running and not self._shutdown_event.is_set():
                 try:
                     await self._loop_iteration()
+                except LiveExecutionBlocked as error:
+                    self.risk.record_error(f"Live execution blocked: {error}")
+                    logger.critical("[SAFETY] Live execution blocked: %s", error)
+                    self.stop()
+                    break
                 except Exception as e:
                     self.risk.record_error(f"Loop error: {e}")
                     logger.error(f"Loop error: {e}")
@@ -285,8 +315,13 @@ class SmartMarketMaker:
                 except asyncio.TimeoutError:
                     pass
 
+        except BaseException as error:
+            primary_error = error
+            raise
         finally:
-            await self._shutdown()
+            shutdown_error = await self._shutdown()
+            if primary_error is None and shutdown_error is not None:
+                raise shutdown_error
 
     def stop(self):
         """Signal the market maker to stop."""
@@ -297,6 +332,7 @@ class SmartMarketMaker:
     async def _handle_disconnect_teardown(self) -> None:
         """Cancel and reconcile orders without blocking the feed event loop."""
         logger.warning("[SAFETY] WebSocket disconnected - canceling all orders")
+        self._invalidate_live_account_snapshot()
         try:
             cancelled = await asyncio.to_thread(
                 cancel_all_orders,
@@ -354,6 +390,45 @@ class SmartMarketMaker:
     def _handle_signal(self):
         """Handle shutdown signals."""
         self.stop()
+
+    def _get_live_account_snapshot(
+        self,
+        *,
+        force_refresh: bool = False,
+    ) -> LiveAccountSnapshot:
+        """Fetch or reuse one short-lived balance/order view for a loop."""
+        now = time.monotonic()
+        cached = self._live_account_snapshot
+        if (
+            not force_refresh
+            and cached is not None
+            and now - cached.captured_at < LIVE_ACCOUNT_CACHE_SECONDS
+        ):
+            return cached
+
+        from src.auth import get_conditional_balance
+
+        # Read open orders before the balance.  A fill racing this pair can
+        # then make projected exposure conservative (old open order plus new
+        # balance) rather than hiding a just-filled position.
+        open_orders = tuple(get_open_orders(self.token_id, raise_on_error=True))
+        conditional = get_conditional_balance(
+            self.token_id,
+            raise_on_error=True,
+        )
+        snapshot = LiveAccountSnapshot(
+            captured_at=time.monotonic(),
+            balance=Decimal(str(conditional["balance"])),
+            allowance=Decimal(str(conditional["allowance"])),
+            sellable=Decimal(str(conditional["sellable"])),
+            open_orders=open_orders,
+        )
+        self._live_account_snapshot = snapshot
+        return snapshot
+
+    def _invalidate_live_account_snapshot(self) -> None:
+        """Force the next live read after a local order-state mutation."""
+        self._live_account_snapshot = None
 
     async def _wait_for_data(self, timeout: float = 30.0):
         """Wait for feed to have data, bootstrapping via REST if needed."""
@@ -472,9 +547,17 @@ class SmartMarketMaker:
             )
             self._last_heartbeat = now
 
+        live_snapshot: LiveAccountSnapshot | None = None
         if not DRY_RUN:
             try:
-                self._sync_live_state()
+                live_snapshot = self._get_live_account_snapshot()
+                self._sync_live_state(live_snapshot)
+            except PolymarketAdapterError as error:
+                self.risk.record_error(f"Live trade adapter contract failed: {error}")
+                logger.critical("[SAFETY] Live trade adapter contract failed: %s", error)
+                self.stop()
+                await self._cancel_all_quotes()
+                return
             except Exception as e:
                 self.risk.record_error(f"Live sync failed: {e}")
                 logger.error(f"Live sync failed: {e}")
@@ -482,7 +565,14 @@ class SmartMarketMaker:
                 return
 
         # Risk check
-        check = self.risk.check([self.token_id])
+        if live_snapshot is None:
+            check = self.risk.check([self.token_id])
+        else:
+            check = self.risk.check(
+                [self.token_id],
+                position_snapshots={self.token_id: live_snapshot.balance},
+                open_order_snapshots={self.token_id: live_snapshot.open_orders},
+            )
         if check.status == RiskStatus.STOP:
             logger.error(f"Risk stop: {check.reason}")
             await self._cancel_all_quotes()
@@ -584,7 +674,13 @@ class SmartMarketMaker:
                         self._record_trade_fill(trade, fill_type="maker")
 
         # Calculate dynamic spread and quotes
-        result = self._calculate_quotes(mid, order_book)
+        result = self._calculate_quotes(
+            mid,
+            order_book,
+            wallet_position=(
+                live_snapshot.balance if live_snapshot is not None else None
+            ),
+        )
         if result is None:
             # Event signal says not to trade - cancel quotes
             await self._cancel_all_quotes()
@@ -597,13 +693,21 @@ class SmartMarketMaker:
 
         # Check if requote needed
         if self._should_requote(mid):
-            await self._update_quotes(mid, bid_price, ask_price)
-            self.last_mid = mid
+            if await self._update_quotes(
+                mid,
+                bid_price,
+                ask_price,
+                live_snapshot=live_snapshot,
+                inventory_state=self._latest_inventory_state,
+            ):
+                self.last_mid = mid
 
     def _calculate_quotes(
         self,
         mid: Decimal,
         order_book,
+        *,
+        wallet_position: Decimal | None = None,
     ) -> Optional[tuple[Decimal, Decimal, SmartMMState]]:
         """Calculate optimal bid/ask prices using all signals. Returns None if should not quote."""
         # Check event signal first - may prohibit trading
@@ -617,7 +721,11 @@ class SmartMarketMaker:
         vol_state = self.volatility.get_state()
 
         # 2. Inventory state and skews
-        inv_state = self.inventory.get_state(mid)
+        inv_state = self.inventory.get_state(
+            mid,
+            wallet_position=wallet_position,
+        )
+        self._latest_inventory_state = inv_state
 
         # Inventory multiplier: widen spread when inventory is high
         inv_mult = 1.0 + abs(inv_state.position_pct) / 200  # +50% at max inventory
@@ -715,7 +823,15 @@ class SmartMarketMaker:
 
         return False
 
-    async def _update_quotes(self, mid: Decimal, bid_price: Decimal, ask_price: Decimal):
+    async def _update_quotes(
+        self,
+        mid: Decimal,
+        bid_price: Decimal,
+        ask_price: Decimal,
+        *,
+        live_snapshot: LiveAccountSnapshot | None = None,
+        inventory_state: InventoryState | None = None,
+    ) -> bool:
         """Reconcile each quote independently, preserving unchanged queue priority."""
         logger.info(f"Mid: {mid:.2f} -> Bid: {bid_price:.2f}, Ask: {ask_price:.2f}")
 
@@ -726,8 +842,15 @@ class SmartMarketMaker:
                 f"inv={self._last_state.inv_multiplier:.2f}x)"
             )
 
-        # Get size multipliers from inventory
-        bid_size_mult, ask_size_mult = self.inventory.get_size_multipliers()
+        if inventory_state is None:
+            inventory_state = self.inventory.get_state(
+                wallet_position=(
+                    live_snapshot.balance if live_snapshot is not None else None
+                )
+            )
+
+        bid_size_mult = inventory_state.bid_size_mult
+        ask_size_mult = inventory_state.ask_size_mult
 
         bid_size = self.size * Decimal(str(bid_size_mult))
         ask_size = self.size * Decimal(str(ask_size_mult))
@@ -742,13 +865,17 @@ class SmartMarketMaker:
         ask_size = max(MIN_ORDER_SIZE, ask_size)
 
         if not DRY_RUN:
-            from src.auth import get_conditional_balance
+            if live_snapshot is None:
+                from src.auth import get_conditional_balance
 
-            conditional = get_conditional_balance(
-                self.token_id,
-                raise_on_error=True,
-            )
-            ask_size = min(ask_size, conditional["sellable"])
+                conditional = get_conditional_balance(
+                    self.token_id,
+                    raise_on_error=True,
+                )
+                sellable = Decimal(str(conditional["sellable"]))
+            else:
+                sellable = live_snapshot.sellable
+            ask_size = min(ask_size, sellable)
 
         # Log quote update
         self.trade_logger.log_quote(
@@ -762,7 +889,7 @@ class SmartMarketMaker:
         )
 
         # Place quotes (respecting inventory limits via size reduction, not hard stops)
-        inv_state = self.inventory.get_state()
+        inv_state = inventory_state
         self._quote_bid_enabled = inv_state.inventory_level != "MAX_LONG"
         has_sellable_ask = ask_size >= MIN_ORDER_SIZE
         self._quote_ask_enabled = (
@@ -789,7 +916,7 @@ class SmartMarketMaker:
             else:
                 logger.info("Skipping ask: no sellable outcome token balance/allowance")
 
-        self._reconcile_quote(
+        bid_ok = self._reconcile_quote(
             attr_name="bid_order",
             label="bid",
             enabled=self._quote_bid_enabled,
@@ -797,7 +924,7 @@ class SmartMarketMaker:
             price=bid_price,
             size=bid_size,
         )
-        self._reconcile_quote(
+        ask_ok = self._reconcile_quote(
             attr_name="ask_order",
             label="ask",
             enabled=self._quote_ask_enabled,
@@ -805,6 +932,7 @@ class SmartMarketMaker:
             price=ask_price,
             size=ask_size,
         )
+        return bid_ok and ask_ok
 
     def _reconcile_quote(
         self,
@@ -863,6 +991,7 @@ class SmartMarketMaker:
                 self.risk.record_error(f"Failed to cancel {label} order {order.id}")
                 return False
             setattr(self, attr_name, None)
+            self._invalidate_live_account_snapshot()
 
         if enabled:
             replacement = self._place_quote(side, price, size)
@@ -880,6 +1009,7 @@ class SmartMarketMaker:
                 size=size
             )
             logger.info(f"Placed {side.value} {size} @ {price}: {order.id}")
+            self._invalidate_live_account_snapshot()
             return order
         except OrderError as e:
             self.risk.record_error(f"Failed to place {side.value}: {e}")
@@ -892,6 +1022,8 @@ class SmartMarketMaker:
 
     def _cancel_all_quotes_sync(self) -> bool:
         """Cancel tracked quotes and preserve local state if cancel fails."""
+        if self.bid_order is not None or self.ask_order is not None:
+            self._invalidate_live_account_snapshot()
         live_orders: list[tuple[str, str, Order]] = []
 
         for attr_name, label in (("bid_order", "bid"), ("ask_order", "ask")):
@@ -1008,19 +1140,81 @@ class SmartMarketMaker:
         except Exception as e:
             logger.warning(f"Balance check failed: {e}")
 
-    def _prime_live_trade_state(self):
-        """Ignore pre-existing trades so only new session fills are processed."""
-        recent_trades = get_trades(self.token_id, limit=None, raise_on_error=True)
-        self._seen_trade_ids = {trade.id for trade in recent_trades if trade.id}
+    @staticmethod
+    def _trade_timestamp_seconds(trade: Trade) -> int | None:
+        """Normalize a trade's matched timestamp to Unix seconds."""
+        if not trade.timestamp:
+            return None
+        try:
+            parsed = datetime.fromisoformat(str(trade.timestamp).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return int(parsed.timestamp())
 
-    def _sync_live_state(self):
+    def _remember_trade(self, trade: Trade, *, fallback_timestamp: int) -> None:
+        if not trade.id:
+            return
+        self._seen_trade_ids.add(trade.id)
+        self._seen_trade_timestamps[trade.id] = (
+            self._trade_timestamp_seconds(trade) or fallback_timestamp
+        )
+
+    def _prune_seen_trades(self, *, oldest_retained_timestamp: int) -> None:
+        expired_ids = {
+            trade_id
+            for trade_id, timestamp in self._seen_trade_timestamps.items()
+            if timestamp < oldest_retained_timestamp
+        }
+        for trade_id in expired_ids:
+            self._seen_trade_timestamps.pop(trade_id, None)
+            self._seen_trade_ids.discard(trade_id)
+
+    def _prime_live_trade_state(self):
+        """Prime only a bounded overlap window so old history is never replayed."""
+        watermark = int(time.time())
+        after = max(0, watermark - LIVE_TRADE_OVERLAP_SECONDS)
+        recent_trades = get_trades(
+            self.token_id,
+            limit=None,
+            raise_on_error=True,
+            after=str(after),
+        )
+        self._seen_trade_ids.clear()
+        self._seen_trade_timestamps.clear()
+        for trade in recent_trades:
+            self._remember_trade(trade, fallback_timestamp=watermark)
+        self._trade_sync_watermark = watermark
+        self._last_live_trade_poll = time.monotonic()
+
+    def _sync_live_state(
+        self,
+        snapshot: LiveAccountSnapshot | None = None,
+    ) -> None:
         """Sync live trades and open orders into local state."""
         self._sync_live_trades()
-        self._sync_live_orders()
+        self._sync_live_orders(
+            snapshot.open_orders if snapshot is not None else None
+        )
 
     def _sync_live_trades(self):
         """Process newly observed live trades."""
-        recent_trades = get_trades(self.token_id, limit=None, raise_on_error=True)
+        now = time.monotonic()
+        if now - self._last_live_trade_poll < LIVE_TRADE_POLL_SECONDS:
+            return
+        wall_time = int(time.time())
+        watermark = self._trade_sync_watermark
+        if watermark is None:
+            watermark = wall_time
+        after = max(0, watermark - LIVE_TRADE_OVERLAP_SECONDS)
+        recent_trades = get_trades(
+            self.token_id,
+            limit=None,
+            raise_on_error=True,
+            after=str(after),
+        )
+        self._last_live_trade_poll = now
         new_trades = [
             trade for trade in recent_trades
             if trade.id and trade.id not in self._seen_trade_ids
@@ -1028,11 +1222,34 @@ class SmartMarketMaker:
 
         for trade in new_trades:
             self._record_trade_fill(trade, fill_type="live")
-            self._seen_trade_ids.add(trade.id)
+        for trade in recent_trades:
+            self._remember_trade(trade, fallback_timestamp=wall_time)
 
-    def _sync_live_orders(self):
+        trade_timestamps = [
+            timestamp
+            for trade in recent_trades
+            if (timestamp := self._trade_timestamp_seconds(trade)) is not None
+        ]
+        self._trade_sync_watermark = max(
+            watermark,
+            wall_time,
+            max(trade_timestamps, default=watermark),
+        )
+        self._prune_seen_trades(
+            oldest_retained_timestamp=(
+                self._trade_sync_watermark - LIVE_TRADE_OVERLAP_SECONDS
+            )
+        )
+
+    def _sync_live_orders(
+        self,
+        open_orders: tuple[Order, ...] | None = None,
+    ) -> None:
         """Reconcile tracked quote references with exchange open orders."""
-        open_orders = get_open_orders(self.token_id, raise_on_error=True)
+        if open_orders is None:
+            open_orders = tuple(
+                get_open_orders(self.token_id, raise_on_error=True)
+            )
         open_by_id = {order.id: order for order in open_orders}
 
         for attr_name, label in (("bid_order", "bid"), ("ask_order", "ask")):
@@ -1112,9 +1329,11 @@ class SmartMarketMaker:
                 setattr(self, attr_name, None)
             break
 
-    async def _shutdown(self):
-        """Clean shutdown."""
+    async def _shutdown(self) -> Exception | None:
+        """Clean shutdown and return teardown errors without masking callers."""
         logger.info("Shutting down smart market maker...")
+        shutdown_error: Exception | None = None
+        cancellation_still_running = False
         disconnect_task = self._disconnect_teardown_task
         if (
             disconnect_task is not None
@@ -1122,7 +1341,20 @@ class SmartMarketMaker:
             and not disconnect_task.done()
         ):
             logger.info("Waiting for disconnect teardown to finish...")
-            await asyncio.shield(disconnect_task)
+            try:
+                await asyncio.wait_for(
+                    asyncio.shield(disconnect_task),
+                    timeout=ORDER_TEARDOWN_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                cancellation_still_running = True
+                shutdown_error = OrderCancellationError(
+                    "Disconnect teardown exceeded "
+                    f"{ORDER_TEARDOWN_TIMEOUT_SECONDS:g}s; live order cancellation "
+                    "is still running in the background"
+                )
+                self.risk.record_error(str(shutdown_error))
+                logger.critical("[SAFETY] %s", shutdown_error)
 
         summary = self.risk.get_risk_event_summary()
         if summary["total_events"] > 0:
@@ -1139,22 +1371,49 @@ class SmartMarketMaker:
             logger.info(f"  Inventory: {self._last_state.inventory_level} ({self._last_state.inventory_pct:.1f}%)")
             logger.info(f"  Unrealized P&L: {self._last_state.unrealized_pnl}")
 
-        logger.info("Cancelling all orders...")
-        try:
-            cancel_all_orders(
-                self.token_id,
-                verify=True,
-                raise_on_failure=True,
-            )
-        except Exception as e:
-            self.risk.record_error(f"Shutdown cancellation verification failed: {e}")
-            logger.critical("[SAFETY] %s", e)
+        if not cancellation_still_running:
+            logger.info("Cancelling all orders...")
+            try:
+                self._shutdown_cancel_task = asyncio.create_task(
+                    asyncio.to_thread(
+                        cancel_all_orders,
+                        self.token_id,
+                        verify=True,
+                        raise_on_failure=True,
+                    )
+                )
+                await asyncio.wait_for(
+                    asyncio.shield(self._shutdown_cancel_task),
+                    timeout=ORDER_TEARDOWN_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                error = OrderCancellationError(
+                    "Shutdown cancellation exceeded "
+                    f"{ORDER_TEARDOWN_TIMEOUT_SECONDS:g}s and is still running "
+                    "in the background"
+                )
+                if shutdown_error is None:
+                    shutdown_error = error
+                self.risk.record_error(str(error))
+                logger.critical("[SAFETY] %s", error)
+            except Exception as e:
+                if shutdown_error is None:
+                    shutdown_error = e
+                self.risk.record_error(f"Shutdown cancellation verification failed: {e}")
+                logger.critical("[SAFETY] %s", e)
 
         if self.feed:
             logger.info("Stopping feed...")
-            await self.feed.stop()
+            try:
+                await self.feed.stop()
+            except Exception as error:
+                if shutdown_error is None:
+                    shutdown_error = error
+                self.risk.record_error(f"Feed shutdown failed: {error}")
+                logger.critical("[SAFETY] Feed shutdown failed: %s", error)
 
         logger.info("Smart market maker stopped.")
+        return shutdown_error
 
 
 async def run_smart_market_maker(token_id: str, **kwargs):

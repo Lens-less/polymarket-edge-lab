@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import time
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,6 +51,37 @@ class QueueWebSocketFactory:
 class IdleSnapshotClient:
     async def fetch_snapshot(self, kind: str, *, asset_ids: Sequence[str] = ()) -> Any:
         return {"kind": kind, "asset_ids": list(asset_ids)}
+
+
+class StatusDrivenClock:
+    """Release the bounded run only after the expected observations persist."""
+
+    def __init__(self, *, status_path: Path, controlled_delay: float) -> None:
+        self.status_path = status_path
+        self.controlled_delay = controlled_delay
+
+    def utcnow(self) -> datetime:
+        return datetime.now(timezone.utc)
+
+    def monotonic_ns(self) -> int:
+        return time.monotonic_ns()
+
+    async def sleep(self, delay: float) -> None:
+        if delay != self.controlled_delay:
+            await asyncio.sleep(delay)
+            return
+
+        deadline = asyncio.get_running_loop().time() + 2.0
+        while asyncio.get_running_loop().time() < deadline:
+            if self.status_path.is_file():
+                status = _read_json(self.status_path)
+                if (
+                    status.get("connection_epoch") == 2
+                    and status.get("data_record_count") == 2
+                ):
+                    return
+            await asyncio.sleep(0.005)
+        raise TimeoutError("second RTDS observation was not persisted")
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -166,9 +199,10 @@ async def test_run_continuous_capture_persists_status_and_integrity_summary(
         reconnect_initial_seconds=0.0,
         reconnect_max_seconds=0.01,
     )
+    controlled_duration = 0.1
     summary = await continuous_rtds.run_continuous_capture(
         config,
-        run_for_seconds=0.1,
+        run_for_seconds=controlled_duration,
         websocket_factory=QueueWebSocketFactory(
             {
                 continuous_rtds.build_btc_twap_recorder_config().rtds_url: [
@@ -178,6 +212,10 @@ async def test_run_continuous_capture_persists_status_and_integrity_summary(
             }
         ),
         snapshot_client=IdleSnapshotClient(),
+        clock=StatusDrivenClock(
+            status_path=tmp_path / "service" / "status.json",
+            controlled_delay=controlled_duration,
+        ),
     )
 
     assert summary["schema_version"] == continuous_rtds.SUMMARY_SCHEMA_VERSION

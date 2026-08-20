@@ -14,6 +14,7 @@ In enforcement mode (RISK_ENFORCE=true):
 """
 
 import time
+from collections.abc import Mapping, Sequence
 from enum import Enum
 from decimal import Decimal
 from typing import Dict, List, Optional
@@ -37,7 +38,7 @@ from src.config import (
     CORRELATION_THRESHOLD,
     MAX_CORRELATED_EXPOSURE,
 )
-from src.models import OrderSide
+from src.models import Order, OrderSide
 from src.orders import get_open_orders, get_position
 from src.trading import cancel_all_orders
 from src.utils import setup_logging
@@ -170,7 +171,13 @@ class RiskManager:
 
         logger.info(f"RiskManager initialized: enforce={enforce}")
 
-    def check(self, token_ids: Optional[List[str]] = None) -> RiskCheck:
+    def check(
+        self,
+        token_ids: Optional[List[str]] = None,
+        *,
+        position_snapshots: Mapping[str, Decimal] | None = None,
+        open_order_snapshots: Mapping[str, Sequence[Order]] | None = None,
+    ) -> RiskCheck:
         """
         Run all risk checks.
 
@@ -189,7 +196,11 @@ class RiskManager:
             return RiskCheck(RiskStatus.STOP, f"Kill switch: {self._kill_reason}")
 
         # Run all checks
-        check = self._run_checks(token_ids)
+        check = self._run_checks(
+            token_ids,
+            position_snapshots=position_snapshots,
+            open_order_snapshots=open_order_snapshots,
+        )
 
         # If not enforcing and check failed, log but return OK
         if check.status != RiskStatus.OK and not self.enforce:
@@ -206,7 +217,13 @@ class RiskManager:
 
         return check
 
-    def _run_checks(self, token_ids: Optional[List[str]] = None) -> RiskCheck:
+    def _run_checks(
+        self,
+        token_ids: Optional[List[str]] = None,
+        *,
+        position_snapshots: Mapping[str, Decimal] | None = None,
+        open_order_snapshots: Mapping[str, Sequence[Order]] | None = None,
+    ) -> RiskCheck:
         """Run all risk checks and return the result."""
         # Check cooldown
         if time.time() < self._cooldown_until:
@@ -226,7 +243,11 @@ class RiskManager:
         # Check positions
         pos_check = RiskCheck(RiskStatus.OK)
         if token_ids:
-            pos_check = self._check_positions(token_ids)
+            pos_check = self._check_positions(
+                token_ids,
+                position_snapshots=position_snapshots,
+                open_order_snapshots=open_order_snapshots,
+            )
             if pos_check.status == RiskStatus.STOP:
                 return pos_check
 
@@ -291,15 +312,30 @@ class RiskManager:
 
         return RiskCheck(RiskStatus.OK)
 
-    def _check_positions(self, token_ids: List[str]) -> RiskCheck:
+    def _check_positions(
+        self,
+        token_ids: List[str],
+        *,
+        position_snapshots: Mapping[str, Decimal] | None = None,
+        open_order_snapshots: Mapping[str, Sequence[Order]] | None = None,
+    ) -> RiskCheck:
         """Check projected position limits, including outstanding live orders."""
         total_exposure = Decimal("0")
         dynamic_limit = self.get_dynamic_limit()
         effective_limit = min(self._vol_adjusted_position, dynamic_limit)
 
         for token_id in token_ids:
-            position = get_position(token_id)
-            open_orders = get_open_orders(token_id, raise_on_error=True)
+            position = (
+                position_snapshots[token_id]
+                if position_snapshots is not None and token_id in position_snapshots
+                else get_position(token_id)
+            )
+            open_orders = (
+                open_order_snapshots[token_id]
+                if open_order_snapshots is not None
+                and token_id in open_order_snapshots
+                else get_open_orders(token_id, raise_on_error=True)
+            )
             pending_buy = sum(
                 order.remaining
                 for order in open_orders

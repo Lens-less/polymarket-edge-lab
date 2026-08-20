@@ -3,7 +3,7 @@ Order queries - unified interface for real and simulated orders.
 """
 
 from typing import List, Optional
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from src.auth import (
     PolymarketAdapterError,
@@ -26,12 +26,31 @@ _POSITION_BEARING_TRADE_STATUSES = frozenset(
         "CONFIRMED",
     }
 )
+_BASIS_POINTS = Decimal("10000")
+_FEE_QUANTUM = Decimal("0.00001")
 
 
 def _timestamp_text(value: object) -> str:
     if hasattr(value, "isoformat"):
         return str(value.isoformat())
     return str(value)
+
+
+def _taker_fee(item: object, *, price: Decimal, size: Decimal) -> Decimal:
+    """Calculate the matched taker fee in USDC from the reported fee rate."""
+    fee_rate = Decimal(str(require_sdk_field(item, "fee_rate_bps"))) / _BASIS_POINTS
+    fee = size * fee_rate * price * (Decimal("1") - price)
+    if fee <= 0:
+        return Decimal("0")
+    return fee.quantize(_FEE_QUANTUM, rounding=ROUND_HALF_UP)
+
+
+def _diagnostic_fields(subject: object, field_names: tuple[str, ...]) -> dict[str, str]:
+    """Return a bounded, credential-free snapshot of SDK adapter fields."""
+    return {
+        field_name: str(getattr(subject, field_name, "<missing>"))
+        for field_name in field_names
+    }
 
 
 def _owned_maker_orders(item: object) -> list[object]:
@@ -57,6 +76,43 @@ def _owned_maker_orders(item: object) -> list[object]:
         # Some historical responses omit or rewrite the account identifiers,
         # but a single maker leg is still unambiguous.
         return maker_orders
+    diagnostics = {
+        "trade": _diagnostic_fields(
+            item,
+            (
+                "id",
+                "trader_side",
+                "maker_address",
+                "owner",
+                "token_id",
+                "side",
+                "price",
+                "size",
+                "status",
+                "fee_rate_bps",
+            ),
+        ),
+        "maker_orders": [
+            _diagnostic_fields(
+                maker_order,
+                (
+                    "order_id",
+                    "token_id",
+                    "maker_address",
+                    "owner",
+                    "side",
+                    "price",
+                    "matched_amount",
+                    "fee_rate_bps",
+                ),
+            )
+            for maker_order in maker_orders
+        ],
+    }
+    logger.error(
+        "Unable to map account-owned maker legs; adapter payload=%s",
+        diagnostics,
+    )
     raise PolymarketAdapterError(
         "Unable to identify the authenticated account's maker order(s) "
         f"for trade {require_sdk_field(item, 'id')}"
@@ -73,6 +129,8 @@ def _normalize_account_trade(item: object) -> list[Trade]:
     timestamp = _timestamp_text(require_sdk_field(item, "matched_at"))
 
     if trader_side == "TAKER":
+        price = Decimal(str(require_sdk_field(item, "price")))
+        size = Decimal(str(require_sdk_field(item, "size")))
         return [
             Trade(
                 id=trade_id,
@@ -84,10 +142,11 @@ def _normalize_account_trade(item: object) -> list[Trade]:
                         field_name="side",
                     ).upper()
                 ),
-                price=Decimal(str(require_sdk_field(item, "price"))),
-                size=Decimal(str(require_sdk_field(item, "size"))),
+                price=price,
+                size=size,
                 is_simulated=False,
                 timestamp=timestamp,
+                fee=_taker_fee(item, price=price, size=size),
             )
         ]
 
@@ -177,6 +236,8 @@ def get_trades(
     token_id: Optional[str] = None,
     limit: Optional[int] = 50,
     raise_on_error: bool = False,
+    *,
+    after: Optional[str] = None,
 ) -> List[Trade]:
     """Get recent trades."""
     if DRY_RUN:
@@ -191,7 +252,10 @@ def get_trades(
     from src.client import get_auth_client
 
     try:
-        response = get_auth_client().list_account_trades(token_id=token_id)
+        filters: dict[str, str | None] = {"token_id": token_id}
+        if after is not None:
+            filters["after"] = after
+        response = get_auth_client().list_account_trades(**filters)
         trades = []
 
         for item in require_sdk_iter_items(response):

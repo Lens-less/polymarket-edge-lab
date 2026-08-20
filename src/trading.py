@@ -459,9 +459,13 @@ def cancel_all_orders(
             f"{order_id}={failure_reasons.get(order_id, 'still-open-after-verify')}"
             for order_id in sorted(remaining_ids)
         )
+        preflight_count = (
+            str(len(target_ids)) if target_ids is not None else "unknown"
+        )
         message = (
-            f"Unable to verify live order cancellation for {len(remaining_ids)}/"
-            f"{len(target_ids)} order(s): {failure_summary}"
+            f"Unable to verify live order cancellation; {len(remaining_ids)} "
+            f"order(s) remain open (preflight count: {preflight_count}): "
+            f"{failure_summary}"
         )
         logger.error(message)
         if verify or raise_on_failure:

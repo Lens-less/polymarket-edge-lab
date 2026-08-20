@@ -23,7 +23,8 @@ DEFAULT_SIZE_REDUCTION_START = Decimal("0.5")  # Start reducing at 50% of limit
 @dataclass
 class InventoryState:
     """Current inventory state for display and calculations."""
-    position: Decimal              # Current position (positive = long)
+    position: Decimal              # Authoritative wallet balance/exposure
+    strategy_position: Decimal     # Net position attributable to this session
     position_limit: Decimal        # Max allowed position
     position_pct: float            # Position as % of limit (-100 to +100)
 
@@ -104,8 +105,14 @@ class InventoryManager:
         self._total_bought_value = Decimal("0")
         self._total_sold = Decimal("0")
         self._total_sold_value = Decimal("0")
+        self._strategy_position = Decimal("0")
 
-    def get_state(self, mid_price: Optional[Decimal] = None) -> InventoryState:
+    def get_state(
+        self,
+        mid_price: Optional[Decimal] = None,
+        *,
+        wallet_position: Optional[Decimal] = None,
+    ) -> InventoryState:
         """
         Get current inventory state with all adjustments calculated.
 
@@ -115,7 +122,11 @@ class InventoryManager:
         Returns:
             InventoryState with skews, size multipliers, P&L
         """
-        position = get_position(self.token_id)
+        position = (
+            get_position(self.token_id)
+            if wallet_position is None
+            else wallet_position
+        )
         position = Decimal(str(position))
 
         # Calculate position percentage (-100% to +100%)
@@ -136,16 +147,21 @@ class InventoryManager:
         # Calculate P&L
         vwap_entry = self._calculate_vwap()
         unrealized_pnl = Decimal("0")
-        if vwap_entry is not None and mid_price is not None and position != 0:
+        if (
+            vwap_entry is not None
+            and mid_price is not None
+            and self._strategy_position != 0
+        ):
             # Long position: profit if price > entry
             # Short position: profit if price < entry
-            unrealized_pnl = position * (mid_price - vwap_entry)
+            unrealized_pnl = self._strategy_position * (mid_price - vwap_entry)
 
         # Classify inventory level
         level = self._classify_level(position_pct)
 
         return InventoryState(
             position=position,
+            strategy_position=self._strategy_position,
             position_limit=self.position_limit,
             position_pct=position_pct,
             bid_skew=bid_skew,
@@ -158,14 +174,34 @@ class InventoryManager:
             inventory_level=level,
         )
 
-    def get_skews(self) -> tuple[Decimal, Decimal]:
+    def get_skews(
+        self,
+        *,
+        wallet_position: Optional[Decimal] = None,
+    ) -> tuple[Decimal, Decimal]:
         """Quick method to get just bid/ask skews."""
-        position = Decimal(str(get_position(self.token_id)))
+        position = Decimal(
+            str(
+                get_position(self.token_id)
+                if wallet_position is None
+                else wallet_position
+            )
+        )
         return self._calculate_skews(position)
 
-    def get_size_multipliers(self) -> tuple[float, float]:
+    def get_size_multipliers(
+        self,
+        *,
+        wallet_position: Optional[Decimal] = None,
+    ) -> tuple[float, float]:
         """Quick method to get just size multipliers."""
-        position = Decimal(str(get_position(self.token_id)))
+        position = Decimal(
+            str(
+                get_position(self.token_id)
+                if wallet_position is None
+                else wallet_position
+            )
+        )
         return self._calculate_size_multipliers(position)
 
     def record_fill(self, price: Decimal, size: Decimal, side: str):
@@ -180,9 +216,11 @@ class InventoryManager:
         self._trades.append(TradeRecord(price=price, size=size, side=side))
 
         if side == "BUY":
+            self._strategy_position += size
             self._total_bought += size
             self._total_bought_value += price * size
         else:
+            self._strategy_position -= size
             self._total_sold += size
             self._total_sold_value += price * size
 
@@ -202,6 +240,7 @@ class InventoryManager:
         self._total_bought_value = Decimal("0")
         self._total_sold = Decimal("0")
         self._total_sold_value = Decimal("0")
+        self._strategy_position = Decimal("0")
 
     def _calculate_skews(self, position: Decimal) -> tuple[Decimal, Decimal]:
         """
@@ -269,8 +308,8 @@ class InventoryManager:
             return 1.0, 1.0
 
     def _calculate_vwap(self) -> Optional[Decimal]:
-        """Calculate volume-weighted average entry price."""
-        position = Decimal(str(get_position(self.token_id)))
+        """Calculate session-attributable volume-weighted average entry price."""
+        position = self._strategy_position
 
         if position == 0:
             return None

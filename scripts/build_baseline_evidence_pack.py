@@ -1522,8 +1522,12 @@ def _frozen_evidence_set(repo_root: Path, evidence_id: str) -> dict[str, Any]:
     return result
 
 
-def build_pack(repo_root: Path | str) -> dict[str, Any]:
-    """Return a deterministic evidence pack for the repository at ``repo_root``."""
+def build_pack(
+    repo_root: Path | str,
+    *,
+    trade_log_paths: Sequence[Path | str] = (),
+) -> dict[str, Any]:
+    """Return a deterministic evidence pack for explicitly selected inputs."""
 
     root = Path(repo_root).resolve()
     if root != _REPO_ROOT.resolve():
@@ -1539,7 +1543,18 @@ def build_pack(repo_root: Path | str) -> dict[str, Any]:
     json_documents = [(path, _read_json(path)) for path in json_paths]
     observe_path = old_research / "singapore_28_observe.jsonl"
     observe_records = _read_jsonl(observe_path)
-    log_paths = sorted((root / "logs").glob("trades_*.jsonl"))
+    log_paths: list[Path] = []
+    for supplied_path in trade_log_paths:
+        path = Path(supplied_path)
+        resolved = (root / path).resolve() if not path.is_absolute() else path.resolve()
+        try:
+            resolved.relative_to(root)
+        except ValueError as error:
+            raise ValueError("trade_log_paths must stay within repo_root") from error
+        if not resolved.is_file():
+            raise FileNotFoundError(f"missing explicit trade log: {resolved}")
+        log_paths.append(resolved)
+    log_paths.sort()
     frozen_pack_path = root / PACK_RELATIVE_PATH
     frozen_dry_run_evidence: dict[str, Any] | None = None
     if not log_paths:
@@ -1732,6 +1747,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=Path(__file__).resolve().parents[1],
     )
     parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--trade-log",
+        action="append",
+        default=[],
+        type=Path,
+        help=(
+            "Explicit runtime trade JSONL to include; omitted logs are never "
+            "discovered from the ambient logs directory"
+        ),
+    )
     args = parser.parse_args(argv)
     repo_root = args.repo_root.resolve()
     output = (
@@ -1745,7 +1770,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             "refusing to overwrite the immutable baseline seed pack; choose "
             f"{REBUILT_PACK_RELATIVE_PATH.as_posix()} or --output"
         )
-    _write_json_atomic(output, build_pack(repo_root))
+    _write_json_atomic(
+        output,
+        build_pack(repo_root, trade_log_paths=args.trade_log),
+    )
     print(output)
     return 0
 
