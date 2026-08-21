@@ -160,6 +160,33 @@ KELLY_FRACTION=0.35
 
 ---
 
+## 账户成交语义取证脚本
+
+`scripts/probe_account_trade_semantics.py` 是一个只读脚本，用于捕获真实的
+`ClobTrade`/`MakerOrder` 载荷，核实 `src/orders.py` 里关于成交方向、
+maker 身份识别、手续费公式的假设是否成立。它不下单、不撤单、不修改任何
+订单——但读取的是真实账户的成交与挂单记录，运行前请遵守：
+
+- **使用隔离钱包**，不要用持有个人资金的主钱包；脚本落盘的记录里
+  maker/owner 地址只做部分脱敏（保留前 6 位、后 4 位），不是完全匿名。
+- **只转入最小可交易额度**。
+- 该脚本本身不下单；如果想捕获一笔新的 maker 成交，需要你自己在另一个
+  会话里挂一个小额被动单，等它成交或部分成交后运行本脚本，然后**立即
+  撤销剩余挂单**，不要让订单空转。
+- 未配置凭证时会给出明确的前置条件说明并以退出码 1 结束，不会抛出异常。
+
+用法：
+
+```bash
+python scripts/probe_account_trade_semantics.py TOKEN_ID [--out DIR] [--limit N]
+```
+
+输出：脱敏后的原始成交 JSON 与一份 Markdown 报告，写入 `--out`（默认
+`logs/probes/`）。报告尝试回答四个问题（maker 时 `ClobTrade.side` 是否为
+taker 方向、`maker_address`/`owner` 能否稳定识别自己的 maker 腿、
+`fee_rate_bps` 对应哪种手续费公式、一笔 taker 成交是否会产生多条本账户
+maker 腿），并给出钱包余额与推导仓位变化的一致性对照。
+
 ## 出问题时怎么办
 
 1. **保持冷静** - 不要仓促做决定
