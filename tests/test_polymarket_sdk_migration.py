@@ -99,6 +99,33 @@ def test_installed_polymarket_contract_matches_runtime_expectations() -> None:
     }
 
 
+def test_legacy_clob_client_package_is_not_importable() -> None:
+    """The legacy SDK must be gone from the environment, not just requirements.in.
+
+    test_runtime_dependencies_use_the_official_unified_sdk_only only checks
+    that source code and dependency manifests don't reference the legacy
+    package; it cannot catch a leftover install in a venv that predates the
+    migration. compatibility_audit()'s legacy_v1_dependency_absent check
+    would silently read False in that situation even though nothing in this
+    repo requires or imports it any more.
+    """
+    from importlib.metadata import PackageNotFoundError
+
+    with pytest.raises(ModuleNotFoundError):
+        import py_clob_client  # noqa: F401
+
+    with pytest.raises(PackageNotFoundError):
+        installed_version("py-clob-client")
+
+
+def test_compatibility_audit_reports_the_installed_sdk_state_correctly() -> None:
+    """Pin the two dependency-presence checks that need no authenticated
+    evidence -- they must reflect what's actually importable/installed."""
+    checks = compatibility.compatibility_audit(timeout=0.001)["checks"]
+    assert checks["legacy_v1_dependency_absent"] is True
+    assert checks["current_sdk_installed"] is True
+
+
 def test_live_order_boundary_cannot_be_released_by_a_boolean_mapping() -> None:
     complete = {label: True for label in compatibility.REQUIRED_LIVE_CHECKS}
     with pytest.raises(

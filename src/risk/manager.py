@@ -190,6 +190,20 @@ class RiskManager:
         Note:
             If enforce=False, logs STOP/WARN events but returns OK to continue trading.
             This allows maximum data collection in dry-run mode.
+
+        Warning:
+            position_snapshots/open_order_snapshots let a caller substitute
+            its own account view in place of this check's own live reads.
+            That is a deliberate escape hatch for one purpose only: passing
+            through the *same* LiveAccountSnapshot the caller's trading loop
+            already captured this iteration (see
+            SmartMarketMaker._get_live_account_snapshot), where open orders
+            are read before the balance so a fill racing that pair biases
+            toward conservative (over-, not under-, stated) exposure. Do not
+            pass a snapshot assembled from any other source, a cached value
+            from a prior iteration, or reads taken in the opposite order --
+            doing so lets risk enforcement see exposure the account no
+            longer has, or miss exposure it already does.
         """
         # Always check kill switch (even in non-enforce mode, manual kills apply)
         if self._killed:

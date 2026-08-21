@@ -190,6 +190,9 @@ def check_position_limit(token_id: str, side: OrderSide, size: Decimal) -> None:
     """Check if order would exceed position limit. Raises OrderError if exceeded."""
     from src.orders import get_position
 
+    # Deliberately uncached: this runs immediately before order placement,
+    # where a stale snapshot could let a limit-breaching order through. Do
+    # not replace this with a cached/session snapshot read.
     current = get_position(token_id)
 
     if side == OrderSide.BUY:

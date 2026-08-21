@@ -198,7 +198,8 @@ class TestInventoryManager:
             size_reduction_start=Decimal("0.5")  # Start at 50%
         )
 
-        bid_mult, ask_mult = inv.get_size_multipliers()
+        state = inv.get_state(mid_price=Decimal("0.50"))
+        bid_mult, ask_mult = state.bid_size_mult, state.ask_size_mult
 
         assert bid_mult < 1.0  # Reduced bid size (discourage buying more)
         assert ask_mult == 1.0  # Full ask size (encourage selling)

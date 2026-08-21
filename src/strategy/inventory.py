@@ -174,36 +174,6 @@ class InventoryManager:
             inventory_level=level,
         )
 
-    def get_skews(
-        self,
-        *,
-        wallet_position: Optional[Decimal] = None,
-    ) -> tuple[Decimal, Decimal]:
-        """Quick method to get just bid/ask skews."""
-        position = Decimal(
-            str(
-                get_position(self.token_id)
-                if wallet_position is None
-                else wallet_position
-            )
-        )
-        return self._calculate_skews(position)
-
-    def get_size_multipliers(
-        self,
-        *,
-        wallet_position: Optional[Decimal] = None,
-    ) -> tuple[float, float]:
-        """Quick method to get just size multipliers."""
-        position = Decimal(
-            str(
-                get_position(self.token_id)
-                if wallet_position is None
-                else wallet_position
-            )
-        )
-        return self._calculate_size_multipliers(position)
-
     def record_fill(self, price: Decimal, size: Decimal, side: str):
         """
         Record a trade fill for P&L tracking.
