@@ -440,6 +440,10 @@ def test_live_trade_sync_does_not_drop_the_101st_trade() -> None:
             side=OrderSide.BUY,
             price=Decimal("0.40"),
             size=Decimal(1),
+            # Real ClobTrade.matched_at is a required field; a timestamp
+            # close to the mocked wall clock keeps the clock-skew recheck
+            # in _sync_live_trades from having nothing to anchor on.
+            timestamp=datetime.fromtimestamp(1060, UTC).isoformat(),
         )
         for index in range(101)
     ]
@@ -534,16 +538,200 @@ def test_live_trade_sync_uses_overlapping_incremental_watermark() -> None:
             "token_id": "token-1",
             "limit": None,
             "raise_on_error": True,
+            # Priming's exploratory fetch has no skew estimate yet, so it
+            # uses the raw local clock: after = 1060 - OVERLAP(60) = 1000.
             "after": "1000",
         },
         {
             "token_id": "token-1",
             "limit": None,
             "raise_on_error": True,
-            "after": "1000",
+            # old_trade (matched_at=1059) bounds skew at local_now(1060) -
+            # 1059 = 1s, so the watermark priming stored is 1060 - 1 = 1059
+            # and this round's after = 1059 - OVERLAP(60) = 999.
+            "after": "999",
         },
     ]
     mm._record_trade_fill.assert_called_once_with(new_trade, fill_type="live")
+    assert mm._clock_skew_seconds == 1
+
+
+def _anchor_trade(matched_at: int) -> Trade:
+    return Trade(
+        id="anchor-trade",
+        order_id="anchor-order",
+        token_id="token-1",
+        side=OrderSide.BUY,
+        price=Decimal("0.40"),
+        size=Decimal(1),
+        timestamp=datetime.fromtimestamp(matched_at, UTC).isoformat(),
+    )
+
+
+def test_prime_live_trade_state_accepts_a_synced_local_clock() -> None:
+    from src.strategy.market_maker import SmartMarketMaker
+
+    mm = SmartMarketMaker(token_id="token-1")
+
+    with (
+        patch(
+            "src.strategy.market_maker.get_trades",
+            return_value=[_anchor_trade(4998)],
+        ),
+        patch("src.strategy.market_maker.time.time", return_value=5000),
+        patch("src.strategy.market_maker.time.monotonic", return_value=100),
+    ):
+        mm._prime_live_trade_state()
+
+    assert mm._clock_skew_seconds == 2
+    assert mm._trade_sync_watermark == 4998
+
+
+def test_prime_live_trade_state_accepts_a_slow_local_clock() -> None:
+    """A local clock 120s slow only widens the overlap; it must not block."""
+    from src.strategy.market_maker import SmartMarketMaker
+
+    mm = SmartMarketMaker(token_id="token-1")
+
+    with (
+        patch(
+            "src.strategy.market_maker.get_trades",
+            # The trade "really" happened at server-time 5120 (local time
+            # would read 5120 too if synced); a local clock 120s slow
+            # reads 5000 at that same instant.
+            return_value=[_anchor_trade(5120)],
+        ),
+        patch("src.strategy.market_maker.time.time", return_value=5000),
+        patch("src.strategy.market_maker.time.monotonic", return_value=100),
+    ):
+        mm._prime_live_trade_state()
+
+    assert mm._clock_skew_seconds == 0
+    assert mm._trade_sync_watermark == 5000
+
+
+def test_prime_live_trade_state_fails_closed_when_local_clock_is_fast() -> None:
+    """A local clock 120s fast must refuse to start, not silently miss fills."""
+    from src.strategy.market_maker import SmartMarketMaker
+
+    mm = SmartMarketMaker(token_id="token-1")
+
+    with (
+        patch(
+            "src.strategy.market_maker.get_trades",
+            # The trade happened at server-time 5000; a local clock 120s
+            # fast reads 5120 at that same instant.
+            return_value=[_anchor_trade(5000)],
+        ),
+        patch("src.strategy.market_maker.time.time", return_value=5120),
+        patch("src.strategy.market_maker.time.monotonic", return_value=100),
+        pytest.raises(orders.PolymarketAdapterError, match="120s ahead"),
+    ):
+        mm._prime_live_trade_state()
+
+    # Refusing to prime must leave no watermark to sync fills against.
+    assert mm._trade_sync_watermark is None
+
+
+def test_prime_live_trade_state_fails_closed_without_any_trade_history() -> None:
+    """No evidence to anchor on must fail closed, never default skew to 0."""
+    from src.strategy.market_maker import SmartMarketMaker
+
+    mm = SmartMarketMaker(token_id="token-1")
+
+    with (
+        patch("src.strategy.market_maker.get_trades", return_value=[]),
+        patch("src.strategy.market_maker.time.time", return_value=5000),
+        patch("src.strategy.market_maker.time.monotonic", return_value=100),
+        pytest.raises(orders.PolymarketAdapterError, match="no account trade"),
+    ):
+        mm._prime_live_trade_state()
+
+    assert mm._trade_sync_watermark is None
+
+
+def test_sync_live_trades_fails_closed_when_a_new_fill_reveals_drift() -> None:
+    """The per-round recheck (not just the startup one) must catch drift."""
+    from src.strategy.market_maker import SmartMarketMaker
+
+    mm = SmartMarketMaker(token_id="token-1")
+    mm._trade_sync_watermark = 5000
+    mm._last_live_trade_poll = 0.0
+    mm._clock_skew_seconds = 0
+    mm._record_trade_fill = MagicMock()
+
+    with (
+        patch(
+            "src.strategy.market_maker.get_trades",
+            return_value=[_anchor_trade(5000)],
+        ),
+        patch("src.strategy.market_maker.time.time", return_value=5150),
+        patch("src.strategy.market_maker.time.monotonic", return_value=200),
+        pytest.raises(orders.PolymarketAdapterError, match="150s ahead"),
+    ):
+        mm._sync_live_trades()
+
+
+def test_check_trade_sync_desync_raises_after_growing_fills_with_no_new_trades() -> None:
+    from src.strategy.market_maker import (
+        LIVE_TRADE_SYNC_DESYNC_ROUNDS,
+        SmartMarketMaker,
+    )
+
+    mm = SmartMarketMaker(token_id="token-1")
+
+    def open_order(filled: Decimal) -> Order:
+        return Order(
+            id="bid-1",
+            token_id="token-1",
+            side=OrderSide.BUY,
+            price=Decimal("0.40"),
+            size=Decimal(10),
+            filled=filled,
+            status=OrderStatus.LIVE,
+            is_simulated=False,
+        )
+
+    # Establishes the filled baseline; nothing to compare against yet.
+    mm._check_trade_sync_desync((open_order(Decimal(0)),), found_new_trades=False)
+    assert mm._empty_trade_sync_rounds == 0
+
+    for round_index in range(1, LIVE_TRADE_SYNC_DESYNC_ROUNDS):
+        mm._check_trade_sync_desync(
+            (open_order(Decimal(round_index)),), found_new_trades=False
+        )
+        assert mm._empty_trade_sync_rounds == round_index
+
+    with pytest.raises(orders.PolymarketAdapterError, match="desynced"):
+        mm._check_trade_sync_desync(
+            (open_order(Decimal(LIVE_TRADE_SYNC_DESYNC_ROUNDS)),),
+            found_new_trades=False,
+        )
+
+
+def test_check_trade_sync_desync_resets_once_new_trades_are_seen() -> None:
+    from src.strategy.market_maker import SmartMarketMaker
+
+    mm = SmartMarketMaker(token_id="token-1")
+
+    def open_order(filled: Decimal) -> Order:
+        return Order(
+            id="bid-1",
+            token_id="token-1",
+            side=OrderSide.BUY,
+            price=Decimal("0.40"),
+            size=Decimal(10),
+            filled=filled,
+            status=OrderStatus.LIVE,
+            is_simulated=False,
+        )
+
+    mm._check_trade_sync_desync((open_order(Decimal(0)),), found_new_trades=False)
+    mm._check_trade_sync_desync((open_order(Decimal(1)),), found_new_trades=False)
+    assert mm._empty_trade_sync_rounds == 1
+
+    mm._check_trade_sync_desync((open_order(Decimal(2)),), found_new_trades=True)
+    assert mm._empty_trade_sync_rounds == 0
 
 
 @pytest.mark.asyncio

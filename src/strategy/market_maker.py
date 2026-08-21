@@ -21,6 +21,17 @@ ORDER_TEARDOWN_TIMEOUT_SECONDS = 10.0
 LIVE_ACCOUNT_CACHE_SECONDS = 1.0
 LIVE_TRADE_POLL_SECONDS = 1.0
 LIVE_TRADE_OVERLAP_SECONDS = 60
+# How far the local clock is allowed to look ahead of Polymarket's clock
+# before the live trade sync refuses to trust it. A fast local clock shifts
+# `after` into the future and can silently skip real fills; a slow local
+# clock only ever widens the query window, which is safe. Kept well under
+# LIVE_TRADE_OVERLAP_SECONDS so a drift big enough to matter is caught
+# before it could plausibly outrun the overlap.
+LIVE_CLOCK_SKEW_TOLERANCE_SECONDS = 30
+# Consecutive trade-sync rounds allowed to report zero new fills while a
+# tracked open order's size_matched keeps growing before that is treated as
+# a desynced feed rather than a coincidence.
+LIVE_TRADE_SYNC_DESYNC_ROUNDS = 3
 
 from src.config import (
     DRY_RUN,
@@ -237,6 +248,9 @@ class SmartMarketMaker:
         self._last_live_trade_poll: float = 0.0
         self._trade_sync_watermark: Optional[int] = None
         self._seen_trade_timestamps: dict[str, int] = {}
+        self._clock_skew_seconds: int = 0
+        self._empty_trade_sync_rounds: int = 0
+        self._last_known_open_order_filled: dict[str, Decimal] = {}
 
     async def run(self, install_signals: bool = True):
         """Main loop. Runs until stopped."""
@@ -1171,38 +1185,136 @@ class SmartMarketMaker:
             self._seen_trade_timestamps.pop(trade_id, None)
             self._seen_trade_ids.discard(trade_id)
 
+    def _clock_skew_bound_from_trades(
+        self, trades: list[Trade], *, local_now: int
+    ) -> Optional[int]:
+        """Bound how far the local clock might be running ahead of Polymarket's.
+
+        ClobTrade.matched_at is a server timestamp for an event that already
+        happened, so local_now - matched_at is a valid (if possibly loose)
+        upper bound on "local ahead of server" skew: server_now is at least
+        matched_at, so server_now = local_now - skew >= matched_at implies
+        skew <= local_now - matched_at. A slow local clock only produces a
+        small/zero bound here, which is fine -- only a fast local clock can
+        push after=now-OVERLAP past real fills and silently miss them, so
+        that is the only direction this needs to catch.
+
+        Returns None (never a default of zero) when none of `trades` has a
+        parseable matched_at to anchor the estimate on.
+        """
+        timestamps = [
+            timestamp
+            for trade in trades
+            if (timestamp := self._trade_timestamp_seconds(trade)) is not None
+        ]
+        if not timestamps:
+            return None
+        return max(0, local_now - max(timestamps))
+
+    def _raise_if_skew_exceeds_tolerance(self, skew: int, *, context: str) -> None:
+        if skew <= LIVE_CLOCK_SKEW_TOLERANCE_SECONDS:
+            return
+        raise PolymarketAdapterError(
+            f"Local clock appears at least {skew}s ahead of Polymarket's "
+            f"clock ({context}, inferred from account trade history). That "
+            f"exceeds the {LIVE_CLOCK_SKEW_TOLERANCE_SECONDS}s tolerance -- "
+            "fix host time sync before trusting live trade sync; a live "
+            "loop cannot safely auto-correct a drift this large."
+        )
+
     def _prime_live_trade_state(self):
         """Prime only a bounded overlap window so old history is never replayed."""
-        watermark = int(time.time())
-        after = max(0, watermark - LIVE_TRADE_OVERLAP_SECONDS)
+        local_now = int(time.time())
+        after = max(0, local_now - LIVE_TRADE_OVERLAP_SECONDS)
         recent_trades = get_trades(
             self.token_id,
             limit=None,
             raise_on_error=True,
             after=str(after),
         )
+        skew = self._clock_skew_bound_from_trades(recent_trades, local_now=local_now)
+        if skew is None:
+            raise PolymarketAdapterError(
+                f"Cannot estimate live clock skew for {self.token_id!r}: no "
+                "account trade with a parseable matched_at in the last "
+                f"{LIVE_TRADE_OVERLAP_SECONDS}s to anchor the estimate "
+                "against. Refusing to default to zero skew and start live "
+                "trade sync unguarded."
+            )
+        self._raise_if_skew_exceeds_tolerance(skew, context="startup prime")
+        self._clock_skew_seconds = skew
+        watermark = local_now - skew
         self._seen_trade_ids.clear()
         self._seen_trade_timestamps.clear()
         for trade in recent_trades:
             self._remember_trade(trade, fallback_timestamp=watermark)
         self._trade_sync_watermark = watermark
         self._last_live_trade_poll = time.monotonic()
+        self._empty_trade_sync_rounds = 0
+        self._last_known_open_order_filled = {}
 
     def _sync_live_state(
         self,
         snapshot: LiveAccountSnapshot | None = None,
     ) -> None:
         """Sync live trades and open orders into local state."""
-        self._sync_live_trades()
-        self._sync_live_orders(
+        new_trade_count = self._sync_live_trades()
+        open_orders = self._sync_live_orders(
             snapshot.open_orders if snapshot is not None else None
         )
+        if new_trade_count is not None:
+            self._check_trade_sync_desync(
+                open_orders, found_new_trades=new_trade_count > 0
+            )
 
-    def _sync_live_trades(self):
-        """Process newly observed live trades."""
+    def _check_trade_sync_desync(
+        self,
+        open_orders: tuple[Order, ...],
+        *,
+        found_new_trades: bool,
+    ) -> None:
+        """Flag a desynced trade feed from a live symptom, not clock math.
+
+        A local clock running fast enough shifts `after` into the future and
+        get_trades() can silently return nothing even though our own
+        resting orders are filling. size_matched growing on a tracked open
+        order while consecutive trade-sync rounds report zero new fills is
+        that symptom -- it needs no clock-skew estimate and so still catches
+        drift the startup estimate missed or that developed afterward.
+        """
+        current_filled = {order.id: order.filled for order in open_orders}
+        previous_filled = self._last_known_open_order_filled
+        grew = any(
+            order_id in previous_filled
+            and current_filled[order_id] > previous_filled[order_id]
+            for order_id in current_filled
+        )
+        self._last_known_open_order_filled = current_filled
+
+        if found_new_trades or not grew:
+            self._empty_trade_sync_rounds = 0
+            return
+
+        self._empty_trade_sync_rounds += 1
+        if self._empty_trade_sync_rounds >= LIVE_TRADE_SYNC_DESYNC_ROUNDS:
+            raise PolymarketAdapterError(
+                "Live trade sync looks desynced: open-order size_matched "
+                f"grew for {self._empty_trade_sync_rounds} consecutive "
+                "trade-sync rounds while get_trades() reported no new "
+                "fills. Refusing to continue unguarded -- check for local/"
+                "server clock drift or an adapter contract change."
+            )
+
+    def _sync_live_trades(self) -> Optional[int]:
+        """Process newly observed live trades.
+
+        Returns the number of new trades processed, or None if this call
+        was skipped by the LIVE_TRADE_POLL_SECONDS throttle -- callers use
+        None to distinguish "did not check" from "checked, found nothing".
+        """
         now = time.monotonic()
         if now - self._last_live_trade_poll < LIVE_TRADE_POLL_SECONDS:
-            return
+            return None
         wall_time = int(time.time())
         watermark = self._trade_sync_watermark
         if watermark is None:
@@ -1219,6 +1331,20 @@ class SmartMarketMaker:
             trade for trade in recent_trades
             if trade.id and trade.id not in self._seen_trade_ids
         ]
+
+        if new_trades:
+            # A fresh, first-time-seen fill is the best low-noise clock-skew
+            # calibration point available in steady state: unlike a trade
+            # re-seen inside the overlap window (which can be arbitrarily
+            # old on a quiet market), one just discovered for the first
+            # time should have matched_at close to wall_time under synced
+            # clocks. Missing/unparseable timestamps are skipped rather
+            # than treated as a failure -- this is a best-effort recheck,
+            # not the one-time startup requirement to have some anchor.
+            skew = self._clock_skew_bound_from_trades(new_trades, local_now=wall_time)
+            if skew is not None:
+                self._raise_if_skew_exceeds_tolerance(skew, context="trade-sync round")
+                self._clock_skew_seconds = skew
 
         for trade in new_trades:
             self._record_trade_fill(trade, fill_type="live")
@@ -1240,11 +1366,12 @@ class SmartMarketMaker:
                 self._trade_sync_watermark - LIVE_TRADE_OVERLAP_SECONDS
             )
         )
+        return len(new_trades)
 
     def _sync_live_orders(
         self,
         open_orders: tuple[Order, ...] | None = None,
-    ) -> None:
+    ) -> tuple[Order, ...]:
         """Reconcile tracked quote references with exchange open orders."""
         if open_orders is None:
             open_orders = tuple(
@@ -1267,6 +1394,8 @@ class SmartMarketMaker:
 
             order.filled = live_order.filled
             order.status = live_order.status
+
+        return open_orders
 
     def _record_trade_fill(self, trade: Trade, fill_type: str):
         """Apply a fill to inventory, P&L, and risk state exactly once."""
