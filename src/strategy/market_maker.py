@@ -1397,6 +1397,63 @@ class SmartMarketMaker:
 
         return open_orders
 
+    def _detach_background_cancel_task(self, task: "asyncio.Task", *, reason: str) -> None:
+        """Give up waiting on a shutdown-cancel task without losing track of it.
+
+        `task.cancel()` resolves the asyncio side almost immediately (the
+        Task becomes cancelled), but it cannot interrupt the underlying
+        blocking cancel_all_orders() call once its worker thread has
+        already started -- Python's ThreadPoolExecutor has no way to abort
+        work in progress. That means the cancelled outcome logged here is
+        not proof the exchange call was interrupted; it only means asyncio
+        stopped waiting on it.
+
+        If this process exits normally afterward, Python's ThreadPoolExecutor
+        atexit hook still joins that orphaned worker thread before the
+        interpreter exits, so the cancel_all_orders() call likely still
+        reaches the exchange even though nothing in this process observes
+        the result anymore. If the process is killed outright (SIGKILL, a
+        container's hard-stop timeout), that thread is torn down mid-request
+        instead. Either way, this log line is the signal to go verify
+        manually: do not assume it means orders were actually cancelled,
+        and do not assume it means they were not.
+        """
+        task.cancel()
+
+        def _log_outcome(finished: "asyncio.Task") -> None:
+            if finished.cancelled():
+                message = (
+                    f"Background cancel-all-orders task ({reason}) for "
+                    f"{self.token_id} never confirmed reaching the "
+                    "exchange before shutdown gave up on it. Manually "
+                    "verify/cancel open orders at polymarket.com now "
+                    "(see docs/user/safety.md)."
+                )
+                self.risk.record_error(message)
+                logger.critical("[SAFETY] %s", message)
+                return
+            error = finished.exception()
+            if error is not None:
+                message = (
+                    f"Background cancel-all-orders task ({reason}) for "
+                    f"{self.token_id} finished after shutdown gave up on "
+                    f"it, and failed: {error}. Manually verify/cancel open "
+                    "orders at polymarket.com now (see docs/user/safety.md)."
+                )
+                self.risk.record_error(message)
+                logger.critical("[SAFETY] %s", message)
+                return
+            logger.warning(
+                "[SAFETY] Background cancel-all-orders task (%s) for %s "
+                "finished after shutdown gave up on it, but did succeed "
+                "(%s orders cancelled). No manual action needed.",
+                reason,
+                self.token_id,
+                finished.result(),
+            )
+
+        task.add_done_callback(_log_outcome)
+
     def _record_trade_fill(self, trade: Trade, fill_type: str):
         """Apply a fill to inventory, P&L, and risk state exactly once."""
         side = trade.side.value if isinstance(trade.side, OrderSide) else str(trade.side).upper()
@@ -1525,6 +1582,9 @@ class SmartMarketMaker:
                     shutdown_error = error
                 self.risk.record_error(str(error))
                 logger.critical("[SAFETY] %s", error)
+                self._detach_background_cancel_task(
+                    self._shutdown_cancel_task, reason="shutdown cancellation timeout"
+                )
             except Exception as e:
                 if shutdown_error is None:
                     shutdown_error = e

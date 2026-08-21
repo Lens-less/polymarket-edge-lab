@@ -1080,6 +1080,69 @@ async def test_shutdown_bounds_wait_for_running_disconnect_teardown() -> None:
 
 
 @pytest.mark.asyncio
+async def test_shutdown_cancel_timeout_detaches_and_reports_the_eventual_outcome() -> None:
+    """A timed-out shutdown-cancel task must stay tracked, not leaked.
+
+    _shutdown() cannot keep blocking past ORDER_TEARDOWN_TIMEOUT_SECONDS,
+    and it cannot truly interrupt an in-flight asyncio.to_thread call. The
+    fix under test is that it must not simply drop the task afterward: once
+    the background call does finish, its outcome (success or failure) must
+    still be observed and reported, so the task never becomes an
+    unretrieved/garbage-collected-while-pending Task.
+    """
+    import threading
+
+    from src.strategy.market_maker import SmartMarketMaker
+
+    mm = SmartMarketMaker(token_id="token-1")
+    mm.risk.record_error = MagicMock()
+    release = threading.Event()
+
+    def slow_cancel_all_orders(token_id, verify=True, raise_on_failure=True):
+        release.wait(timeout=5.0)
+        return 3
+
+    try:
+        with (
+            patch(
+                "src.strategy.market_maker.ORDER_TEARDOWN_TIMEOUT_SECONDS",
+                0.05,
+                create=True,
+            ),
+            patch(
+                "src.strategy.market_maker.cancel_all_orders",
+                side_effect=slow_cancel_all_orders,
+            ),
+        ):
+            error = await asyncio.wait_for(mm._shutdown(), timeout=1.0)
+
+        assert isinstance(error, trading.OrderCancellationError)
+        assert "still running in the background" in str(error)
+
+        task = mm._shutdown_cancel_task
+        assert task is not None
+
+        # _shutdown() detaches the task rather than leaving it dangling: it
+        # must resolve on its own -- cancelled, since an already-running
+        # asyncio.to_thread call cannot actually be interrupted -- instead
+        # of being silently dropped while still pending.
+        for _ in range(200):
+            if task.done():
+                break
+            await asyncio.sleep(0.01)
+        assert task.done()
+        assert task.cancelled()
+
+        assert mm.risk.record_error.call_count == 2
+        timeout_call, detach_call = mm.risk.record_error.call_args_list
+        assert "still running in the background" in timeout_call.args[0]
+        assert "cancel-all-orders" in detach_call.args[0]
+        assert "polymarket.com" in detach_call.args[0]
+    finally:
+        release.set()
+
+
+@pytest.mark.asyncio
 async def test_requote_preserves_an_unchanged_side_queue_position() -> None:
     from src.strategy.market_maker import SmartMarketMaker
 
