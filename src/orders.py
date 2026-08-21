@@ -3,7 +3,7 @@ Order queries - unified interface for real and simulated orders.
 """
 
 from typing import List, Optional
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 
 from src.auth import (
     PolymarketAdapterError,
@@ -11,7 +11,9 @@ from src.auth import (
     require_sdk_field,
     require_sdk_iter_items,
 )
-from src.config import DRY_RUN, has_credentials
+from src.config import DRY_RUN, LIVE_FEE_RATE_EXPONENT, has_credentials
+from src.edge_lab.economics import taker_fee as _fee_formula
+from src.edge_lab.models import FeeSchedule
 from src.models import Order, Trade, OrderSide, OrderStatus
 from src.simulator import get_simulator
 from src.utils import setup_logging
@@ -27,7 +29,6 @@ _POSITION_BEARING_TRADE_STATUSES = frozenset(
     }
 )
 _BASIS_POINTS = Decimal("10000")
-_FEE_QUANTUM = Decimal("0.00001")
 
 
 def _timestamp_text(value: object) -> str:
@@ -36,13 +37,31 @@ def _timestamp_text(value: object) -> str:
     return str(value)
 
 
+def _fee_from_rate_bps(
+    fee_rate_bps: object, *, price: Decimal, size: Decimal
+) -> Decimal:
+    """Calculate a matched fee in USDC from a reported fee_rate_bps.
+
+    Shared by both the taker leg and the maker leg of an account trade so the
+    fee math is defined exactly once (see LIVE_FEE_RATE_EXPONENT for the open
+    question about what fee_rate_bps actually means). A None/zero rate -- the
+    documented case for maker fills today -- yields zero fee rather than
+    raising, since the SDK models fee_rate_bps as optional on MakerOrder.
+    """
+    if fee_rate_bps is None:
+        return Decimal("0")
+    rate = Decimal(str(fee_rate_bps)) / _BASIS_POINTS
+    if rate <= 0:
+        return Decimal("0")
+    schedule = FeeSchedule(rate=rate, exponent=LIVE_FEE_RATE_EXPONENT)
+    return _fee_formula(size, price, schedule)
+
+
 def _taker_fee(item: object, *, price: Decimal, size: Decimal) -> Decimal:
     """Calculate the matched taker fee in USDC from the reported fee rate."""
-    fee_rate = Decimal(str(require_sdk_field(item, "fee_rate_bps"))) / _BASIS_POINTS
-    fee = size * fee_rate * price * (Decimal("1") - price)
-    if fee <= 0:
-        return Decimal("0")
-    return fee.quantize(_FEE_QUANTUM, rounding=ROUND_HALF_UP)
+    return _fee_from_rate_bps(
+        require_sdk_field(item, "fee_rate_bps"), price=price, size=size
+    )
 
 
 def _diagnostic_fields(subject: object, field_names: tuple[str, ...]) -> dict[str, str]:
@@ -158,6 +177,8 @@ def _normalize_account_trade(item: object) -> list[Trade]:
     fills: list[Trade] = []
     for maker_order in _owned_maker_orders(item):
         order_id = str(require_sdk_field(maker_order, "order_id"))
+        price = Decimal(str(require_sdk_field(maker_order, "price")))
+        size = Decimal(str(require_sdk_field(maker_order, "matched_amount")))
         fills.append(
             Trade(
                 # One taker trade can fill multiple maker orders owned by the
@@ -171,10 +192,15 @@ def _normalize_account_trade(item: object) -> list[Trade]:
                         field_name="maker_order.side",
                     ).upper()
                 ),
-                price=Decimal(str(require_sdk_field(maker_order, "price"))),
-                size=Decimal(str(require_sdk_field(maker_order, "matched_amount"))),
+                price=price,
+                size=size,
                 is_simulated=False,
                 timestamp=timestamp,
+                fee=_fee_from_rate_bps(
+                    require_sdk_field(maker_order, "fee_rate_bps"),
+                    price=price,
+                    size=size,
+                ),
             )
         )
     return fills

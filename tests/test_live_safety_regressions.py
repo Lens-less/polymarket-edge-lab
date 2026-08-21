@@ -172,6 +172,7 @@ def test_get_trades_uses_owned_maker_order_and_filters_non_fills(monkeypatch) ->
         side="BUY",
         price=Decimal("0.41"),
         matched_amount=Decimal(2),
+        fee_rate_bps=None,
     )
     items = (
         _sdk_trade(
@@ -199,9 +200,15 @@ def test_get_trades_uses_owned_maker_order_and_filters_non_fills(monkeypatch) ->
     assert result[0].order_id == "maker-order-1"
     assert result[0].price == Decimal("0.41")
     assert result[0].size == Decimal(2)
+    assert result[0].fee == Decimal("0")
 
 
-def test_get_trades_charges_reported_taker_fee_but_not_maker_fee(monkeypatch) -> None:
+def test_get_trades_charges_taker_and_maker_fee_from_the_same_formula(
+    monkeypatch,
+) -> None:
+    # Both legs report the same fee_rate_bps/price/size here, so they must
+    # produce the same fee: the taker and maker paths share one fee formula
+    # (src.orders._fee_from_rate_bps -> src.edge_lab.economics.taker_fee).
     maker_order = SimpleNamespace(
         order_id="maker-order-1",
         token_id="token-1",
@@ -239,7 +246,88 @@ def test_get_trades_charges_reported_taker_fee_but_not_maker_fee(monkeypatch) ->
     by_id = {trade.id: trade for trade in result}
 
     assert by_id["taker-trade"].fee == Decimal("0.05040")
-    assert by_id["maker-trade:maker-order-1"].fee == Decimal(0)
+    assert by_id["maker-trade:maker-order-1"].fee == Decimal("0.05040")
+
+
+def test_get_trades_maker_fee_is_zero_when_fee_rate_bps_is_absent_or_zero(
+    monkeypatch,
+) -> None:
+    zero_rate_maker_order = SimpleNamespace(
+        order_id="maker-order-zero",
+        token_id="token-1",
+        maker_address="0xme",
+        owner="owner-me",
+        side="BUY",
+        price=Decimal("0.40"),
+        matched_amount=Decimal(3),
+        fee_rate_bps=Decimal(0),
+    )
+    none_rate_maker_order = SimpleNamespace(
+        order_id="maker-order-none",
+        token_id="token-1",
+        maker_address="0xme",
+        owner="owner-me",
+        side="BUY",
+        price=Decimal("0.40"),
+        matched_amount=Decimal(3),
+        fee_rate_bps=None,
+    )
+    items = (
+        _sdk_trade(
+            "zero-rate-trade",
+            status="CONFIRMED",
+            trader_side="MAKER",
+            maker_orders=(zero_rate_maker_order,),
+        ),
+        _sdk_trade(
+            "none-rate-trade",
+            status="CONFIRMED",
+            trader_side="MAKER",
+            maker_orders=(none_rate_maker_order,),
+        ),
+    )
+
+    class Client:
+        @staticmethod
+        def list_account_trades(**kwargs):
+            return _Paginator(items)
+
+    _configure_live_adapters(monkeypatch, Client())
+
+    result = orders.get_trades("token-1", limit=None, raise_on_error=True)
+    by_id = {trade.id: trade for trade in result}
+
+    assert by_id["zero-rate-trade:maker-order-zero"].fee == Decimal("0")
+    assert by_id["none-rate-trade:maker-order-none"].fee == Decimal("0")
+
+
+def test_get_trades_taker_fee_is_driven_by_the_configured_exponent(
+    monkeypatch,
+) -> None:
+    # LIVE_FEE_RATE_EXPONENT is an open question (docs/config.py comment); this
+    # pins that src.orders actually reads it rather than a hardcoded exponent.
+    monkeypatch.setattr(orders, "LIVE_FEE_RATE_EXPONENT", Decimal("2"))
+    items = (
+        _sdk_trade(
+            "taker-trade",
+            status="CONFIRMED",
+            trader_side="TAKER",
+            fee_rate_bps=Decimal(700),
+        ),
+    )
+
+    class Client:
+        @staticmethod
+        def list_account_trades(**kwargs):
+            return _Paginator(items)
+
+    _configure_live_adapters(monkeypatch, Client())
+
+    result = orders.get_trades("token-1", limit=None, raise_on_error=True)
+
+    # size=3, price=0.40, rate=0.07, probability_term=0.24
+    # exponent=1 -> 0.05040 (see the sibling test); exponent=2 must differ.
+    assert result[0].fee == Decimal("0.01210")
 
 
 def test_get_trades_logs_maker_identity_payload_before_adapter_failure(

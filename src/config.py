@@ -159,6 +159,18 @@ MAX_CORRELATED_EXPOSURE = Decimal(os.getenv("MAX_CORRELATED_EXPOSURE", "500"))
 # === Simulation ===
 SIMULATED_FEE_RATE = Decimal(os.getenv("SIMULATED_FEE_RATE", "0.001"))  # 0.1% per trade
 
+# === Live fee accounting ===
+# Polymarket's public fee docs describe: fee = feeRateBps/10000 * C *
+# (p * (1-p)) ** exponent, where C is the traded size. exponent=1 reproduces
+# every observed value in this repo's fixtures/tests to date, but that has
+# only been checked against inferred/self-reported payloads, never against a
+# live fee_rate_bps confirmed by Polymarket. If the real formula instead bills
+# off min(p, 1-p) (a common alternative in prediction-market fee schedules),
+# fees at p=0.5 would be computed 2x too low here (p*(1-p)=0.25 vs
+# min(p,1-p)=0.5). Do not treat LIVE_FEE_RATE_EXPONENT as verified; see
+# scripts/probe_account_trade_semantics.py for the open question.
+LIVE_FEE_RATE_EXPONENT = Decimal(os.getenv("LIVE_FEE_RATE_EXPONENT", "1"))
+
 # === Rate Limiting ===
 RATE_LIMIT_ORDERS_PER_SECOND = float(os.getenv("RATE_LIMIT_ORDERS_PER_SECOND", "5"))
 RATE_LIMIT_DATA_PER_SECOND = float(os.getenv("RATE_LIMIT_DATA_PER_SECOND", "10"))
