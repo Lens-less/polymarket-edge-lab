@@ -634,6 +634,23 @@ async def run_service(
                     plan.capture_root / "capture-summary.json",
                     capture_summary,
                 )
+                preregistration = _load_preregistration(config)
+                if preregistration.get("schema_version") == (
+                    "btc-5m-15m-edge-readiness-preregistration.v08-draft"
+                ):
+                    # v0.8 capture is the capacity denominator. Do not force the
+                    # retired v0.6 paper report, which requires frozen_strategy.
+                    _write_attempt_receipt(
+                        config,
+                        attempt_id=attempt_id,
+                        scheduled_expiry_seconds=scheduled_expiry_seconds,
+                        status="succeeded",
+                        expiry_seconds=plan.expiry_seconds,
+                        capture_root=plan.capture_root,
+                        completed_report_count=len(_generated_report_paths(config)),
+                    )
+                    _emit_status(config, phase="cycle_complete", plan=plan)
+                    continue
                 _emit_status(config, phase="building_report", plan=plan)
                 histories = _history_roots(
                     config,
