@@ -164,8 +164,8 @@ Do not execute this session. Minimum from LIVE_COMPLETION_SPEC WP-E2:
 - `persist_raw_clob_frames=false`, `persist_reconstructed_full_depth_frames=false`
 - one recorder-leg failure dirties the whole cohort
 - SNS topic with at least one **Confirmed** subscription
-- **stop sanitizing** future capture-summary recorder codes: persist
-  `RecorderWorkerError.error_type` and `error_code`
+- keep top-level `capture_error.error_code = capture_failed`; **stop dropping**
+  `recorder_leg_failures[].error_type` / `error_code` (see §9.1)
 
 ## 9. Code fixes not required before buying a host
 
@@ -174,8 +174,50 @@ follow-through on the new host, not as a reason to delay WP-E2:
 
 - already done: future-opening on every capture; rejected-tree cache;
   rawcap producer stopped
-- still required at deploy time: unsanitized recorder codes in summaries;
+- still required at deploy time: retain recorder-leg error codes in summaries;
   confirmed SNS; compact-capture config actually running
+
+## 9.1 Claude verification note (2026-08-22, independent re-check)
+
+Re-derived, not trusted from this file's own text: both commits (`dd10709`,
+`a9d5f45`) exist with the diffs their messages describe; `pytest -q -k
+"btc_twap or compatibility or sdk"` reproduces 501 passed / 1 skipped;
+`test_live_order_boundary_cannot_be_released_by_a_boolean_mapping` reproduces
+1 passed with an all-`True` `REQUIRED_LIVE_CHECKS` mapping still raising
+`LiveExecutionBlocked`; the 38-test residual safety run reproduces exactly.
+`PREREGISTRATION.json` is untouched. `LIVE_COMPLETION_SPEC.md` genuinely
+carries the v0.9.1 content (default-to-v0.9 exact count, ≥4–7 day S1
+calendar floor), not just a version-number bump.
+
+One precision on §8's "stop sanitizing future capture-summary recorder
+codes": there are three layers, and only one of them is the WP-E2 target.
+
+1. Privacy redaction (keep): `src/edge_lab/network_safety.py:256
+   safe_error_details()` strips message, URL, query, and value. This is
+   deliberate. Do **not** reverse it.
+2. Attempt-level contract (keep): writers such as
+   `src/edge_lab/btc_twap_relative_value_service.py:2114` persist top-level
+   `capture_error` as `safe_error_details(..., code="capture_failed")`.
+   The V0.7 reader `_validated_source_capture_error()`
+   (`btc_twap_relative_value_v07_shadow.py:617`, line 626) then **requires**
+   that exact code. ChatGPT Pro's V0.7 review froze this on purpose:
+   `capture_error` may contain only `error_type` + `error_code`, and
+   `error_code` must be `capture_failed`. Widening that reader to accept
+   `connection_failure` / `tls_failure` / `request_timeout` would break
+   the attempt-failed contract, not restore diagnosis.
+3. Leg-level diagnosis (the actual WP-E2 change): granular codes already
+   exist on `recorder_leg_failures`. `_recorder_failure_details()` keeps
+   `RecorderWorkerError.error_type` / `error_code` (for example
+   `persistence_sink_timeout`, `persistence_sink_cancelled`).
+   `_validated_recorder_leg_failures()` already accepts any non-empty
+   code string. The 14/15 report lost those leg codes; that is the
+   sanitization to stop.
+
+So "stop sanitizing" means: keep `safe_error_details()` and keep top-level
+`capture_failed`; make every new-host capture-summary retain the already
+safe `recorder_leg_failures[].error_type` / `error_code`. That is what
+lets the next host classify the 9/14 currently uninspected failures
+instead of inheriting their bucket from the five inspected ones.
 
 ## 10. Decision
 
