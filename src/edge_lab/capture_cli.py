@@ -72,6 +72,8 @@ class ForwardCaptureConfig:
     persist_raw_clob_frames: bool = False
     persist_reconstructed_full_depth_frames: bool = True
     persist_top_of_book_changes: bool = False
+    trade_page_limit: int = 1_000
+    trade_max_pages: int = 100
 
     def __post_init__(self) -> None:
         if self.capture_started_at_ms is not None and (
@@ -157,6 +159,8 @@ def load_capture_config(
         "persist_raw_clob_frames",
         "persist_reconstructed_full_depth_frames",
         "persist_top_of_book_changes",
+        "trade_page_limit",
+        "trade_max_pages",
     }
     unexpected = set(raw) - allowed
     if unexpected:
@@ -215,6 +219,8 @@ def load_capture_config(
         persist_top_of_book_changes=raw.get(
             "persist_top_of_book_changes", False
         ),
+        trade_page_limit=int(raw.get("trade_page_limit", 1_000)),
+        trade_max_pages=int(raw.get("trade_max_pages", 100)),
     )
     # Reuse the recorder's strict allowlist and timing validation.
     RecorderConfig(
@@ -289,6 +295,8 @@ async def run_forward_capture(
         condition_ids=config.condition_ids,
         reward_page_limit=config.reward_page_limit,
         reward_max_pages=config.reward_max_pages,
+        trade_page_limit=config.trade_page_limit,
+        trade_max_pages=config.trade_max_pages,
         rule_market_ids=config.rule_market_ids,
     )
     recorder = PublicRecorder(

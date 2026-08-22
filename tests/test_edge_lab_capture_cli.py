@@ -63,6 +63,24 @@ def test_load_capture_config_is_explicit_and_resolves_data_root(
     assert config.targets == ({"event_id": "event-1"},)
     assert config.capture_started_at_ms is None
     assert config.evidence_track_id is None
+    assert config.trade_page_limit == 1_000
+    assert config.trade_max_pages == 100
+
+
+def test_load_capture_config_accepts_trade_pagination_overrides(
+    tmp_path: Path,
+) -> None:
+    config_path = _write_config(
+        tmp_path / "capture.json",
+        tmp_path / "data",
+        trade_page_limit=500,
+        trade_max_pages=4,
+    )
+
+    config = load_capture_config(config_path)
+
+    assert config.trade_page_limit == 500
+    assert config.trade_max_pages == 4
 
 
 def test_load_capture_config_accepts_runtime_identity_fields(

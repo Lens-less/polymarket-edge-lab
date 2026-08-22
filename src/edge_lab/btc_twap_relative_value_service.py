@@ -1767,6 +1767,14 @@ def build_capture_plan(
         "gamma_max_pages": 1,
         "reward_page_limit": 1,
         "reward_max_pages": 1,
+        # The public taker-trades poll re-fetches from offset 0 every interval
+        # (no incremental cursor); as a market's lifetime trade count grows,
+        # the class default (1_000 x 100 pages) re-downloads the whole growing
+        # history on every 5s poll. A single common-expiry pair's lifetime
+        # trade count stays in the low thousands even at peak observed volume,
+        # so cap each poll well above that instead of the unbounded default.
+        "trade_page_limit": 500,
+        "trade_max_pages": 4,
         "targets": [
             {
                 "horizon": "15m",
@@ -2046,6 +2054,8 @@ async def run_compact_forward_capture(
         condition_ids=config.condition_ids,
         reward_page_limit=config.reward_page_limit,
         reward_max_pages=config.reward_max_pages,
+        trade_page_limit=config.trade_page_limit,
+        trade_max_pages=config.trade_max_pages,
         rule_market_ids=config.rule_market_ids,
     )
     primary_config, secondary_config = _build_redundant_recorder_configs(config)

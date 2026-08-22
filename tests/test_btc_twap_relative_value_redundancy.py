@@ -10,7 +10,12 @@ from src.edge_lab.capture_runtime import CaptureStoreRecorderSink
 from src.edge_lab.data_store import CaptureStore
 
 
-def _capture_config(root: Path) -> ForwardCaptureConfig:
+def _capture_config(
+    root: Path,
+    *,
+    trade_page_limit: int = 1_000,
+    trade_max_pages: int = 100,
+) -> ForwardCaptureConfig:
     return ForwardCaptureConfig(
         data_root=root,
         asset_ids=("token",),
@@ -28,6 +33,8 @@ def _capture_config(root: Path) -> ForwardCaptureConfig:
         reward_max_pages=1,
         targets=({"asset_id": "token"},),
         clock_sync=None,
+        trade_page_limit=trade_page_limit,
+        trade_max_pages=trade_max_pages,
     )
 
 
@@ -512,6 +519,71 @@ async def test_run_capture_builds_primary_and_secondary_recorders(
     assert created[1]["config"].snapshot_intervals == {}
     assert created[0]["config"].clob_asset_ids == config.asset_ids
     assert created[1]["config"].rtds_subscriptions == config.rtds_subscriptions
+
+
+@pytest.mark.anyio
+async def test_run_capture_forwards_trade_pagination_limits_to_snapshot_client(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The taker-trades poll must use the config's caps, not the client default.
+
+    Without this, every poll re-fetches from offset 0 with no incremental
+    cursor; the class default (1_000 x 100 pages) re-downloads a market's
+    entire growing trade history on every interval instead of a bounded
+    recent window.
+    """
+
+    import src.edge_lab.btc_twap_relative_value_service as service
+
+    snapshot_kwargs: list[dict[str, Any]] = []
+
+    class StubSession:
+        def close(self) -> None:
+            return None
+
+    class StubSourcesClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            return None
+
+    class StubSnapshotClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            snapshot_kwargs.append(kwargs)
+
+    class StubRecorder:
+        def __init__(self, **kwargs: Any) -> None:
+            return None
+
+        async def run(self, *, run_for_seconds: float) -> None:
+            return None
+
+        async def stop(self) -> None:
+            return None
+
+    monkeypatch.setattr(service, "verify_paper_only_guard", lambda: None)
+    monkeypatch.setattr(service, "public_session", lambda proxy_url: StubSession())
+    monkeypatch.setattr(service, "PublicSourcesClient", StubSourcesClient)
+    monkeypatch.setattr(
+        service,
+        "PublicSourcesSnapshotClient",
+        StubSnapshotClient,
+    )
+    monkeypatch.setattr(service, "PublicRecorder", StubRecorder)
+
+    config = _capture_config(
+        tmp_path / "capture-root",
+        trade_page_limit=500,
+        trade_max_pages=4,
+    )
+    await service.run_compact_forward_capture(
+        config,
+        duration_seconds=0.01,
+        proxy_url=None,
+    )
+
+    assert len(snapshot_kwargs) == 1
+    assert snapshot_kwargs[0]["trade_page_limit"] == 500
+    assert snapshot_kwargs[0]["trade_max_pages"] == 4
 
 
 @pytest.mark.anyio
