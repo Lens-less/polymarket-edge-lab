@@ -98,9 +98,16 @@ PY
   fi
 fi
 
+WATCH_INSTANCE_TYPE_VALUE="${POLYMM_WATCH_INSTANCE_TYPE:-}"
+if [[ -z "${WATCH_INSTANCE_TYPE_VALUE}" && -n "${IDENTITY_JSON:-}" ]]; then
+  WATCH_INSTANCE_TYPE_VALUE="$(
+    python3.11 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("instanceType") or "")' \
+      <<<"${IDENTITY_JSON}"
+  )"
+fi
 python3.11 - "${INSTALL_ROOT}/deploy/aws/watch/watch-config.json" \
   "${RUNTIME_CONFIG_PATH}" "${WATCH_REGION_VALUE}" \
-  "${WATCH_INSTANCE_ID_VALUE}" <<'PY'
+  "${WATCH_INSTANCE_ID_VALUE}" "${WATCH_INSTANCE_TYPE_VALUE}" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -109,12 +116,15 @@ source_path = Path(sys.argv[1])
 runtime_path = Path(sys.argv[2])
 region = sys.argv[3]
 instance_id = sys.argv[4]
+instance_type = sys.argv[5] if len(sys.argv) > 5 else ""
 document = json.loads(source_path.read_text(encoding="utf-8"))
 host = document.get("host", {})
 host["cpu_credit_region"] = region
 host["cpu_credit_instance_id"] = instance_id
+host["cpu_credit_expected"] = instance_type.startswith(("t2.", "t3.", "t3a.", "t4g.")) if instance_type else True
 runtime_path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
 PY
+
 chown root:root "${RUNTIME_CONFIG_PATH}"
 chmod 0644 "${RUNTIME_CONFIG_PATH}"
 

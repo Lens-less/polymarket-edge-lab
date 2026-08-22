@@ -136,6 +136,22 @@ def test_v08_capacity_snapshot_calls_fail_closed_capacity_gate(
     assert missing_cpu is not None and missing_cpu["passed"] is False
     assert "cpu_credit_telemetry_unavailable" in missing_cpu["reason_codes"]
 
+    not_applicable = _capture_capacity_snapshot(
+        track,
+        now=now,
+        host_status={
+            "mem_available_bytes": 3 * 1024**3,
+            "cpu_credit_expected": False,
+            "cpu_credit_telemetry_unavailable": {
+                "reason": "cpu_credit_not_applicable"
+            },
+        },
+    )
+    assert not_applicable is not None and not_applicable["passed"] is True
+    assert not_applicable["burstable_cpu_credit_exhausted"] is False
+    assert "cpu_credit_telemetry_unavailable" not in not_applicable["reason_codes"]
+    assert "burstable_cpu_credit_exhausted" not in not_applicable["reason_codes"]
+
 
 def test_v08_capacity_snapshot_uses_recent_window_and_pending_started_are_not_successes(
     tmp_path: Path,
@@ -1329,6 +1345,82 @@ def test_local_host_snapshot_reports_cloudwatch_process_failure(
     assert snapshot["cpu_credit_telemetry_unavailable"]["reason"] == (
         "cloudwatch_process_failed"
     )
+
+
+def test_local_host_snapshot_treats_missing_cpu_credits_as_not_applicable_when_unexpected(
+    tmp_path: Path,
+) -> None:
+    proc_root = tmp_path / "proc"
+    (proc_root / "meminfo").parent.mkdir(parents=True, exist_ok=True)
+    (proc_root / "meminfo").write_text(
+        "MemAvailable:    850000 kB\n",
+        encoding="utf-8",
+    )
+    config_path = _watch_config(tmp_path, include_host=True)
+    config_document = json.loads(config_path.read_text(encoding="utf-8"))
+    config_document["host"]["cpu_credit_expected"] = False
+    config_path.write_text(json.dumps(config_document), encoding="utf-8")
+    config = _load_watch_config(config_path)
+
+    def fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args=args[0],
+            returncode=0,
+            stdout=json.dumps({"Datapoints": []}),
+            stderr="",
+        )
+
+    snapshot = collect_local_host_status(
+        config.tracks,
+        now=datetime(2026, 8, 14, 16, 0, tzinfo=UTC),
+        proc_root=proc_root,
+        host=config.host,
+        subprocess_run=fake_run,
+        aws_cli_path="aws",
+    )
+
+    assert snapshot["cpu_credit_expected"] is False
+    assert "cpu_credit_balance" not in snapshot
+    assert snapshot["cpu_credit_telemetry_unavailable"]["reason"] == (
+        "cpu_credit_not_applicable"
+    )
+
+
+def test_watch_does_not_page_when_cpu_credits_are_not_applicable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = datetime(2026, 8, 14, 16, 0, tzinfo=UTC)
+    config_path = _watch_config(tmp_path, include_host=True)
+    _write_json(
+        tmp_path / "watch" / "host-status.json",
+        {
+            "cpu_credit_refresh_attempted": True,
+            "cpu_credit_expected": False,
+            "cpu_credit_telemetry_unavailable": {
+                "reason": "cpu_credit_not_applicable",
+                "region": "eu-west-1",
+                "instance_id": "i-nonburstable",
+            },
+            "mem_available_bytes": 3 * 1024**3,
+        },
+    )
+    publisher = CollectingPublisher()
+    monkeypatch.setattr(
+        "scripts.watch_paper_tracks._refresh_local_host_status",
+        lambda *args, **kwargs: None,
+    )
+
+    run_watch_cycle(
+        _load_watch_config(config_path),
+        publisher=publisher,
+        now=now,
+    )
+
+    assert "host:cpu_credit_telemetry_unavailable" not in {
+        alert.key for alert in publisher.alerts
+    }
+    assert "host:cpu_credit_low" not in {alert.key for alert in publisher.alerts}
 
 
 def test_watch_replaces_stale_cpu_credit_decline_with_telemetry_unavailable(

@@ -255,6 +255,7 @@ class HostConfig:
     cpu_credit_cloudwatch_period_seconds: int = 300
     cpu_credit_cloudwatch_lookback_seconds: int = 1800
     cpu_credit_cloudwatch_max_age_seconds: int = 900
+    cpu_credit_expected: bool = True
     process_rss_budgets_bytes: Mapping[str, int] | None = None
 
 
@@ -739,10 +740,21 @@ def _capture_capacity_snapshot(
         available_memory = 0
         extra_reasons.append("capture_memory_telemetry_unavailable")
     cpu_balance = host_status.get("cpu_credit_balance")
-    if (
+    cpu_unavailable = host_status.get("cpu_credit_telemetry_unavailable")
+    cpu_expected = host_status.get("cpu_credit_expected", True)
+    if cpu_expected is False:
+        unavailable_reason = None
+        if isinstance(cpu_unavailable, Mapping):
+            unavailable_reason = cpu_unavailable.get("reason")
+        elif isinstance(cpu_unavailable, str):
+            unavailable_reason = cpu_unavailable
+        if cpu_unavailable is not None and unavailable_reason != "cpu_credit_not_applicable":
+            extra_reasons.append("cpu_credit_telemetry_unavailable")
+        cpu_exhausted = False
+    elif (
         isinstance(cpu_balance, bool)
         or not isinstance(cpu_balance, (int, float))
-        or host_status.get("cpu_credit_telemetry_unavailable") is not None
+        or cpu_unavailable is not None
     ):
         cpu_exhausted = True
         extra_reasons.append("cpu_credit_telemetry_unavailable")
@@ -1110,6 +1122,9 @@ def _load_watch_config(path: Path) -> WatchConfig:
             cpu_credit_cloudwatch_max_age_seconds=int(
                 host_document.get("cpu_credit_cloudwatch_max_age_seconds", 900)
             ),
+            cpu_credit_expected=bool(
+                host_document.get("cpu_credit_expected", True)
+            ),
             process_rss_budgets_bytes=(
                 {
                     str(key): int(value)
@@ -1176,6 +1191,7 @@ def collect_local_host_status(
             "MemAvailable",
         ),
         "process_rss_bytes": {},
+        "cpu_credit_expected": True if host is None else host.cpu_credit_expected,
     }
     process_rss: dict[str, int] = {}
     for track in tracks:
@@ -1311,7 +1327,11 @@ def _cloudwatch_cpu_credit_status(
         points.append((observed_at, float(average)))
     if not points:
         snapshot["cpu_credit_telemetry_unavailable"] = {
-            "reason": "cloudwatch_metric_missing",
+            "reason": (
+                "cpu_credit_not_applicable"
+                if not host.cpu_credit_expected
+                else "cloudwatch_metric_missing"
+            ),
             "region": host.cpu_credit_region,
             "instance_id": host.cpu_credit_instance_id,
         }
@@ -1462,13 +1482,14 @@ def _host_alerts_and_state(
             host_state.pop(field, None)
     if unavailable is not None:
         host_state["cpu_credit_telemetry_unavailable"] = unavailable
-        key = "host:cpu_credit_telemetry_unavailable"
-        alerts[key] = AlertRecord(
-            key=key,
-            severity="warn",
-            subject="host CPU credit telemetry unavailable",
-            body=unavailable,
-        )
+        if unavailable.get("reason") != "cpu_credit_not_applicable":
+            key = "host:cpu_credit_telemetry_unavailable"
+            alerts[key] = AlertRecord(
+                key=key,
+                severity="warn",
+                subject="host CPU credit telemetry unavailable",
+                body=unavailable,
+            )
     else:
         host_state.pop("cpu_credit_telemetry_unavailable", None)
     credits = host.get("cpu_credit_balance")
