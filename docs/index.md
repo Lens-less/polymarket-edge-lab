@@ -1,16 +1,16 @@
 # 文档中心
 
-这是 Polymarket BTC 5m/15m 结构对研究仓库的文档入口。
+这是 Polymarket 研究仓库的文档入口。BTC 5m/15m 结构线已 STRUCTURAL STOP。
 通用单边做市机器人（SmartMarketMaker / run_mm.py / TUI）已经删除，
 不要再把本目录当成“v1.0 核心做市已实现”的产品说明。
 
-> **当前结论：策略实盘 NO-GO，执行探针 NO-GO，不建议实盘交易。**
+> **当前结论：结构线关闭，策略实盘 NO-GO，执行探针 NO-GO，不建议实盘交易。**
 
 ## 从这里读
 
-- [实盘完成规格 v0.9.1](../research/btc_5m_15m_edge_readiness_v08_2026-08-18/LIVE_COMPLETION_SPEC.md) — 唯一权威实施合同
-- [v0.8 评估](../research/btc_5m_15m_edge_readiness_v08_2026-08-18/CLAUDE_FINAL_ASSESSMENT.md) — 经济结论
-- [预注册门槛](../research/btc_5m_15m_edge_readiness_v08_2026-08-18/PREREGISTRATION.json) — 冻结数字，不得放宽
+- [结构线停手证明](../research/btc_5m_15m_edge_readiness_v08_2026-08-18/STRUCTURAL_LINE_STOP.md) — 当前权威结论
+- [v0.8 评估](../research/btc_5m_15m_edge_readiness_v08_2026-08-18/CLAUDE_FINAL_ASSESSMENT.md) — 经济算术
+- [预注册门槛](../research/btc_5m_15m_edge_readiness_v08_2026-08-18/PREREGISTRATION.json) — 已标记 STRUCTURAL_STOP
 - [仓库导览](../CLAUDE.md)
 - [路线图](roadmap.md)
 

@@ -11,12 +11,12 @@ Polymarket BTC 5m/15m 结构对（structural pair）edge 就绪性研究项目�
 `src/edge_lab/`（尤其是 `btc_twap_relative_value*.py`、
 `btc_twap_relative_value_readiness.py`）和 `research/btc_5m_15m_*` 下。
 
-截至 2026-08-22：**不建议实盘交易。** 最新评估见
-`research/btc_5m_15m_edge_readiness_v08_2026-08-18/CLAUDE_FINAL_ASSESSMENT.md`
-与实施合同 `LIVE_COMPLETION_SPEC.md`。结构线按当前设计不可盈利；实盘通道
-当前物理上不存在——1,017 个真实盘口样本里正 floor 出现 0 次，且
-`compatibility.py` 的新订单硬门无条件抛异常。在改变这个结论之前不要假设
-"能实盘"或"已验证有效"。
+截至 2026-08-22：**结构线已 STRUCTURAL STOP，不建议实盘交易。** 权威停手证明见
+`research/btc_5m_15m_edge_readiness_v08_2026-08-18/STRUCTURAL_LINE_STOP.md`。
+同到期结构对的公允价值是 `1 + b`（`b >= 0` 由结算强制）；独立复算 1,017 个盘口、
+三个有官方 TWAP 的到期，三种执行口径正 floor 均为 0。不要再为这条线换主机、
+跑 Gate 0、采 200 expiry、写 ProbeVenue 或解除 `compatibility.py` 硬门。
+奖励线不是本策略的修理，未另开预注册前不得当作下一步自动执行。
 
 `src/` 下还保留一层通用的 Polymarket API 基础设施（认证、订单查询/下单、
 风控、市场数据、DRY_RUN 模拟器）——它不是任何特定策略的专属代码，是未来
@@ -69,7 +69,7 @@ src/
 └── simulator.py        # DRY_RUN 无风险模拟成交
 ```
 
-不要在 `src/` 下重建一个通用做市策略模块；BTC 结构对是本项目唯一的策略。
+不要在 `src/` 下重建一个通用做市策略模块。BTC 结构对已经 STRUCTURAL STOP，不是可交易策略。
 
 ## 实盘安全边界
 
@@ -79,9 +79,7 @@ src/
   与 `current_sdk_installed` 不需要认证证据就能为 true；其余 6 项（V2 适配器、
   pUSD 对账、签名路径、成交终态对账、geoblock 两项）需要授权的认证探针才能
   转 true，不能自证据。
-- 任何解除硬门的改动都必须先完成
-  `research/btc_5m_15m_edge_readiness_v08_2026-08-18/LIVE_COMPLETION_SPEC.md`
-  里 WP-S0/S1/E0 的全部前置条件。`IMPLEMENTATION_AND_RUNBOOK.md` 只记录已实现表面，不能单独授权下单。
+- 结构线已关闭。任何解除硬门的改动都与本仓库当前策略无关；不要为已死亡的结构线完成 WP-S0/S1/E0。
 
 ## 关键模式
 
@@ -160,7 +158,7 @@ def test_order_flow():
 | `src/orders.py` | 订单查询 |
 | `research/btc_5m_15m_edge_readiness_v08_2026-08-18/CLAUDE_FINAL_ASSESSMENT.md` | 最新策略结论 |
 | `research/btc_5m_15m_edge_readiness_v08_2026-08-18/IMPLEMENTATION_AND_RUNBOOK.md` | 部署与验证步骤 |
-| `research/btc_5m_15m_edge_readiness_v08_2026-08-18/LIVE_COMPLETION_SPEC.md` | 实盘完成规格（当前实施合同） |
+| `research/btc_5m_15m_edge_readiness_v08_2026-08-18/STRUCTURAL_LINE_STOP.md` | 结构线停手证明（当前权威结论） |
 
 ## 依赖
 

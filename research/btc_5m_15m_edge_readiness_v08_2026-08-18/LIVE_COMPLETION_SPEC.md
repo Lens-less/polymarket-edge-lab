@@ -1,3 +1,5 @@
+> **已被取代（2026-08-22）：结构线已 STRUCTURAL STOP。** 本文件保留为历史实施合同，不再授权 WP-E2/S0/S1/E0/E1/L。当前权威结论见 [STRUCTURAL_LINE_STOP.md](STRUCTURAL_LINE_STOP.md)。
+
 # BTC 5m/15m 实盘完成规格 v0.9.1
 
 Status: **strategy live NO-GO**; **execution probe NO-GO**.
