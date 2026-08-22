@@ -66,7 +66,7 @@ v08 评估 §10 里写的 A.3b / A.6 / A.4“还没做”，**已被后续提交
 | E1 | `compatibility.py` 八项里 `repository_v2_adapter_implemented` 被硬编码 `False`；认证三项必须来自授权探针；本机 geoblock 曾超时 | P0 工程 | 布尔映射不能放行；硬门必须保持 |
 | E2 | 采集失败率曾 93.3%；t3.small CPU credit ≈0；磁盘距软停 148 MiB；rawcap 5.3 GB/天 | P0 运维 | 统计与探针晋级全部停 |
 | E3 | SNS topic 订阅数为 0；CLOB WS 约 30s 断连 | P0 运维 | 没人收到告警；实盘必须断线即撤单 |
-| H0 | 通用做市删除与文档/安全测试同步；WP-H0 卫生提交绑定本规格 | P1 卫生 | 不提交会让后续适配器基于脏树 |
+| H0 | 通用做市删除与文档/安全测试同步已提交 `dd10709` | P1 卫生 | 不要重建 `src/strategy/` |
 | H1 | Windows 全量测试有环境失败；Linux/Python 3.12 才是发布验证 | P1 | `fcntl`/POSIX durability 在 Windows 被有意跳过 |
 
 ### 1.3 冻结的负证据
@@ -621,8 +621,8 @@ L2 八项盈利门槛继续适用（真实数据、严格 OOS、pessimistic fill
 
 | 门 | 权威产物 | 当前 |
 |---|---|---|
-| 卫生提交 | 干净 git HEAD | WP-H0 本提交 |
-| 失败分类 | `CAPTURE_FAILURE_TAXONOMY.md` | 未做 |
+| 卫生提交 | 干净 git HEAD | WP-H0 已提交 `dd10709` |
+| 失败分类 | `CAPTURE_FAILURE_TAXONOMY.md` | WP-E2.0 已分类；主因 `capacity_backpressure`；WP-E2 主机整改未开始 |
 | 容量 | `btc-twap-capture-capacity-evidence.v1` | 无主机证据 |
 | v0.8 Gate 0 41 | 对照报告，不可授权 | 默认不可恢复 |
 | v0.9 Gate 0 N | 预锁 exact count 的报告 `decision=PASS` | 尚未开 track |
