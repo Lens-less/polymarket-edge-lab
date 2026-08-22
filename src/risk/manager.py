@@ -14,7 +14,6 @@ In enforcement mode (RISK_ENFORCE=true):
 """
 
 import time
-from collections.abc import Mapping, Sequence
 from enum import Enum
 from decimal import Decimal
 from typing import Dict, List, Optional
@@ -38,7 +37,7 @@ from src.config import (
     CORRELATION_THRESHOLD,
     MAX_CORRELATED_EXPOSURE,
 )
-from src.models import Order, OrderSide
+from src.models import OrderSide
 from src.orders import get_open_orders, get_position
 from src.trading import cancel_all_orders
 from src.utils import setup_logging
@@ -174,9 +173,6 @@ class RiskManager:
     def check(
         self,
         token_ids: Optional[List[str]] = None,
-        *,
-        position_snapshots: Mapping[str, Decimal] | None = None,
-        open_order_snapshots: Mapping[str, Sequence[Order]] | None = None,
     ) -> RiskCheck:
         """
         Run all risk checks.
@@ -190,31 +186,13 @@ class RiskManager:
         Note:
             If enforce=False, logs STOP/WARN events but returns OK to continue trading.
             This allows maximum data collection in dry-run mode.
-
-        Warning:
-            position_snapshots/open_order_snapshots let a caller substitute
-            its own account view in place of this check's own live reads.
-            That is a deliberate escape hatch for one purpose only: passing
-            through the *same* LiveAccountSnapshot the caller's trading loop
-            already captured this iteration (see
-            SmartMarketMaker._get_live_account_snapshot), where open orders
-            are read before the balance so a fill racing that pair biases
-            toward conservative (over-, not under-, stated) exposure. Do not
-            pass a snapshot assembled from any other source, a cached value
-            from a prior iteration, or reads taken in the opposite order --
-            doing so lets risk enforcement see exposure the account no
-            longer has, or miss exposure it already does.
         """
         # Always check kill switch (even in non-enforce mode, manual kills apply)
         if self._killed:
             return RiskCheck(RiskStatus.STOP, f"Kill switch: {self._kill_reason}")
 
         # Run all checks
-        check = self._run_checks(
-            token_ids,
-            position_snapshots=position_snapshots,
-            open_order_snapshots=open_order_snapshots,
-        )
+        check = self._run_checks(token_ids)
 
         # If not enforcing and check failed, log but return OK
         if check.status != RiskStatus.OK and not self.enforce:
@@ -234,9 +212,6 @@ class RiskManager:
     def _run_checks(
         self,
         token_ids: Optional[List[str]] = None,
-        *,
-        position_snapshots: Mapping[str, Decimal] | None = None,
-        open_order_snapshots: Mapping[str, Sequence[Order]] | None = None,
     ) -> RiskCheck:
         """Run all risk checks and return the result."""
         # Check cooldown
@@ -257,11 +232,7 @@ class RiskManager:
         # Check positions
         pos_check = RiskCheck(RiskStatus.OK)
         if token_ids:
-            pos_check = self._check_positions(
-                token_ids,
-                position_snapshots=position_snapshots,
-                open_order_snapshots=open_order_snapshots,
-            )
+            pos_check = self._check_positions(token_ids)
             if pos_check.status == RiskStatus.STOP:
                 return pos_check
 
@@ -329,9 +300,6 @@ class RiskManager:
     def _check_positions(
         self,
         token_ids: List[str],
-        *,
-        position_snapshots: Mapping[str, Decimal] | None = None,
-        open_order_snapshots: Mapping[str, Sequence[Order]] | None = None,
     ) -> RiskCheck:
         """Check projected position limits, including outstanding live orders."""
         total_exposure = Decimal("0")
@@ -339,17 +307,8 @@ class RiskManager:
         effective_limit = min(self._vol_adjusted_position, dynamic_limit)
 
         for token_id in token_ids:
-            position = (
-                position_snapshots[token_id]
-                if position_snapshots is not None and token_id in position_snapshots
-                else get_position(token_id)
-            )
-            open_orders = (
-                open_order_snapshots[token_id]
-                if open_order_snapshots is not None
-                and token_id in open_order_snapshots
-                else get_open_orders(token_id, raise_on_error=True)
-            )
+            position = get_position(token_id)
+            open_orders = get_open_orders(token_id, raise_on_error=True)
             pending_buy = sum(
                 order.remaining
                 for order in open_orders

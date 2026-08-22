@@ -1,7 +1,7 @@
 # BTC 5m/15m shared-terminal structural readiness v0.8
 
 Status: strategy live **NO-GO**; execution probe **NO-GO**. This specification
-defines evidence and controls only. It does not enable credentials or orders.
+defines evidence and controls only. It does not enable credentials or orders. The live-path work packages live in `LIVE_COMPLETION_SPEC.md`.
 
 ## Settlement invariant
 

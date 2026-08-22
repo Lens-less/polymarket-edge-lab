@@ -2,11 +2,12 @@
 
 这是一个面向 Polymarket 的公开数据研究与成交感知回放工程。主线不再是“对称挂单后调 spread”，而是独立研究天气概率、跨市场逻辑约束、标准/augmented Neg-Risk、选择性奖励做市和标的价格延迟。
 
-> **截至 2026-08-18：没有找到经过严格认定的回测盈利策略，不建议实盘交易。**
+> **截至 2026-08-22：没有找到经过严格认定的回测盈利策略，不建议实盘交易。**
 >
-> BTC 5m/15m 的 Gate 0 已修为全窗口、三执行口径，但本地缺少 41 个部署
+> BTC 5m/15m 的 Gate 0 代码已修为全窗口、三执行口径，但本地缺少 41 个部署
 > capture tree 与 200 个双 maker shadow 到期样本。运行时已迁到官方统一 SDK；
-> 新订单仍需八项兼容性证据全部通过，普通研究命令不会读取钱包私钥或凭证。
+> 新订单硬门仍无条件拒绝。完整实盘改造合同见
+> [LIVE_COMPLETION_SPEC.md](research/btc_5m_15m_edge_readiness_v08_2026-08-18/LIVE_COMPLETION_SPEC.md)。
 
 最终证据入口：
 
@@ -17,6 +18,7 @@
 - [实验注册表](research/edge_discovery_2026-07-24/EXPERIMENT_REGISTRY.jsonl)
 - [复现说明](research/edge_discovery_2026-07-24/REPRODUCTION.md)
 - [实盘就绪审计](research/edge_discovery_2026-07-24/LIVE_READINESS.md)
+- [v0.8 实盘完成规格](research/btc_5m_15m_edge_readiness_v08_2026-08-18/LIVE_COMPLETION_SPEC.md)
 - [当前官方一手资料](research/edge_discovery_2026-07-24/PRIMARY_SOURCES.md)
 
 ## 证据等级
@@ -261,9 +263,13 @@ git diff --check
 
 具体的最终测试数量、manifest verifier 和逐实验复现命令写在 [REPRODUCTION.md](research/edge_discovery_2026-07-24/REPRODUCTION.md)，避免 README 中的固定测试徽章随新增测试失真。
 
-## 旧做市程序
+## 旧做市程序（已删除）
 
-`run_mm.py`、`run_tui.py` 和 `src/strategy/` 仍保留用于兼容与工程诊断。旧 `real_data_backtest` 实际是当前快照加合成路径，存在强制穿越价差、缺少队列、空头/翻仓记账错误等问题；其结果已被降为 L0，不能作为盈利依据。
+`run_mm.py`、`run_tui.py`、`src/strategy/`、`src/tui/` 曾经是一个与本项目
+BTC 5m/15m 结构对策略无关的通用单边做市机器人（从 Polymarket 全站自动选
+"打分最高"的市场挂价差单）。它的 `real_data_backtest` 结果早已被降为 L0、
+不能作为盈利依据；2026-08-21 已将其连同专属测试彻底删除，避免被误认为是
+本项目的策略入口。真正的策略见 `src/edge_lab/` 与 `research/btc_5m_15m_*`。
 
 ## 免责声明
 

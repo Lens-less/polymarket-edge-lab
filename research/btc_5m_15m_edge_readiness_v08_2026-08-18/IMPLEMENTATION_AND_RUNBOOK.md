@@ -1,5 +1,7 @@
 # v0.8 readiness implementation and runbook
 
+The complete live-path implementation contract is `LIVE_COMPLETION_SPEC.md`. This runbook remains the inventory of already implemented surfaces. It does not authorize orders.
+
 ## Current decision
 
 Strategy live: **NO-GO**. Execution probe: **NO-GO**. The repaired Gate 0 and

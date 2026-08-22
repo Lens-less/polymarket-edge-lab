@@ -50,13 +50,8 @@ pytest --cov=src tests/
 ### 启用调试日志
 ```bash
 export LOG_LEVEL=DEBUG
-python run_mm.py
 ```
-
-### 使用 TUI 进行实时调试
-```bash
-python run_tui.py
-```
+（`run_mm.py`/`run_tui.py` 已随通用做市机器人一起删除，见 `../../CLAUDE.md`）
 
 ### 使用模拟数据测试
 ```python

@@ -4,7 +4,29 @@
 
 ## 项目概述
 
-Polymarket 做市商机器人 - 一个面向 Polymarket 预测市场的生产级自动化做市系统。在 YES/NO 预测市场提供双向流动性，通过买卖价差（Spread）赚取收益并获取流动性奖励。
+Polymarket BTC 5m/15m 结构对（structural pair）edge 就绪性研究项目。核心假设：
+同一个 60 秒 TWAP 结算的 5m/15m 市场对，`floor 对 = 买 5m Down + 买 15m Up`
+（或反过来）在 `b ≥ 0`（市场隐含分裂概率）时，成本恒等于 `1 + b`；如果能以
+低于 `1 + b` 的价格双腿挂单成交，就有正 floor。真正的策略与证据体系在
+`src/edge_lab/`（尤其是 `btc_twap_relative_value*.py`、
+`btc_twap_relative_value_readiness.py`）和 `research/btc_5m_15m_*` 下。
+
+截至 2026-08-22：**不建议实盘交易。** 最新评估见
+`research/btc_5m_15m_edge_readiness_v08_2026-08-18/CLAUDE_FINAL_ASSESSMENT.md`
+与实施合同 `LIVE_COMPLETION_SPEC.md`。结构线按当前设计不可盈利；实盘通道
+当前物理上不存在——1,017 个真实盘口样本里正 floor 出现 0 次，且
+`compatibility.py` 的新订单硬门无条件抛异常。在改变这个结论之前不要假设
+"能实盘"或"已验证有效"。
+
+`src/` 下还保留一层通用的 Polymarket API 基础设施（认证、订单查询/下单、
+风控、市场数据、DRY_RUN 模拟器）——它不是任何特定策略的专属代码，是未来
+任何执行适配器（包括 BTC 结构对的 double-maker probe）都会复用的底座。
+
+**曾经存在一个通用的单边做市机器人**（`src/strategy/` 的 `SmartMarketMaker`，
+入口 `run_mm.py`/`run_tui.py`）——它与 BTC 结构对策略无关，只是从 Polymarket
+全站自动选一个"打分最高"的市场去挂价差单。这套代码已被彻底删除
+（连同 `src/tui/`、`Dockerfile`、若干专属测试），因为它不是这个项目的策略，
+容易被误认为"策略入口"而跑错方向。
 
 ## 常用命令
 
@@ -12,75 +34,54 @@ Polymarket 做市商机器人 - 一个面向 Polymarket 预测市场的生产级
 # 安装依赖
 pip install -r requirements.txt
 
-# 模拟交易模式运行（默认）
-python run_mm.py
-
-# 带终端仪表盘运行
-python run_tui.py
-
-# 实盘交易模式运行（需要 API 凭证）
-DRY_RUN=false python run_mm.py
-
-# 运行所有测试
+# 运行全部测试
 pytest tests/ -v
 
-# 运行特定测试文件
-pytest tests/test_smart_mm.py -v
-pytest tests/test_safety.py -v
+# 运行 BTC 结构对相关测试
+pytest tests/ -v -k "btc_twap"
 
-# 运行回测
-python scripts/run_backtest.py
+# 只读、无凭证地采集当前 BTC 5m/15m 盘口，验证结构 floor 是否存在
+cd research/btc_5m_15m_edge_readiness_v08_2026-08-18/tools
+python live_structural_probe.py <运行分钟数> <采样间隔秒> <输出.jsonl>
+python analyze_structural_floor.py <输出.jsonl>
+
+# 通用回测引擎（与具体策略无关）
+python scripts/run_backtest.py --mock
 ```
 
 ## 项目架构
 
-代码库按功能模块组织：
-
-- **src/strategy/** - 核心做市逻辑：`SmartMarketMaker` 类管理主交易循环、报价计算、库存偏斜和订单下单
-- **src/feed/** - 市场数据基础设施：通过 `MarketFeed` 的 WebSocket + REST 备用方案获取订单簿和交易数据
-- **src/risk/** - 风险管理：`RiskManager` 强制执行仓位限制、凯利公式仓位管理、反向选择检测和熔断机制
-- **src/alpha/** - Alpha 信号生成：套利检测、竞争者分析、订单流信号、市场状态检测
-- **src/backtest/** - 历史回测引擎用于策略验证
-- **src/tui/** - 富终端仪表盘用于实时监控
-- **src/telemetry/** - 交易日志和延迟监控
-
-入口点：`run_mm.py`（CLI）、`run_tui.py`（仪表盘）
-
-### 数据流
-
-1. `MarketFeed` 订阅 WebSocket 获取实时订单簿更新
-2. `SmartMarketMaker` 使用波动率、库存和流信号计算报价
-3. `RiskManager` 验证每个报价是否符合仓位限制和熔断条件
-4. 订单通过 `Client`（CLOB API）下单或在 DRY_RUN 模式中模拟
-5. 成交由 `PartialFillHandler` 处理并更新库存
-6. `TradeLogger` 记录所有活动用于分析
-
-### 目录结构详解
-
 ```
 src/
-├── strategy/          # 核心做市策略
-│   ├── market_maker.py    # SmartMarketMaker 主类
-│   ├── runner.py          # CLI 入口点
-│   ├── inventory.py       # 库存管理
-│   ├── volatility.py      # 波动率计算
+├── edge_lab/           # BTC 5m/15m 结构对策略与就绪性证据体系（真正的策略在这里）
+│   ├── btc_twap_relative_value*.py       # 结构对定价、执行、影子回放
+│   ├── btc_twap_relative_value_readiness.py  # Gate 0 / 就绪性判定
+│   ├── btc_twap_pair_pricing.py          # 双腿盘口选择与报价
+│   ├── btc_twap_execution_probe.py       # 实盘探针 harness（无凭证、无适配器）
+│   ├── compatibility.py                  # 新订单硬门（无条件拒绝，见下）
 │   └── ...
-├── feed/             # 市场数据
-│   ├── feed.py            # MarketFeed 主类
-│   ├── websocket_conn.py  # WebSocket 连接
-│   └── rest_poller.py     # REST 备用
-├── risk/             # 风险管理
-│   ├── manager.py         # RiskManager 主类
-│   ├── kelly.py          # 凯利公式
-│   └── ...
-├── alpha/            # Alpha 信号
-│   ├── arbitrage.py      # 套利检测
-│   ├── flow_signals.py   # 订单流分析
-│   └── ...
-├── backtest/         # 回测引擎
-├── tui/              # 终端 UI
-└── telemetry/        # 遥测
+├── feed/               # 市场数据：`MarketFeed` 的 WebSocket + REST 备用方案
+├── risk/               # 风险管理：`RiskManager` 仓位限制、熔断机制
+├── backtest/           # 通用历史回测引擎，与具体策略解耦
+├── telemetry/          # 交易日志
+├── auth.py, client.py  # 官方 polymarket-client 0.6.0 封装（认证/公开客户端）
+├── orders.py, trading.py  # 订单查询/下单，DRY_RUN 与 LIVE 分流
+└── simulator.py        # DRY_RUN 无风险模拟成交
 ```
+
+不要在 `src/` 下重建一个通用做市策略模块；BTC 结构对是本项目唯一的策略。
+
+## 实盘安全边界
+
+- `src/edge_lab/compatibility.py` 的 `assert_new_orders_disabled()` **无条件抛
+  异常**，是新订单的硬门。不要移除、削弱或绕过它。
+- 8 项实盘就绪检查（`compatibility_audit()`）里，只有 `legacy_v1_dependency_absent`
+  与 `current_sdk_installed` 不需要认证证据就能为 true；其余 6 项（V2 适配器、
+  pUSD 对账、签名路径、成交终态对账、geoblock 两项）需要授权的认证探针才能
+  转 true，不能自证据。
+- 任何解除硬门的改动都必须先完成
+  `research/btc_5m_15m_edge_readiness_v08_2026-08-18/LIVE_COMPLETION_SPEC.md`
+  里 WP-S0/S1/E0 的全部前置条件。`IMPLEMENTATION_AND_RUNBOOK.md` 只记录已实现表面，不能单独授权下单。
 
 ## 关键模式
 
@@ -88,165 +89,47 @@ src/
 - **Dataclass** - 数据传输对象
 - **类型提示** - 全程使用
 - **polymarket-client 0.6.0** - 官方统一 Polymarket API SDK
-- **WebSocket + REST 备用** - 数据韧性
 - **DRY_RUN 模式** - 使用 `OrderSimulator` 进行无风险模拟交易
+- **预注册 + 停手条件** - edge_lab 的就绪性判定不接受自报证据；停手条件写在
+  `PREREGISTRATION.json` / `CLAUDE_FINAL_ASSESSMENT.md` §8 里，不能事后放宽
 
 ## 配置
 
-通过 `.env` 中的约 80 个环境变量配置。关键配置：
+通过 `.env` 配置，参考 `.env.example`。关键配置：
 
-- `DRY_RUN=true` - 模拟交易（默认）
-- `MM_SPREAD=0.04` - 基础价差（4 美分）
-- `MM_SIZE=10` - 订单数量（合约数）
-- `RISK_MAX_POSITION=100` - 单币种最大仓位
-
-完整配置参考见 `.env.example`。
-
-### 配置分类
-
-1. **网络配置** - CHAIN_ID, API URLs
-2. **认证配置** - POLY_* 凭证
-3. **WebSocket 配置** - 重连、心跳设置
-4. **交易配置** - DRY_RUN, 仓位限制, 订单大小
-5. **做市配置** - 价差、重报价阈值、Timing
-6. **市场选择** - 交易量、价差、价格过滤
-7. **Alpha 配置** - 套利、流、竞争者、状态设置
-8. **风险配置** - 亏损限值、凯利、反向选择
-
-## 安全功能
-
-机器人包含生产级安全功能：
-
-- **启动清理** - 取消上次会话遗留的孤儿订单
-- **断连自动取消** - WebSocket 断开时取消所有订单
-- **僵尸订单清理** - 5 分钟超时自动清理
-- **余额监控** - 带告警的余额监控
-- **熔断机制** - 错误过多或亏损超限自动停止
+- `DRY_RUN=true` - 模拟交易（默认）；`DRY_RUN=false` 仍会被上面的硬门拦截
+- `RISK_MAX_POSITION` - 单币种最大仓位
 
 ## 测试模式
-
-### 单元测试
-
-```python
-# 使用模拟数据测试
-from src.feed.mock import MockFeed
-
-feed = MockFeed()
-feed.set_midpoint("token", Decimal("0.50"))
-feed.set_health(True)
-
-# 测试风险管理器
-from src.risk import get_risk_manager, reset_risk_manager
-
-def test_something():
-    reset_risk_manager()  # 新实例
-    risk = get_risk_manager()
-    # ...
-```
-
-### 集成测试
-
-```python
-# 使用模拟器测试
-from src.simulator import get_simulator, reset_simulator
-
-def test_order_flow():
-    reset_simulator()
-    sim = get_simulator()
-
-    order = sim.place_order(token_id, OrderSide.BUY, Decimal("0.50"), Decimal("10"))
-    assert order is not None
-```
-
-### 运行测试
 
 ```bash
 # 所有测试
 pytest tests/ -v
 
-# 特定模块
-pytest tests/test_smart_mm.py -v
+# BTC 结构对 / Gate 0 相关
+pytest tests/ -v -k "btc_twap"
 
 # 带覆盖率
 pytest --cov=src tests/
-
-# 跳过慢速测试
-pytest tests/ -v -m "not slow"
 ```
 
-## 常见工作流程
+```python
+# 测试风险管理器
+from src.risk import get_risk_manager, reset_risk_manager
 
-### 添加新的 Alpha 信号
+def test_something():
+    reset_risk_manager()
+    risk = get_risk_manager()
 
-1. 在 `src/alpha/` 创建信号类：
-   ```python
-   @dataclass
-   class MySignal:
-       value: float
-       confidence: float
-       direction: str
+# 测试 DRY_RUN 模拟器
+from src.simulator import get_simulator, reset_simulator
 
-   class MyAnalyzer:
-       def __init__(self, window_size: int):
-           self._data = deque(maxlen=window_size)
-
-       def record(self, value: float):
-           self._data.append(value)
-
-       def get_signal(self) -> MySignal:
-           # 分析逻辑
-           pass
-   ```
-
-2. 添加配置变量到 `src/config.py`
-3. 集成到 `SmartMarketMaker._calculate_quotes()`
-4. 在 `tests/test_my_signal.py` 添加测试
-5. 从 `src/alpha/__init__.py` 导出
-
-### 添加风险检查
-
-1. 添加到 `RiskManager._run_checks()`：
-   ```python
-   def _check_my_condition(self) -> bool:
-       """返回 True 表示风险正常"""
-       if some_condition:
-           self._log_risk_event("MY_CHECK", {"details": "..."})
-           return False
-       return True
-   ```
-
-2. 添加配置阈值到 `src/config.py`
-3. 添加测试
-
-### 修改报价逻辑
-
-1. 所有报价计算在 `SmartMarketMaker._calculate_quotes()`
-2. 调整因子相乘基础价差：
-   ```python
-   effective_spread = (
-       SPREAD_BASE
-       * vol_multiplier
-       * regime_multiplier
-       * competitor_multiplier
-   )
-   ```
-3. 偏斜移动中点：
-   ```python
-   adjusted_mid = mid + inventory_skew + flow_skew
-   ```
-
-## 实盘交易检查清单
-
-上线前：
-
-- [ ] 在 DRY_RUN 模式测试通过
-- [ ] 验证熔断机制正常（`risk.kill_switch()`）
-- [ ] 确认断连自动取消触发
-- [ ] 检查僵尸订单清理运行
-- [ ] 验证余额监控告警正常
-- [ ] 从小 `MM_SIZE` 和 `RISK_MAX_POSITION` 开始
-- [ ] 前 24 小时主动监控
-- [ ] 准备好手动取消脚本
+def test_order_flow():
+    reset_simulator()
+    sim = get_simulator()
+    order = sim.place_order(token_id, OrderSide.BUY, Decimal("0.50"), Decimal("10"))
+    assert order is not None
+```
 
 ## 故障排查
 
@@ -259,31 +142,25 @@ pytest tests/ -v -m "not slow"
 - 模拟器需要价格交叉才能成交
 - 检查 `sim.process_fills()` 是否被调用
 
-### 实盘订单被拒绝
-- 验证凭证是否设置
-- 检查余额/授权
-- 验证 tick 大小（0.01 增量）
-- 检查仓位限制
-
-### 反向选择过高
-- 订单流可能知情，加宽价差
-- 检查 `ADVERSE_TOXIC_THRESHOLD` 设置
-- 考虑退出该市场
+### 实盘订单被拒绝 / 被硬门拦截
+- 这是预期行为，不是 bug——见上面"实盘安全边界"
+- 不要为了让订单通过而修改 `compatibility.py`
 
 ## 关键文件参考
 
 | 文件 | 用途 |
 |------|------|
-| `run_mm.py` | 主入口 |
-| `run_tui.py` | TUI 入口 |
 | `src/config.py` | 所有配置 |
-| `src/strategy/market_maker.py` | 核心策略 |
-| `src/strategy/runner.py` | 带市场选择的 CLI 运行器 |
+| `src/edge_lab/btc_twap_relative_value_readiness.py` | Gate 0 / 就绪性判定核心 |
+| `src/edge_lab/compatibility.py` | 新订单硬门 + 8 项就绪性检查 |
 | `src/risk/manager.py` | 中心化风险控制 |
 | `src/feed/feed.py` | 市场数据源 |
 | `src/simulator.py` | DRY_RUN 订单模拟 |
 | `src/trading.py` | 订单下单 |
 | `src/orders.py` | 订单查询 |
+| `research/btc_5m_15m_edge_readiness_v08_2026-08-18/CLAUDE_FINAL_ASSESSMENT.md` | 最新策略结论 |
+| `research/btc_5m_15m_edge_readiness_v08_2026-08-18/IMPLEMENTATION_AND_RUNBOOK.md` | 部署与验证步骤 |
+| `research/btc_5m_15m_edge_readiness_v08_2026-08-18/LIVE_COMPLETION_SPEC.md` | 实盘完成规格（当前实施合同） |
 
 ## 依赖
 
@@ -294,18 +171,17 @@ websockets        # WebSocket 连接
 pandas            # 数据分析
 pytest            # 测试
 pytest-asyncio    # 异步测试支持
-rich              # TUI 渲染
 requests          # HTTP 客户端
 numpy             # 相关性计算
 ```
 
 ## 其他文档
 
-- [用户文档](docs/user/) - 面向非技术用户（快速开始、配置、安全、FAQ）
-- [开发者文档](docs/developer/) - 面向贡献者（架构、搭建、贡献）
-- [路线图](docs/roadmap.md) - 项目计划和未来功能
+- [用户文档](docs/user/) - 面向非技术用户（快速开始、配置、安全、FAQ）——部分内容
+  仍描述已删除的通用做市机器人，未完全更新，请以本文件和 `research/` 下的最新
+  评估为准
+- [开发者文档](docs/developer/) - 面向贡献者（架构、搭建、贡献）——同上
 
 ---
 
-*最后更新：2026-03-23*
-*测试：339 个通过*
+*最后更新：2026-08-22*

@@ -20,13 +20,14 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_runtime_dependencies_use_the_official_unified_sdk_only() -> None:
     pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     requirements = (ROOT / "requirements.in").read_text(encoding="utf-8")
-    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
 
     assert '"polymarket-client==0.6.0"' in pyproject
     assert "polymarket-client==0.6.0" in requirements
     assert "py-clob-client" not in pyproject
     assert "py-clob-client" not in requirements
-    assert "pip install py-clob-client" not in dockerfile
+    # The Dockerfile (built solely to containerize the now-deleted generic
+    # SmartMarketMaker entry points) was removed 2026-08-21; no container
+    # image build path remains to check.
     legacy_imports = [
         path
         for path in (ROOT / "src").rglob("*.py")
