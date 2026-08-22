@@ -162,6 +162,23 @@ def _write_status(path: Path, summary_path: Path) -> None:
     path.write_text(json.dumps(document), encoding="utf-8")
 
 
+def test_v08_clock_policy_uses_runtime_capture_contract(tmp_path: Path) -> None:
+    preregistration = tmp_path / "PREREGISTRATION.json"
+    preregistration.write_text(
+        json.dumps(
+            {
+                "schema_version": "btc-5m-15m-edge-readiness-preregistration.v08-draft",
+                "runtime_capture_contract": {
+                    "clock_sync_source": "Chrony Amazon Time Sync Service 169.254.169.123",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert checker._clock_policy_limits(preregistration) == (100, 1_200_000)
+
+
 def test_health_check_surfaces_monitoring_summary(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
