@@ -185,7 +185,14 @@ class TrackConfig:
     expected_cycle_seconds: int = 900
     maximum_heartbeat_age_seconds: int = 60
     attempt_receipt_glob: str = ""
-    started_receipt_stale_seconds: int = 1800
+    # A compact-capture attempt's receipt is only touched at bootstrap and at
+    # terminal status; it is not re-stamped while the capture itself runs.
+    # A cohort's own duration already runs up to ~42 minutes (a 6-21 minute
+    # startup lead before the 15m open, plus the 15 minute K15 window, plus a
+    # 6 minute settlement grace) before a healthy attempt reaches "succeeded"
+    # or "failed". A threshold below that mislabels a still-running, healthy
+    # attempt as stuck.
+    started_receipt_stale_seconds: int = 3600
     attempt_receipt_recent_window_count: int = 96
     attempt_receipt_recent_window_hours: int = 24
     expected_regime: str | None = None
@@ -979,7 +986,7 @@ def watch_once(
                 ),
                 attempt_receipt_glob=str(track.get("attempt_receipt_glob", "")),
                 started_receipt_stale_seconds=int(
-                    track.get("started_receipt_stale_seconds", 1800)
+                    track.get("started_receipt_stale_seconds", 3600)
                 ),
                 attempt_receipt_recent_window_count=int(
                     track.get("attempt_receipt_recent_window_count", 96)

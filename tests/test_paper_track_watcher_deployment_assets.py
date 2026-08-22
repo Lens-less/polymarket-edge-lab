@@ -134,7 +134,7 @@ def test_watch_config_tracks_v05_v06_v07_v08_and_rawcap() -> None:
     assert v08["attempt_receipt_glob"].endswith(
         "/data/service/attempt-receipts/*.json"
     )
-    assert v08["started_receipt_stale_seconds"] == 1800
+    assert v08["started_receipt_stale_seconds"] == 3600
     assert v08["attempt_receipt_recent_window_count"] == 96
     assert v08["attempt_receipt_recent_window_hours"] == 24
     assert v08["health_path"].endswith(

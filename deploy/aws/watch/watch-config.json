@@ -67,7 +67,7 @@
       "data_root": "/var/lib/poly-mm-v08/data",
       "capture_summary_glob": "/var/lib/poly-mm-v08/data/runs/*/*/capture-summary.json",
       "attempt_receipt_glob": "/var/lib/poly-mm-v08/data/service/attempt-receipts/*.json",
-      "started_receipt_stale_seconds": 1800,
+      "started_receipt_stale_seconds": 3600,
       "attempt_receipt_recent_window_count": 96,
       "attempt_receipt_recent_window_hours": 24,
       "expected_cycle_seconds": 900,
