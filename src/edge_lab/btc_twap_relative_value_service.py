@@ -377,6 +377,7 @@ class CompactRecorderSink:
         ] = {}
         self._depth_timestamp_ms: dict[str, int] = {}
         self._last_emitted_book_ms: dict[str, int] = {}
+        self._last_top_of_book: dict[str, tuple[Decimal | None, Decimal | None]] = {}
         self._seen_data_identities: OrderedDict[
             tuple[str, str, str | None, str],
             str,
@@ -565,7 +566,16 @@ class CompactRecorderSink:
         self,
         compact: Mapping[str, Any],
     ) -> Any:
-        """Persist only target top-of-book changes, never the raw CLOB frame."""
+        """Persist only target top-of-book changes, never the raw CLOB frame.
+
+        The upstream price_change stream reports best_bid/best_ask on every
+        message that touches an allowed token, including changes deeper in
+        the book that leave the actual touch level unmoved. Persisting
+        unconditionally turns "top-of-book changes" into "every relevant
+        message", which is the raw-frame volume this sink exists to avoid.
+        Only emit an asset's entry when its best_bid or best_ask actually
+        differs from the last value seen for that asset.
+        """
 
         payload = compact.get("payload")
         if not isinstance(payload, Mapping):
@@ -586,7 +596,12 @@ class CompactRecorderSink:
                 or (best_bid is None and best_ask is None)
             ):
                 continue
-            item: dict[str, str | None] = {"asset_id": str(token_id)}
+            token = str(token_id)
+            current = (best_bid, best_ask)
+            if self._last_top_of_book.get(token) == current:
+                continue
+            self._last_top_of_book[token] = current
+            item: dict[str, str | None] = {"asset_id": token}
             if best_bid is not None:
                 item["best_bid"] = str(best_bid)
             if best_ask is not None:

@@ -1006,3 +1006,88 @@ async def test_compact_sink_can_keep_top_changes_without_reconstructed_depth(
         ],
         "source_event_type": "price_change",
     }
+
+
+@pytest.mark.asyncio
+async def test_top_of_book_changes_dedup_repeated_best_bid_ask(
+    tmp_path: Path,
+) -> None:
+    """A price_change that leaves the touch level unmoved must not be re-persisted.
+
+    The upstream stream reports best_bid/best_ask on every message that
+    touches an allowed token, including changes deeper in the book. Without
+    dedup this turns "top-of-book changes" into "every relevant message".
+    """
+
+    from src.edge_lab.btc_twap_relative_value_service import CompactRecorderSink
+
+    def price_change_record(*, size: str, best_bid: str, best_ask: str) -> dict:
+        return {
+            "schema_version": "clob-market-ws.price_change.v1",
+            "source": "clob_market_ws",
+            "received_at": "1970-01-01T00:00:01.100000Z",
+            "event_at": "1970-01-01T00:00:01.100000Z",
+            "event_type": "price_change",
+            "kind": "data",
+            "connection_id": "connection-1",
+            "frame_hash": "a" * 64,
+            "payload_hash": "b" * 64,
+            "payload": {
+                "event_type": "price_change",
+                "market": "condition",
+                "timestamp": "1100",
+                "price_changes": [
+                    {
+                        "asset_id": "target-token",
+                        "price": "0.30",
+                        "size": size,
+                        "side": "SELL",
+                        "best_bid": best_bid,
+                        "best_ask": best_ask,
+                    },
+                ],
+            },
+        }
+
+    backing = CaptureStoreRecorderSink(
+        CaptureStore(tmp_path / "capture"),
+        max_records_per_batch=100,
+    )
+    sink = CompactRecorderSink(
+        backing,
+        allowed_asset_ids=("target-token",),
+        persist_reconstructed_full_depth_frames=False,
+        persist_top_of_book_changes=True,
+    )
+    # First observation: always persisted.
+    await sink.emit(
+        price_change_record(size="0", best_bid="0.49", best_ask="0.51")
+    )
+    # A deeper-book change reporting the same touch level: must be skipped.
+    await sink.emit(
+        price_change_record(size="5", best_bid="0.49", best_ask="0.51")
+    )
+    await sink.emit(
+        price_change_record(size="7", best_bid="0.49", best_ask="0.51")
+    )
+    # A genuine touch-level move: must be persisted again.
+    await sink.emit(
+        price_change_record(size="3", best_bid="0.48", best_ask="0.51")
+    )
+    await sink.close()
+
+    raw_paths = sorted(
+        (tmp_path / "capture" / "raw" / "clob_market_ws").glob("*.jsonl")
+    )
+    stored = [
+        json.loads(line)["payload"]["payload"]
+        for path in raw_paths
+        for line in path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert len(stored) == 2
+    assert stored[0]["changes"] == [
+        {"asset_id": "target-token", "best_bid": "0.49", "best_ask": "0.51"}
+    ]
+    assert stored[1]["changes"] == [
+        {"asset_id": "target-token", "best_bid": "0.48", "best_ask": "0.51"}
+    ]
