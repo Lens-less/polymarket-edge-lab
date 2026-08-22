@@ -688,6 +688,22 @@ async def run_service(
                 )
                 _emit_status(config, phase="cycle_complete", plan=plan)
             except ServiceStopRequested:
+                _write_attempt_receipt(
+                    config,
+                    attempt_id=attempt_id,
+                    scheduled_expiry_seconds=scheduled_expiry_seconds,
+                    status="failed",
+                    expiry_seconds=(
+                        scheduled_expiry_seconds
+                        if plan is None
+                        else plan.expiry_seconds
+                    ),
+                    capture_root=None if plan is None else plan.capture_root,
+                    error=safe_error_details(
+                        ServiceStopRequested(),
+                        code="service_stop_requested",
+                    ),
+                )
                 break
             except BaseException as exc:
                 error = safe_error_details(exc, code="service_cycle_failed")

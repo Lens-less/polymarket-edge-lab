@@ -740,6 +740,66 @@ async def test_run_service_persists_failed_capture_finalization_before_retry(
 
 
 @pytest.mark.anyio
+async def test_run_service_finalizes_attempt_receipt_as_failed_on_stop_mid_capture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A SIGTERM/restart mid-capture must not leave the receipt stuck in started."""
+
+    config = _service_config(tmp_path)
+    _write_preregistration(tmp_path)
+    capture_root = config.data_root / "runs" / "1786532400" / "attempt-1"
+    plan = SimpleNamespace(
+        expiry_seconds=1_786_532_400,
+        capture_root=capture_root,
+        capture_config_path=capture_root / "capture-config.json",
+        capture_config={"clock_sync": None},
+        duration_seconds=60,
+    )
+
+    class DummySession:
+        def close(self) -> None:
+            return None
+
+    async def stop_mid_capture(*args: object, **kwargs: object) -> object:
+        raise runner.ServiceStopRequested
+
+    monkeypatch.setattr(runner, "verify_paper_only_guard", lambda: None)
+    monkeypatch.setattr(runner, "_validate_runtime_identity", lambda config: None)
+    monkeypatch.setattr(runner, "public_session", lambda proxy: DummySession())
+    monkeypatch.setattr(runner, "PublicSourcesClient", lambda **kwargs: object())
+    monkeypatch.setattr(runner, "require_disk_capacity", lambda config: None)
+    monkeypatch.setattr(
+        runner,
+        "_measure_clock_sync",
+        lambda config: ClockSyncMeasurement(
+            measured_at_raw_ms=1,
+            offset_seconds="0",
+            uncertainty_seconds="0.001",
+        ),
+    )
+    monkeypatch.setattr(runner, "discover_next_pair", lambda **kwargs: plan)
+    monkeypatch.setattr(runner, "load_capture_config", lambda path: object())
+    monkeypatch.setattr(runner, "_capture_with_heartbeat", stop_mid_capture)
+    monkeypatch.setattr(runner, "_attempt_id", lambda: "attempt-1")
+    monkeypatch.setattr(runner, "_next_capture_expiry_seconds", lambda: 1_786_532_400)
+
+    await runner.run_service(
+        config,
+        proxy_url=None,
+        stop_event=asyncio.Event(),
+    )
+
+    receipt_path = (
+        config.data_root / "service" / "attempt-receipts" / "attempt-1.json"
+    )
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["status"] == "failed"
+    assert receipt["error"]["error_code"] == "service_stop_requested"
+    assert receipt["capture_root"] == str(capture_root.resolve())
+
+
+@pytest.mark.anyio
 async def test_v08_clean_capture_succeeds_without_paper_report(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
