@@ -1,277 +1,173 @@
-# Polymarket Edge Discovery Lab
+# Polymarket Edge Lab
 
-这是一个面向 Polymarket 的公开数据研究与成交感知回放工程。主线不再是“对称挂单后调 spread”，而是独立研究天气概率、跨市场逻辑约束、标准/augmented Neg-Risk、选择性奖励做市和标的价格延迟。
+[![CI](https://github.com/Lens-less/polymarket-edge-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/Lens-less/polymarket-edge-lab/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **截至 2026-08-22：BTC 5m/15m 结构线已 STRUCTURAL STOP。没有经过严格认定的回测盈利策略，不建议实盘交易。**
+Public-data-only Polymarket research, replay, and evidence-audit lab. The
+repository is designed to be reproducible and fail-closed: it does not ship a
+supported live-trading path, and new-order entry remains hard-disabled.
+
+面向 Polymarket 的公开数据研究、成交感知回放与证据审计工具箱。项目用于验证交易假设，重点是可复现和防止把理论机会、静态盘口或合成成交误写成真实利润；它不是可直接实盘的交易机器人，也不是 Polymarket 官方项目。
+
+English-first project metadata is used for the repository/package name, while
+most long-form research notes and user guides currently remain in Chinese.
+
+> **截至 2026-08-22：BTC 5m/15m 结构线已 `STRUCTURAL_STOP`，仓库中没有经过严格认定的盈利策略，不建议实盘交易。**
 >
-> 独立复算确认：结构对公允价值是 `1 + b`（`b >= 0`），三个有官方 TWAP 的到期、
-> 三种执行口径正 floor 均为 0。不要再为这条线换主机、跑 Gate 0、采 200 expiry
-> 或写实盘适配器。停手证明：
-> [STRUCTURAL_LINE_STOP.md](research/btc_5m_15m_edge_readiness_v08_2026-08-18/STRUCTURAL_LINE_STOP.md)。
+> 独立复算确认结构对公允价值为 `1 + b`（`b >= 0`）：三个有官方 TWAP 的到期、三种执行口径的正 floor 均为 0。不要再为这条线换主机、跑 Gate 0、采 200 expiry 或写实盘适配器。见[结构线停手证明](research/btc_5m_15m_edge_readiness_v08_2026-08-18/STRUCTURAL_LINE_STOP.md)。
+>
+> 选择性流动性奖励线同样未获准成为实盘策略，只作为未验证研究假设冻结。见[最终投资决策](STRATEGY_DECISION_2026-08-22.md)。
 
-最终证据入口：
+## 快速开始
+
+前置条件：Git、Python 3.11+；持续集成验证 Python 3.11 和 3.12。推荐使用 [uv](https://docs.astral.sh/uv/)。公开研究和下面的验收命令都不需要账户、钱包或 `.env`。
+
+```bash
+git clone https://github.com/Lens-less/polymarket-edge-lab.git
+cd polymarket-edge-lab
+uv sync --locked --python 3.12 --extra dev
+uv run python scripts/run_edge_capture.py --config research/edge_discovery_2026-07-24/FORWARD_CAPTURE_CONFIG.json --validate-only
+```
+
+最后一条命令完全离线，只校验已提交的采集配置和安全门。成功时输出应包含：
+
+```json
+{
+  "new_orders_disabled": true,
+  "valid": true
+}
+```
+
+`uv run` 无需激活虚拟环境，在 macOS、Linux 和 Windows 上命令一致。
+
+不用 uv 时，可安装由 `uv.lock` 导出的冻结依赖：
+
+```bash
+python -m venv .venv
+```
+
+激活环境：
+
+```bash
+# macOS / Linux
+source .venv/bin/activate
+
+# Windows PowerShell
+.\.venv\Scripts\Activate.ps1
+```
+
+然后安装：
+
+```bash
+python -m pip install --require-hashes -r requirements.lock
+python -m pip install --no-deps -e .
+python scripts/run_edge_capture.py --config research/edge_discovery_2026-07-24/FORWARD_CAPTURE_CONFIG.json --validate-only
+```
+
+## 可以运行什么
+
+### 离线、只读
+
+```bash
+# 查看主研究 CLI
+uv run python scripts/run_edge_lab.py --help
+
+# 校验 recorder 配置和零下单安全门
+uv run python scripts/run_edge_capture.py --config research/edge_discovery_2026-07-24/FORWARD_CAPTURE_CONFIG.json --validate-only
+
+# 运行合成诊断；输出只用于测试账本，不是盈利证据
+uv run python scripts/run_backtest.py --mock
+```
+
+### 公开网络、只读
+
+```bash
+# 检查 SDK 状态和 Polymarket geoblock；会访问公开网络，
+# 不读取凭证、不签名、不下单
+uv run python scripts/run_edge_lab.py audit
+
+# 奖励市场预检；validate-only 不访问网络
+uv run python scripts/run_reward_experiment.py --max-markets 25 --validate-only
+
+# 实际扫描只访问公开端点
+uv run python scripts/run_edge_lab.py complete-set-scan --max-markets 100
+```
+
+可移植的复现入口见[复现指南](docs/user/reproduction.md)；生成时的完整证据合同保留在[冻结复现记录](research/edge_discovery_2026-07-24/REPRODUCTION.md)。需要代理时，仅使用命令显式支持的无认证 loopback 代理参数；不要把凭证写进 URL、配置或日志。
+
+## 当前实现
+
+- Gamma/CLOB HTTP、CLOB market WebSocket 与 RTDS 前向采集
+- 不可变原始数据、manifest、SHA-256、checkpoint 与数据质量审计
+- `Decimal`/最小单位账本、逐档 FAK/FOK、部分成交、费用和滑点
+- maker 队列上下界、延迟、tick/min-order 与 stale-book 处理
+- 标准/augmented Neg-Risk、天气、奖励和 lead-lag 描述实验
+- 严格的证据分级；缺失证据使用 `null + reason`，失败实验仍进入注册表
+- 无条件关闭的新订单边界：`DRY_RUN=false` 也不能解除
+
+核心实现位于 [`src/edge_lab`](src/edge_lab)，薄命令入口位于 [`scripts`](scripts)。旧的 `run_mm.py`、`run_tui.py`、`src/strategy/` 和 `src/tui/` 已删除；不要按旧文章或历史计划重建这些入口。
+
+## 证据与结论
+
+| 等级 | 含义 | 可否称为“已回测盈利” |
+|---|---|---|
+| L0 | 合成数据和工程诊断 | 否 |
+| L1 | 公共快照、历史价格或 shadow/touch | 否 |
+| L2 | 自采前向 L2/WS/RTDS 上的 queue-bounded 模拟 | 仅在全部预注册门槛通过时 |
+| L3/L4 | 另行授权的真实探针或低风险实盘 | 需要新的明确授权和证据合同 |
+
+理论奖励、静态快照、公开盘口 touch 和零延迟场景都不是成交。当前权威入口：
 
 - [最终报告](research/edge_discovery_2026-07-24/FINAL_REPORT.md)
 - [机器可读结果](research/edge_discovery_2026-07-24/BACKTEST_RESULTS.json)
 - [指标说明](research/edge_discovery_2026-07-24/METRICS.md)
 - [数据清单](research/edge_discovery_2026-07-24/capture_freeze_entity_clock_strict_v3/DATA_MANIFEST.json)
 - [实验注册表](research/edge_discovery_2026-07-24/EXPERIMENT_REGISTRY.jsonl)
-- [复现说明](research/edge_discovery_2026-07-24/REPRODUCTION.md)
 - [实盘就绪审计](research/edge_discovery_2026-07-24/LIVE_READINESS.md)
 - [结构线停手证明](research/btc_5m_15m_edge_readiness_v08_2026-08-18/STRUCTURAL_LINE_STOP.md)
-- [v0.8 实盘完成规格（已被 STOP 取代）](research/btc_5m_15m_edge_readiness_v08_2026-08-18/LIVE_COMPLETION_SPEC.md)
-- [当前官方一手资料](research/edge_discovery_2026-07-24/PRIMARY_SOURCES.md)
+- [最终投资决策](STRATEGY_DECISION_2026-08-22.md)
 
-## 证据等级
+大体量的本地采集数据不进入 Git；边界和重建方式见 [`DATASETS.md`](DATASETS.md)。
 
-| 等级 | 含义 | 能否称为“已回测盈利” |
-|---|---|---|
-| L0 | 合成数据和工程诊断 | 否 |
-| L1 | 公共快照、历史价格或 shadow/touch | 否 |
-| L2 | 自采前向 L2/WS/RTDS 上的 queue-bounded 模拟 | 只有同时通过全部盈利门槛才可以 |
-| L3 | 另行授权的真实小额 order/scoring 探针 | 需要用户明确授权 |
-| L4 | 真实低风险交易表现 | 需要用户明确授权 |
-
-理论奖励、公开盘口 touch、静态快照套利候选和零延迟假设场景都不是成交，也不会写入已实现 PnL。当前 [TRADES.csv](research/edge_discovery_2026-07-24/TRADES.csv) 只收录满足证据契约的样本外成交；没有合格成交时仅保留表头。
-
-## 已实现的研究基础设施
-
-- 不可变原始数据、批次 manifest、SHA-256、checkpoint 与质量审计
-- Gamma/CLOB HTTP、CLOB market WebSocket 和 RTDS 前向 recorder
-- `Decimal`/最小单位账本、逐档 FAK/FOK、部分成交与当前 fee curve
-- maker 队列上下界、撤单/下单延迟、tick/min-order、stale book
-- split/merge、resolution/dispute/invalid、资金占用与单腿风险
-- 六类逻辑关系的约束图与标准/augmented Neg-Risk 筛选
-- 天气规则/站点/时区/温标/档位解析、forecast vintage 与 whole-event 切分
-- reward theory、order scoring 与 payout 三套独立账本
-- RTDS/CLOB receive-time lead-lag 描述实验
-- 失败实验也写入 experiment registry；最终 bundle 对缺失证据使用 `null + reason`
-
-核心实现位于 [src/edge_lab](src/edge_lab)，薄 CLI 位于 [scripts](scripts)。
-
-## 安装
-
-需要 Python 3.11+。推荐使用 `uv`：
+## 开发与验证
 
 ```bash
-uv sync --python 3.12 --extra dev
-source .venv/bin/activate
-```
-
-也可以使用 pip 依赖清单：
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-公开研究命令不需要 `.env`。旧程序如需工程回归，应保持 `DRY_RUN=true`；把它改为 `false` 也不会解除新订单硬保护。
-
-## 命令与安全分类
-
-### 纯离线、只读
-
-```bash
-# 检查统一 SDK、地理限制与八项新订单 guard
-./.venv/bin/python scripts/run_edge_lab.py audit
-
-# 校验 recorder 配置和 guard，不访问网络
-./.venv/bin/python scripts/run_edge_capture.py \
-  --config research/edge_discovery_2026-07-24/FORWARD_CAPTURE_CONFIG.json \
-  --validate-only
-
-# 校验动态短周期 collector 的 finalized 输入、代理策略和下单 guard
-./.venv/bin/python scripts/run_dynamic_short_crypto_capture.py \
-  --discovery-dir data/edge_discovery_2026-07-24/raw/clob_market_ws \
-  --data-root data/edge_dynamic_short_crypto_2026-07-24 \
-  --proxy http://127.0.0.1:7897 \
-  --validate-only
-
-# 默认不加载 remediation；仅在显式协调后传入一个 exact 0444 plan
-# --lifecycle-remediation-plan lifecycle-remediation-plan-<plan_id>.json
-
-# 从不可变 recorder 数据生成 receive-time 延迟描述报告
-./.venv/bin/python scripts/run_latency_capture_experiment.py \
-  --data-root data/edge_discovery_2026-07-24 \
-  --validate-only
-
-# 只读取固定证据，重建最终 bundle
-./.venv/bin/python scripts/build_edge_discovery_bundle.py \
-  --research-dir research/edge_discovery_2026-07-24 \
-  --output-dir research/edge_discovery_2026-07-24 \
-  --report-date 2026-07-24
-```
-
-`--lifecycle-remediation-plan <path>` 是显式、单次的 append-only cohort
-入口；默认不启用。文件必须是 exact canonical JSON、权限精确为 `0444`，
-文件名必须为 `lifecycle-remediation-plan-<plan_id>.json`，且 predecessor
-必须等于 finalized recovery journal 的当前 chain tip。该参数不会删除或
-替换失败 cohort，也不会解除公开数据、零订单和零认证端点约束。
-
-默认 recovery cache 使用
-`edge-lab-dynamic-short-crypto-recovery-snapshot.v2` 与
-`edge-lab-dynamic-short-crypto-record-index.v2`。index v2 精确包含
-`finalized_record_sources`、`finalized_records`、`replay_records` 和
-`recovery_run_inventory` 四张表；旧 v1 descriptor/layout 不会被 v2
-validator 接受，而是 fail closed 后执行一次 full replay 重建。snapshot
-本身不是信任锚：只有其直接后继 run 中唯一、finalized 的
-`restart_recovery_decision` command 携带
-`edge-lab-dynamic-short-crypto-recovery-anchor.v1` exact proof 时才可复用，
-不得跳过 root、不得分叉。service 必须先 emit 并 checkpoint-finalize 该
-proof，随后才可 apply recovery 或启动 registry/Gamma/worker/public
-network；持久化失败会中止启动。锚定 cache/suffix hit 只深验只读 index
-与直接后继 control pair，不重开或重哈希已锚定 prefix raw/manifests。
-
-### 公开网络，只读采集
-
-下面的命令只访问公开端点，不认证、不签名、不下单。需要本地代理时，只接受无认证的 loopback URL。
-
-```bash
-# 有界前向 recorder
-./.venv/bin/python scripts/run_edge_capture.py \
-  --config research/edge_discovery_2026-07-24/FORWARD_CAPTURE_CONFIG.json \
-  --duration 3600 \
-  --proxy http://127.0.0.1:7897
-
-# 有界运行动态 BTC/ETH 5m/15m 生命周期 collector
-./.venv/bin/python scripts/run_dynamic_short_crypto_capture.py \
-  --discovery-dir data/edge_discovery_2026-07-24/raw/clob_market_ws \
-  --data-root data/edge_dynamic_short_crypto_2026-07-24 \
-  --duration 3600 \
-  --proxy http://127.0.0.1:7897
-
-# 天气公开历史 acquisition + L1 shadow 实验
-./.venv/bin/python scripts/run_weather_experiment.py \
-  --start-date 2026-06-16 \
-  --end-date 2026-07-23 \
-  --max-events 100 \
-  --max-candidates 2000 \
-  --model ecmwf_ifs025 \
-  --decision-lead-hours 24 \
-  --release-delay-hours 4 \
-  --market-warmup-minutes 30 \
-  --output /tmp/polymarket-weather-public \
-  --proxy http://127.0.0.1:7897
-
-# 约束/Neg-Risk：validate-only 不联网；实际运行仍仅 GET 公开端点
-./.venv/bin/python scripts/run_constraint_experiment.py \
-  --config research/edge_discovery_2026-07-24/CONSTRAINT_STANDARD_NEGRISK_CONFIG.json \
-  --output-root research/edge_discovery_2026-07-24/constraint_experiment_runs \
-  --validate-only
-
-# 奖励市场：validate-only 不联网
-./.venv/bin/python scripts/run_reward_experiment.py \
-  --max-markets 25 \
-  --validate-only
-```
-
-### Shadow 与旧合成诊断
-
-天气公开价格回放、reward 静态份额、约束快照筛选和 lead-lag 都是 shadow/theoretical 证据。旧 mock 回测只用于复现错误与测试账本，不是历史回测：
-
-```bash
-./.venv/bin/python scripts/run_backtest.py --mock
-```
-
-当前没有任何命令可以把这些结果自动升级为真实回测或实盘策略。
-
-## 前向 recorder
-
-recorder 至少记录：
-
-- Gamma events/markets、CLOB market info、规则和奖励配置
-- 完整 L2 snapshot、`price_change`、`last_trade_price`
-- `best_bid_ask`、`tick_size_change`、新市场和结算事件
-- RTDS 标的价格
-- 服务端时间、本机接收时间、连接/session、schema/version
-
-原始批次位于 `data/edge_discovery_2026-07-24/raw/`，checkpoint 位于同一数据根目录。研究目录中的 [FORWARD_CAPTURE_AUDIT.md](research/edge_discovery_2026-07-24/FORWARD_CAPTURE_AUDIT.md) 记录服务、恢复和数据完整性证据。服务持续写入并不等于盈利得到验证。
-
-动态短周期 collector 从主 recorder 的 finalized `new_market` 批次构建累计
-registry，并把每次启动隔离到
-`data/edge_dynamic_short_crypto_2026-07-24/runs/<run-id>/`。它会严格验证
-BTC/ETH 5m/15m 的 slug、token、condition、时间窗和规则身份；尚未激活的
-Gamma 市场只会延后重试，不会被永久误拒。当前 sidecar 仍是 fail-closed
-采集层：它只从主 recorder 已 finalized 的 RTDS manifest 提取精确
-Chainlink 开/收盘边界，并要求 Gamma、token mapping 和同连接 close-time
-PONG 一起通过原子 settlement gate；Gamma-only 永不晋级。崩溃重启只从
-旧 run 的 finalized journal/checkpoint 恢复，partial 永不进入状态；恢复
-决定必须先 durable-finalize，之后才允许状态应用、网络或 worker effect。
-恢复器会重建 registry、目标状态、Gamma/Chainlink、deadline、decision
-sequence 和 audit-only liveness；当前 registry journal 已改为只保存新输入
-delta 的 v2 格式，避免每次扫描重复写入整个历史快照。旧 v1 与混合历史仍
-在 manifest、checksum、schema 和 canonical record ID 全部验证后兼容重放。
-这些恢复与性能修复不生成成交，也不改变当前 `insufficient_data` 分类。
-
-真实生命周期审计和 replay 装配使用：
-
-```bash
-# --as-of-ms 必须固定，保证报告可复算；重复 --dynamic-run-root 可包含历史 run
-./.venv/bin/python scripts/build_phase2_lifecycle_report.py \
-  --dynamic-run-root data/edge_dynamic_short_crypto_2026-07-24/runs/<run-id> \
-  --main-capture-root data/edge_discovery_2026-07-24 \
-  --as-of-ms <unix-epoch-ms> \
-  --output-base research/edge_discovery_2026-07-24/phase2_lifecycle_reports
-
-# 省略 --slug 只列出 finalized strict candidates；加 --slug 和 --promote
-# 才会在本地离线封存并运行 strict counterfactual promoter。
-./.venv/bin/python scripts/build_phase2_execution_freeze.py \
-  --dynamic-run-root data/edge_dynamic_short_crypto_2026-07-24/runs/<run-id> \
-  --main-capture-root data/edge_discovery_2026-07-24 \
-  --request-base research/edge_discovery_2026-07-24
-```
-
-生命周期 CLI 输出 schema v3，并明确报告 active cohort、active
-eligibility boundary 与 retained predecessor failure 数。固定 `--as-of-ms`
-报告只计在 cutoff 前已 finalized 的 manifest/record；cutoff 后新增批次以及
-当前 `.partial` 集合不会进入 canonical report body 或改变 `report_id`。
-remediation failure 和等待成熟均返回非零状态，只有明确通过才返回 0。
-
-这两个入口都保留新订单硬保护，不使用认证端点。fixture 只能验证不变量，
-不能满足真实 tracer 或盈利门槛。
-
-## 盈利门槛
-
-`validated_profitable` 默认必须同时满足：
-
-- 真实数据、严格样本外、无未来泄漏
-- pessimistic fill 扣除费用、滑点、延迟、对冲和资金成本后为正
-- `rewards=0` 仍为正
-- bootstrap 95% 净 PnL 下界大于 0
-- 至少 100 个独立已结算事件和 100 次可解释样本外成交
-- 最大单一事件贡献不超过 20%
-- 邻近参数大部分稳定为正
-- 单腿尾部损失可接受，且 PnL 可由逐笔明细完全复算
-
-奖励策略还必须有真实 scoring 和多个独立 payout epoch。未满足时只能归入 `promising_not_validated`、`insufficient_data` 或 `rejected`。
-
-## 测试
-
-常规全量测试默认排除显式标记的网络 canary：
-
-```bash
-./.venv/bin/python -m compileall -q src scripts
-./.venv/bin/python -m pytest -q
+uv sync --locked --python 3.12 --extra dev
+uv run python -m compileall -q src scripts
+uv run python -m pytest -q
+uv build
 git diff --check
 ```
 
-需要单独验证公开网络时再运行：
+常规测试默认排除 `network` 标记；公开网络 canary 必须显式运行。项目没有引入仅为“门面完整”而存在的 lint、覆盖率或发布机器人依赖。
 
-```bash
-./.venv/bin/python -m pytest -q -m network tests/test_websocket_canary.py
+目录说明：
+
+```text
+src/edge_lab/   公开数据、回放、证据与安全边界
+src/            保留的通用 API、风控和模拟基础设施
+scripts/        可直接运行的薄 CLI
+tests/          离线回归测试与显式网络 canary
+research/       固定研究输入、结果和决策记录
+docs/           入门、配置、安全与架构说明
+deploy/         历史部署资产；当前没有受支持的实盘部署
 ```
 
-具体的最终测试数量、manifest verifier 和逐实验复现命令写在 [REPRODUCTION.md](research/edge_discovery_2026-07-24/REPRODUCTION.md)，避免 README 中的固定测试徽章随新增测试失真。
+## 文档与协作
 
-## 旧做市程序（已删除）
+- [文档中心](docs/index.md)
+- [快速开始](docs/user/getting-started.md)
+- [复现指南](docs/user/reproduction.md)
+- [安全边界](docs/user/safety.md)
+- [架构说明](docs/developer/architecture.md)
+- [贡献指南](CONTRIBUTING.md)
+- [安全漏洞报告](SECURITY.md)
+- [变更日志](CHANGELOG.md)
 
-`run_mm.py`、`run_tui.py`、`src/strategy/`、`src/tui/` 曾经是一个与本项目
-BTC 5m/15m 结构对策略无关的通用单边做市机器人（从 Polymarket 全站自动选
-"打分最高"的市场挂价差单）。它的 `real_data_backtest` 结果早已被降为 L0、
-不能作为盈利依据；2026-08-21 已将其连同专属测试彻底删除，避免被误认为是
-本项目的策略入口。BTC 5m/15m 结构线已关闭，见 `research/btc_5m_15m_*` 的停手证明；`src/edge_lab/` 仅作为研究档案与其它未验证方向的代码保留。
+提交 Issue 或日志前请移除私钥、API 凭证、钱包地址、订单标识和本机绝对路径。历史冻结研究产物中保留的原始绝对路径仅用于复现审计，不代表需要这些本机路径才能运行。发布状态、支持范围和已知限制以仓库中的版本化文档为准。
 
-## 免责声明
+## 许可证与免责声明
 
-这是高风险交易研究软件，不保证盈利。当前明确结论是：**不建议实盘交易**。
+代码以 [MIT License](LICENSE) 发布。
+
+这是高风险交易研究软件，不保证盈利，也不构成投资、法律或税务建议。当前明确结论是：**没有已验证盈利策略，不建议实盘交易。** 使用者应自行确认所在地法律、平台条款和数据许可。

@@ -2,7 +2,7 @@
 
 Status: **STRUCTURAL STOP**。这条线关闭，不再采集、不再写适配器、不再做 12 USDC 探针。
 Date: 2026-08-22
-Decision owner: 本仓库独立复核，不是转述 [PROJECT_REVIEW_2026-08-22.md](../../../PROJECT_REVIEW_2026-08-22.md)。
+Decision owner: 本仓库独立复核，不是转述 [PROJECT_REVIEW_2026-08-22.md](../../PROJECT_REVIEW_2026-08-22.md)。
 
 用户要求：先判断这条策略有没有真实盈利可能；有则修工程，无则放弃。
 结论是 **无**。继续给它做主机、Gate 0、200-expiry shadow 或 venue 适配器，都是沉没成本。

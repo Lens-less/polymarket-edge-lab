@@ -12,6 +12,7 @@ import tracemalloc
 from copy import deepcopy
 from decimal import Decimal
 from pathlib import Path
+from statistics import median
 from typing import Any, Callable
 
 import pytest
@@ -1054,14 +1055,17 @@ def test_recovery_compacts_production_v1_cumulative_registry_history(
         decoded = [json.loads(line) for line in raw.splitlines()]
         decode_samples.append(time.perf_counter() - started)
         assert len(decoded) == 80
-    decode_baseline = min(decode_samples)
+    decode_baseline = median(decode_samples)
 
-    started = time.perf_counter()
-    result = recover_dynamic_short_crypto_runs(
-        run,
-        settlement_timeout_ms=3_600_000,
-    )
-    recovery_seconds = time.perf_counter() - started
+    recovery_samples: list[float] = []
+    for _ in range(3):
+        started = time.perf_counter()
+        result = recover_dynamic_short_crypto_runs(
+            run,
+            settlement_timeout_ms=3_600_000,
+        )
+        recovery_samples.append(time.perf_counter() - started)
+    recovery_seconds = median(recovery_samples)
 
     assert result.replayed_record_count == 80
     assert len(

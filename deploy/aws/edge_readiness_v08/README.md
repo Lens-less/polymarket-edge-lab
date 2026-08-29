@@ -1,5 +1,8 @@
 # Edge readiness v0.8 deployment assets
 
+> [!WARNING]
+> Archived after the BTC structural track reached `STRUCTURAL_STOP`. Do not deploy or enable these units as a current v0.1.0 service.
+
 These units install the public official-RTDS recorder, the compact paired
 four-token capture, and their read-only health checks. They do not install an
 execution-probe service, venue adapter, credentials, or order permissions.

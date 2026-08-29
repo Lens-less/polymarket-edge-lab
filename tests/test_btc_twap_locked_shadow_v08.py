@@ -63,12 +63,17 @@ def _install_writer_clock(monkeypatch, *samples: tuple[int, int]) -> None:
     )
 
 
+@pytest.mark.timeout(300)
 def test_rolling_policy_admits_future_cohorts_without_a_fixed_universe_cap(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     root = tmp_path / "journal"
     policy = _policy()
+    # This test covers policy cardinality, not storage latency. Real fsync on
+    # every receipt can dominate the suite on Windows; production code and the
+    # integrity-focused tests below retain the real call.
+    monkeypatch.setattr(locked_shadow.os, "fsync", lambda _descriptor: None)
     _install_writer_clock(
         monkeypatch,
         (policy.received_at_ms + 1, 1_000),

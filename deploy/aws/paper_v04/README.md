@@ -1,5 +1,8 @@
 # BTC 5m/15m relative-value paper v0.4 Linux deployment
 
+> [!WARNING]
+> Historical paper asset. The strategy track is closed; do not deploy or enable it.
+
 These assets deploy the public-only paper run frozen in
 `research/btc_5m_15m_relative_value_paper_v04_linux_2026-08-13/PREREGISTRATION.json`.
 

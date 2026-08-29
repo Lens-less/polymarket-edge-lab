@@ -305,6 +305,19 @@ def test_compatibility_audit_rejects_non_boolean_geoblock_values() -> None:
     assert "sentinel" not in rendered
 
 
+def test_compatibility_audit_rejects_null_geoblock_response() -> None:
+    result = compatibility_audit(session=StubSession(StubResponse(None)))
+
+    assert result["geoblock"] == {
+        "request_ok": False,
+        "blocked": None,
+        "error_type": "InvalidResponse",
+        "error_code": "invalid_geoblock_response",
+    }
+    assert result["checks"]["geoblock_request_ok"] is False
+    assert result["checks"]["geoblock_allows_new_orders"] is False
+
+
 def test_high_confidence_scan_reports_only_labels_and_paths() -> None:
     artifact = {
         "safe": "public market data",

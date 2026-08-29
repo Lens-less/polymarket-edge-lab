@@ -1,7 +1,9 @@
 """
 Order placement and management.
 
-Handles both DRY_RUN (simulated) and LIVE (real) modes.
+DRY_RUN creates simulated orders. The retained LIVE implementation is
+unreachable in v0.1.0 because the release boundary rejects every new order;
+only cancellation remains available for recovery.
 """
 
 import time
@@ -216,8 +218,8 @@ def place_order(
     """
     Place an order.
 
-    In DRY_RUN mode: Creates simulated order
-    In LIVE mode: Places real order on exchange
+    In DRY_RUN mode, creates a simulated order. In non-DRY_RUN mode, v0.1.0
+    fails closed before credentials, balances, signing, or network I/O.
 
     Args:
         token_id: The token to trade

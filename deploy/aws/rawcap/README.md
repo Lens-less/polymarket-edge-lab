@@ -1,5 +1,8 @@
 # BTC regime-agnostic raw capture deployment
 
+> [!WARNING]
+> Historical capture asset. It is not a supported v0.1.0 deployment path.
+
 The raw collector records public CLOB data plus `crypto_prices`, 30-second
 TWAP, and 60-second TWAP into `/var/lib/poly-mm-rawcap`. Settlement-regime
 classification is metadata only: unknown regimes are quarantined but do not

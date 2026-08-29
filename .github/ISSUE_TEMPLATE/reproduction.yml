@@ -1,0 +1,46 @@
+name: Research reproduction
+description: Report a mismatch while reproducing a committed result
+title: "[Reproduction]: "
+labels: ["reproduction"]
+body:
+  - type: input
+    id: commit
+    attributes:
+      label: Commit SHA
+    validations:
+      required: true
+  - type: input
+    id: artifact
+    attributes:
+      label: Artifact or manifest path
+      placeholder: research/.../DATA_MANIFEST.json
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: Use repository-relative paths and remove private information.
+    validations:
+      required: true
+  - type: textarea
+    id: mismatch
+    attributes:
+      label: Observed mismatch
+      description: Include expected and observed hashes, counts, or classifications.
+    validations:
+      required: true
+  - type: dropdown
+    id: evidence
+    attributes:
+      label: Evidence level
+      options: ["L0 synthetic", "L1 public snapshot", "L2 forward replay", "Unknown"]
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I did not include credentials, personal data, or mutable local captures.
+          required: true

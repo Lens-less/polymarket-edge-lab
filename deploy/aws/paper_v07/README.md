@@ -1,5 +1,8 @@
 # BTC 5m/15m relative-value paper v0.7 shadow deployment
 
+> [!WARNING]
+> Historical shadow asset. The strategy track is closed; do not deploy or enable it.
+
 These assets stage a future-only v0.7 counterfactual shadow track under
 `/opt/poly-mm-v07` and `/var/lib/poly-mm-v07`.
 

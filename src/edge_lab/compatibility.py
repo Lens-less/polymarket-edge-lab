@@ -107,28 +107,25 @@ def compatibility_audit(
                 ),
                 "status_code": status_code,
             }
-            raw = None
         else:
             raw = response.json()
-        if raw is None:
-            pass
-        elif (
-            not isinstance(raw, dict)
-            or not isinstance(raw.get("blocked"), bool)
-        ):
-            geoblock = {
-                "request_ok": False,
-                "blocked": None,
-                "error_type": "InvalidResponse",
-                "error_code": "invalid_geoblock_response",
-            }
-        else:
-            geoblock = {
-                "request_ok": True,
-                "blocked": raw.get("blocked"),
-                # Deliberately omit country/region/IP from the persisted audit.
-                "privacy": "location fields omitted",
-            }
+            if (
+                not isinstance(raw, dict)
+                or not isinstance(raw.get("blocked"), bool)
+            ):
+                geoblock = {
+                    "request_ok": False,
+                    "blocked": None,
+                    "error_type": "InvalidResponse",
+                    "error_code": "invalid_geoblock_response",
+                }
+            else:
+                geoblock = {
+                    "request_ok": True,
+                    "blocked": raw.get("blocked"),
+                    # Deliberately omit country/region/IP from the persisted audit.
+                    "privacy": "location fields omitted",
+                }
     except Exception as exc:
         details = safe_error_details(
             exc,
@@ -192,7 +189,8 @@ def compatibility_audit(
         "warning": (
             "This audit never reads credentials and cannot verify authenticated "
             "order signing or settlement by itself. Authenticated evidence must "
-            "come from a separately authorized metered probe; the double-maker "
-            "strategy remains ineligible until its Gate 0 and shadow gates pass."
+            "come from a separately authorized probe. The BTC structural track "
+            "is stopped, and any future strategy requires a new preregistration, "
+            "authorization, and release boundary."
         ),
     }

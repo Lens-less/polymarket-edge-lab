@@ -1,5 +1,8 @@
 # BTC 5m/15m relative-value paper v0.6 Linux deployment
 
+> [!WARNING]
+> Historical paper asset. The strategy track is closed; do not deploy or enable it.
+
 These assets stage the prospective-only 60s/60s transfer track under
 `/opt/poly-mm-v06` and `/var/lib/poly-mm-v06`. The bootstrap validates the
 strategy hash, settlement registry hash, implementation revision, paper-only

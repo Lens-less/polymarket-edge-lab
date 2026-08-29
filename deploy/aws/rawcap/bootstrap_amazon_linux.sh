@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_URL="${REPO_URL:-https://github.com/Lens-less/poly-mm.git}"
+REPO_URL="${REPO_URL:-https://github.com/Lens-less/polymarket-edge-lab.git}"
 DEPLOY_REF="${DEPLOY_REF:?DEPLOY_REF must be the immutable commit to deploy}"
 INSTALL_ROOT="${INSTALL_ROOT:-/opt/poly-mm-rawcap}"
 DATA_ROOT="${DATA_ROOT:-/var/lib/poly-mm-rawcap}"

@@ -1,5 +1,8 @@
 # Paper track watcher deployment
 
+> [!WARNING]
+> Historical watcher asset for retired paper tracks. Do not enable it as a current service.
+
 This directory contains the staged AWS assets for the read-only progress watcher under `/opt/poly-mm-watch` and `/var/lib/poly-mm-watch`.
 
 The watcher reads the EC2 `CPUCreditBalance` metric directly from CloudWatch.

@@ -4,15 +4,15 @@
 
 Status: **strategy live NO-GO**; **execution probe NO-GO**.
 Date: 2026-08-22
-Revision: v0.9.1 adopts the three execution risks in [OPINION_ON_LIVE_COMPLETION_SPEC.md](../../v08_review_2026-08-22/OPINION_ON_LIVE_COMPLETION_SPEC.md).
+Revision: v0.9.1 adopts the three execution risks in [OPINION_ON_LIVE_COMPLETION_SPEC.md](../v08_review_2026-08-22/OPINION_ON_LIVE_COMPLETION_SPEC.md).
 Authority: 本文件是当前仓库从“纸面就绪代码”走到“允许实盘”的实施合同。
 它不放宽 [PREREGISTRATION.json](PREREGISTRATION.json)、[STRATEGY_SPEC.md](STRATEGY_SPEC.md)
 或 [CLAUDE_FINAL_ASSESSMENT.md](CLAUDE_FINAL_ASSESSMENT.md) 的停手条件。
 它也不把 v0.6 的 +87.52 USDC、公开盘口 touch、或 Gate 0 上界写成已实现利润。
 
 同日复核笔记：
-- [GO_LIVE_READINESS_SPEC.md](../../v08_review_2026-08-22/GO_LIVE_READINESS_SPEC.md)
-- [OPINION_ON_LIVE_COMPLETION_SPEC.md](../../v08_review_2026-08-22/OPINION_ON_LIVE_COMPLETION_SPEC.md)（已采信，三点风险写入 v0.9.1）
+- [GO_LIVE_READINESS_SPEC.md](../v08_review_2026-08-22/GO_LIVE_READINESS_SPEC.md)
+- [OPINION_ON_LIVE_COMPLETION_SPEC.md](../v08_review_2026-08-22/OPINION_ON_LIVE_COMPLETION_SPEC.md)（已采信，三点风险写入 v0.9.1）
 若冲突，以本文件与仍冻结的 v0.8 `PREREGISTRATION.json` 数字门槛为准。
 v0.8 的 41 不能改写成“新主机有多少算多少”。v0.9.1 的默认路径是：认定 41 棵树不可恢复，冻结 v0.8 为未完成，另开 v0.9 并在看到任何新结果之前锁死新的 exact count。
 
@@ -647,7 +647,7 @@ L2 八项盈利门槛继续适用（真实数据、严格 OOS、pessimistic fill
 - [IMPLEMENTATION_AND_RUNBOOK.md](IMPLEMENTATION_AND_RUNBOOK.md) — 已实现表面与部署顺序
 - [CLAUDE_FINAL_ASSESSMENT.md](CLAUDE_FINAL_ASSESSMENT.md) — 2026-08-18 经济结论
 - [PREREGISTRATION.json](PREREGISTRATION.json) — v0.8 冻结的数字门槛（v0.9 可继承，不可放宽）
-- [OPINION_ON_LIVE_COMPLETION_SPEC.md](../../v08_review_2026-08-22/OPINION_ON_LIVE_COMPLETION_SPEC.md) — 同日独立复核，三点风险已吸收
+- [OPINION_ON_LIVE_COMPLETION_SPEC.md](../v08_review_2026-08-22/OPINION_ON_LIVE_COMPLETION_SPEC.md) — 同日独立复核，三点风险已吸收
 - [NEXT_SESSION_PROMPT.md](NEXT_SESSION_PROMPT.md) — 下一会话从 WP-H0 开始的完整提示词
 - `src/edge_lab/btc_twap_relative_value_readiness.py` — 机器门
 - `src/edge_lab/compatibility.py` — 新订单硬门

@@ -1,17 +1,13 @@
-# Polymarket MM Bot - Developer Context
+# Project context
 
-**Deprecated (2026-08-21).** This document described `SmartMarketMaker`
-(`src/strategy/`), a generic single-outcome market maker unrelated to this
-project's actual strategy. That code, its TUI, and its entry points
-(`run_mm.py`, `run_tui.py`) have been deleted — it auto-selected markets from
-across all of Polymarket and had nothing to do with BTC 5m/15m structural
-pairs.
+Polymarket Edge Lab is a public-data research and execution-replay repository. It is not a runnable live-trading bot or an official Polymarket project.
 
-The real strategy and its architecture live in `src/edge_lab/` (see
-`btc_twap_relative_value*.py` and `btc_twap_relative_value_readiness.py`) and
-`research/btc_5m_15m_*`. Start with:
+Current authority order:
 
-- `CLAUDE.md` — current project orientation
-- `research/btc_5m_15m_edge_readiness_v08_2026-08-18/CLAUDE_FINAL_ASSESSMENT.md` — latest strategy verdict
-- `research/btc_5m_15m_edge_readiness_v08_2026-08-18/IMPLEMENTATION_AND_RUNBOOK.md` — implemented surfaces and deployment order
-- `research/btc_5m_15m_edge_readiness_v08_2026-08-18/LIVE_COMPLETION_SPEC.md` — live-path implementation contract
+1. `README.md` — supported v0.1.0 surface and quick start
+2. `STRATEGY_DECISION_2026-08-22.md` — current investment decision
+3. `research/btc_5m_15m_edge_readiness_v08_2026-08-18/STRUCTURAL_LINE_STOP.md` — BTC 5m/15m structural stop
+4. `research/edge_discovery_2026-07-24/REPRODUCTION.md` — reproducibility contract
+5. `CLAUDE.md` — repository-specific agent orientation
+
+The old `SmartMarketMaker`, `run_mm.py`, `run_tui.py`, `src/strategy/`, and `src/tui/` were removed. Do not recreate them from historical documentation. New orders remain unconditionally blocked, and no strategy in this repository is validated profitable.

@@ -16,7 +16,11 @@ Polymarket BTC 5m/15m 结构对（structural pair）edge 就绪性研究项目�
 同到期结构对的公允价值是 `1 + b`（`b >= 0` 由结算强制）；独立复算 1,017 个盘口、
 三个有官方 TWAP 的到期，三种执行口径正 floor 均为 0。不要再为这条线换主机、
 跑 Gate 0、采 200 expiry、写 ProbeVenue 或解除 `compatibility.py` 硬门。
-奖励线不是本策略的修理，未另开预注册前不得当作下一步自动执行。
+奖励线不是本策略的修理。2026-08-22 的最终投资决策已将其作为实盘盈利策略
+`NO-GO`、仅作为未验证研究假设冻结；不要按旧审查的“12 USDC 先行探针”建议
+修 live adapter、全量修基础设施或解除下单硬门。只有满足
+`STRATEGY_DECISION_2026-08-22.md` 的重新立项条件后，才可另开 measurement-only
+预注册。
 
 `src/` 下还保留一层通用的 Polymarket API 基础设施（认证、订单查询/下单、
 风控、市场数据、DRY_RUN 模拟器）——它不是任何特定策略的专属代码，是未来
@@ -31,22 +35,22 @@ Polymarket BTC 5m/15m 结构对（structural pair）edge 就绪性研究项目�
 ## 常用命令
 
 ```bash
-# 安装依赖
-pip install -r requirements.txt
+# 安装冻结依赖和开发工具
+uv sync --locked --python 3.12 --extra dev
 
 # 运行全部测试
-pytest tests/ -v
+uv run python -m pytest -q
 
 # 运行 BTC 结构对相关测试
-pytest tests/ -v -k "btc_twap"
+uv run python -m pytest -q -k "btc_twap"
 
-# 只读、无凭证地采集当前 BTC 5m/15m 盘口，验证结构 floor 是否存在
-cd research/btc_5m_15m_edge_readiness_v08_2026-08-18/tools
-python live_structural_probe.py <运行分钟数> <采样间隔秒> <输出.jsonl>
-python analyze_structural_floor.py <输出.jsonl>
+# 离线校验冻结 recorder 配置和零下单安全门
+uv run python scripts/run_edge_capture.py \
+  --config research/edge_discovery_2026-07-24/FORWARD_CAPTURE_CONFIG.json \
+  --validate-only
 
 # 通用回测引擎（与具体策略无关）
-python scripts/run_backtest.py --mock
+uv run python scripts/run_backtest.py --mock
 ```
 
 ## 项目架构
@@ -102,13 +106,13 @@ src/
 
 ```bash
 # 所有测试
-pytest tests/ -v
+uv run python -m pytest tests/ -v
 
 # BTC 结构对 / Gate 0 相关
-pytest tests/ -v -k "btc_twap"
+uv run python -m pytest tests/ -v -k "btc_twap"
 
-# 带覆盖率
-pytest --cov=src tests/
+# 仅运行默认离线测试；项目未声明覆盖率插件
+uv run python -m pytest -q
 ```
 
 ```python

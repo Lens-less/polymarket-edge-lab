@@ -8,6 +8,11 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
 *.egg-info/
 dist/
 build/
@@ -35,6 +40,10 @@ logs/
 .claude/
 .tldr/
 .tldrignore
+.omx/
+
+# Local investigations and disposable scripts
+scratchpad/
 
 # Handoffs (optional - include if you want to track session history)
 # thoughts/

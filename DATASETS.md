@@ -4,6 +4,17 @@ The repository tracks source code, tests, configurations, lock files, research
 reports, compact immutable freezes, manifests, checksums, and reproducibility
 instructions.
 
+The tracked compact evidence is intentionally substantial (about 2 GiB in the
+v0.1.0 working tree), so clones and source archives are not lightweight. On
+Windows, use a short checkout root such as `C:\src\polymarket-edge-lab` when validating the
+deepest evidence paths; legacy 260-character path handling can otherwise make
+existing files appear missing to Python.
+
+Some frozen research artifacts intentionally preserve the absolute paths that
+were present when the evidence was generated. Those paths are provenance
+metadata, not runtime requirements, and they should never contain live
+credentials.
+
 It intentionally does not track two local runtime datasets:
 
 - `data/`: append-only forward captures, service state, logs, active partials,

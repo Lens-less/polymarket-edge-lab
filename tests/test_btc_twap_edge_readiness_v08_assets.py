@@ -23,12 +23,17 @@ def test_v08_preregistration_is_structural_only_fail_closed_and_no_go() -> None:
     assert preregistration["current_decision"] == {
         "strategy_live": "NO_GO",
         "execution_probe": "NO_GO",
+        "structural_line": "STRUCTURAL_STOP",
         "reason": (
-            "the full-window three-mode Gate 0 report and 200-expiry neutral "
-            "double-maker shadow evidence are not available; pUSD, signature, "
-            "terminal reconciliation, double-maker venue, and geoblock checks "
-            "remain closed"
+            "identity plus official-TWAP samples show no executable positive "
+            "floor; capacity cannot clear the preregistered commercial bar; "
+            "skip WP-E2/S0/S1/E0/E1/L for this track"
         ),
+        "authority": (
+            "research/btc_5m_15m_edge_readiness_v08_2026-08-18/"
+            "STRUCTURAL_LINE_STOP.md"
+        ),
+        "decided_at": "2026-08-22T12:30:00Z",
     }
     assert preregistration["live_eligible_track"]["edge_basis"] == (
         "structural_floor_only"

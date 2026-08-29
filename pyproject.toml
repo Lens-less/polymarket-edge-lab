@@ -1,22 +1,23 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=77.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "polymarket-mm-bot"
+name = "polymarket-edge-lab"
 version = "0.1.0"
-description = "Public-data-only Polymarket edge discovery and execution replay lab"
+description = "Public-data-only Polymarket research, replay, and evidence audit lab"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 authors = [
-    {name = "Polymarket Bot Developer"},
+    {name = "abriskbreeze"},
+    {name = "Lens-less"},
 ]
-keywords = ["polymarket", "trading", "market-making", "bot"]
+keywords = ["polymarket", "prediction-markets", "market-data", "backtesting", "research"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -28,11 +29,11 @@ dependencies = [
     "python-dotenv",
     "websockets",
     "python-socks[asyncio]",
+    "numpy",
     "pandas",
     "pyarrow",  # For Parquet export
     "certifi",
     "requests",
-    "rich>=13.0.0",
 ]
 
 [project.optional-dependencies]
@@ -43,8 +44,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Lens-less/poly-mm"
-Repository = "https://github.com/Lens-less/poly-mm"
+Homepage = "https://github.com/Lens-less/polymarket-edge-lab"
+Repository = "https://github.com/Lens-less/polymarket-edge-lab"
+Documentation = "https://github.com/Lens-less/polymarket-edge-lab/tree/main/docs"
+Issues = "https://github.com/Lens-less/polymarket-edge-lab/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -53,7 +56,7 @@ include = ["src*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-timeout = 30
+timeout = 120
 addopts = "-v --tb=short -m 'not network'"
 markers = [
     "network: tests that require live external network access (run explicitly with -m network)",
