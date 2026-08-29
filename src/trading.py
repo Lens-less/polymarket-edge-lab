@@ -2,7 +2,7 @@
 Order placement and management.
 
 DRY_RUN creates simulated orders. The retained LIVE implementation is
-unreachable in v0.1.0 because the release boundary rejects every new order;
+unreachable in v0.1.x because the release boundary rejects every new order;
 only cancellation remains available for recovery.
 """
 
@@ -218,7 +218,7 @@ def place_order(
     """
     Place an order.
 
-    In DRY_RUN mode, creates a simulated order. In non-DRY_RUN mode, v0.1.0
+    In DRY_RUN mode, creates a simulated order. In non-DRY_RUN mode, v0.1.x
     fails closed before credentials, balances, signing, or network I/O.
 
     Args:

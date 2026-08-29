@@ -1373,29 +1373,15 @@ def _refresh_local_host_status(
     ):
         return
     previous = _read_object(config.host.status_path)
-    refreshed = collect_local_host_status(
-        config.tracks,
-        now=now,
-        proc_root=proc_root,
-        previous=previous,
-        host=config.host,
-    )
-    if (
-        isinstance(previous, Mapping)
-        and refreshed.get("cpu_credit_balance") is None
-        and isinstance(previous.get("cpu_credit_balance"), (int, float))
-    ):
-        refreshed["cpu_credit_balance"] = previous["cpu_credit_balance"]
-        observed_at = previous.get("cpu_credit_observed_at")
-        if isinstance(observed_at, str) and observed_at:
-            refreshed["cpu_credit_observed_at"] = observed_at
-        decreasing_since = previous.get("cpu_credit_decreasing_since")
-        if isinstance(decreasing_since, str) and decreasing_since:
-            refreshed["cpu_credit_decreasing_since"] = decreasing_since
-        refreshed.pop("cpu_credit_telemetry_unavailable", None)
     _write_object_atomic(
         config.host.status_path,
-        refreshed,
+        collect_local_host_status(
+            config.tracks,
+            now=now,
+            proc_root=proc_root,
+            previous=previous,
+            host=config.host,
+        ),
     )
 
 

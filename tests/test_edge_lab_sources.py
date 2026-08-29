@@ -139,7 +139,7 @@ def test_gamma_market_keyset_page_preserves_raw_and_unknown_fields() -> None:
             "headers": {
                 "Accept": "application/json",
                 "User-Agent": (
-                    "polymarket-edge-lab/0.1.0 (public-read-only)"
+                    "polymarket-edge-lab/0.1.1 (public-read-only)"
                 ),
             },
             "allow_redirects": False,
@@ -216,7 +216,7 @@ def test_server_time_preserves_raw_public_clock_probe() -> None:
             "headers": {
                 "Accept": "application/json",
                 "User-Agent": (
-                    "polymarket-edge-lab/0.1.0 (public-read-only)"
+                    "polymarket-edge-lab/0.1.1 (public-read-only)"
                 ),
             },
             "allow_redirects": False,

@@ -6,6 +6,13 @@
 
 暂无。
 
+## [0.1.1] - 2026-08-30
+
+### Fixed
+
+- 主机监控刷新失败时不再复用旧的 CPU credit 余额或清除遥测故障标记，避免把超时、陈旧指标和配置错误误报为正常数据。
+- 隔离容量证据测试与 Linux 主机自动刷新，使跨平台 CI 修复不再改变生产监控语义。
+
 ## [0.1.0] - 2026-08-30
 
 首个 GitHub 源码发布候选，定位为公开数据研究 Alpha。
@@ -34,5 +41,6 @@
 - `deploy/` 是历史复现资产，不是受支持的生产部署。
 - 部分冻结研究产物保留生成时的原始绝对路径，仅作为复现证据，不是运行时前提。
 
-[Unreleased]: https://github.com/Lens-less/polymarket-edge-lab/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Lens-less/polymarket-edge-lab/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/Lens-less/polymarket-edge-lab/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Lens-less/polymarket-edge-lab/releases/tag/v0.1.0
