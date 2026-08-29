@@ -18,6 +18,7 @@ from scripts.watch_paper_tracks import (
     TrackConfig,
     _capture_capacity_snapshot,
     _load_watch_config,
+    _refresh_local_host_status,
     collect_local_host_status,
     run_watch_cycle,
 )
@@ -513,6 +514,10 @@ def test_watch_cycle_writes_capacity_artifact_without_overwriting_health(
     monkeypatch.setattr(
         "scripts.watch_paper_tracks.shutil.disk_usage",
         lambda _path: SimpleNamespace(free=11 * 1024**3),
+    )
+    monkeypatch.setattr(
+        "scripts.watch_paper_tracks._refresh_local_host_status",
+        lambda *args, **kwargs: None,
     )
 
     run_watch_cycle(
@@ -1345,6 +1350,51 @@ def test_local_host_snapshot_reports_cloudwatch_process_failure(
     assert snapshot["cpu_credit_telemetry_unavailable"]["reason"] == (
         "cloudwatch_process_failed"
     )
+
+
+def test_local_host_refresh_does_not_hide_cpu_credit_telemetry_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _load_watch_config(_watch_config(tmp_path, include_host=True))
+    assert config.host is not None
+    assert config.host.status_path is not None
+    _write_json(
+        config.host.status_path,
+        {
+            "cpu_credit_balance": 244.11,
+            "cpu_credit_observed_at": "2026-08-14T15:55:00Z",
+        },
+    )
+    proc_root = tmp_path / "proc"
+    (proc_root / "meminfo").parent.mkdir(parents=True, exist_ok=True)
+    (proc_root / "meminfo").write_text(
+        "MemAvailable:    850000 kB\n",
+        encoding="utf-8",
+    )
+    unavailable = {
+        "reason": "cloudwatch_timeout",
+        "region": "us-east-1",
+        "instance_id": "i-1234567890abcdef0",
+    }
+    monkeypatch.setattr(
+        "scripts.watch_paper_tracks.collect_local_host_status",
+        lambda *args, **kwargs: {
+            "cpu_credit_refresh_attempted": True,
+            "cpu_credit_telemetry_unavailable": unavailable,
+        },
+    )
+
+    _refresh_local_host_status(
+        config,
+        now=datetime(2026, 8, 14, 16, 0, tzinfo=UTC),
+        proc_root=proc_root,
+    )
+
+    refreshed = json.loads(config.host.status_path.read_text(encoding="utf-8"))
+    assert "cpu_credit_balance" not in refreshed
+    assert "cpu_credit_observed_at" not in refreshed
+    assert refreshed["cpu_credit_telemetry_unavailable"] == unavailable
 
 
 def test_local_host_snapshot_treats_missing_cpu_credits_as_not_applicable_when_unexpected(

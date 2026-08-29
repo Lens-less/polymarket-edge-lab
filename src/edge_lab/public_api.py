@@ -56,7 +56,7 @@ class PublicPolymarketAPI:
         self.session = session or requests.Session()
         configure_public_session(self.session)
         self.session.headers.update(
-            {"User-Agent": "polymarket-edge-lab/0.1.0 (public-read-only)"}
+            {"User-Agent": "polymarket-edge-lab/0.1.1 (public-read-only)"}
         )
 
     def _json(

@@ -1,6 +1,6 @@
 # Releasing
 
-`v0.1.0` 采用人工审核的 GitHub 源码发布，不发布 PyPI 包，也不需要自动发布机器人。
+`v0.1.x` 采用人工审核的 GitHub 源码发布，不发布 PyPI 包，也不需要自动发布机器人。
 
 ## 发布前
 
@@ -32,8 +32,9 @@
 在通过 CI 的准确提交上创建 annotated tag：
 
 ```bash
-git tag -a v0.1.0 -m "Polymarket Edge Lab v0.1.0"
-git push origin v0.1.0
+VERSION=v0.1.1  # 每次发布时改为 pyproject.toml 中的版本
+git tag -a "$VERSION" -m "Polymarket Edge Lab $VERSION"
+git push origin "$VERSION"
 ```
 
 用 `CHANGELOG.md` 的对应章节创建 GitHub Release。首次发布只附 GitHub 源码和校验过的 commit/tag；不要上传当前 wheel/sdist，也不要宣称存在可安装的控制台 CLI。
