@@ -95,7 +95,7 @@ def test_cancelled_persistence_call_fails_without_spinning() -> None:
         cwd=repo_root,
         capture_output=True,
         text=True,
-        timeout=5.0,
+        timeout=2.0,
         check=False,
     )
 
@@ -193,7 +193,7 @@ def test_cancelled_frame_owner_fails_without_spinning() -> None:
         cwd=repo_root,
         capture_output=True,
         text=True,
-        timeout=5.0,
+        timeout=2.0,
         check=False,
     )
 
@@ -321,7 +321,7 @@ def test_stop_consumes_receive_overflow_boundary_once() -> None:
         cwd=repo_root,
         capture_output=True,
         text=True,
-        timeout=5.0,
+        timeout=2.0,
         check=False,
     )
 

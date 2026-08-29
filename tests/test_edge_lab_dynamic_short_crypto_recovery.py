@@ -1071,9 +1071,7 @@ def test_recovery_compacts_production_v1_cumulative_registry_history(
     assert len(
         result.state["processed_finalized_discovery_descriptors"]
     ) == 500
-    # Keep the regression meaningful without making the benchmark brittle on
-    # slower Windows runners or under full-suite contention.
-    assert recovery_seconds <= decode_baseline * 16, (
+    assert recovery_seconds <= decode_baseline * 8, (
         "production v1 cumulative revisions were replayed repeatedly: "
         f"recovery={recovery_seconds:.6f}s, "
         f"decode={decode_baseline:.6f}s, "
