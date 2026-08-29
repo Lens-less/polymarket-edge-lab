@@ -5,6 +5,7 @@ import json
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -296,6 +297,15 @@ def fake_copy(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Path, Path]]:
     monkeypatch.setattr(shadow_module, "_copy_regular_file", _copy)
     monkeypatch.setattr(shadow_module, "_ensure_reflink_available", lambda: None)
     return copied
+
+
+@pytest.fixture(autouse=True)
+def fake_disk_usage(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        shadow_module.shutil,
+        "disk_usage",
+        lambda _path: SimpleNamespace(free=13 * 1024**3),
+    )
 
 
 def test_validate_only_is_read_only(

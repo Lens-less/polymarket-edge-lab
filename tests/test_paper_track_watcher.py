@@ -43,7 +43,7 @@ def _touch(path: Path, when: datetime) -> None:
     if not path.exists():
         path.write_text("{}", encoding="utf-8")
     path.touch()
-    path.chmod(0o644)
+    path.chmod(0o755 if path.is_dir() else 0o644)
     import os
 
     os.utime(path, (timestamp, timestamp))
