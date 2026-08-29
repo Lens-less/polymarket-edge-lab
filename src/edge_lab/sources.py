@@ -44,7 +44,7 @@ from .network_safety import (
 GAMMA_BASE = "https://gamma-api.polymarket.com"
 CLOB_BASE = "https://clob.polymarket.com"
 DATA_BASE = "https://data-api.polymarket.com"
-USER_AGENT = "polymarket-mm-bot-edge-lab/0.2 (public-read-only)"
+USER_AGENT = "polymarket-edge-lab/0.1.0 (public-read-only)"
 
 T = TypeVar("T")
 

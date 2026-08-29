@@ -141,9 +141,9 @@ class MarketFeed:
                 logger.debug(f"Attempting to start trades poller for {len(token_ids)} tokens")
                 try:
                     await self._trades.start(token_ids)
-                    logger.info("✓ Trades poller started for flow analysis")
+                    logger.info("Trades poller started for flow analysis")
                 except Exception as e:
-                    logger.warning(f"✗ Trades poller not started: {e}")
+                    logger.warning(f"Trades poller not started: {e}")
 
                 return True
 
@@ -162,10 +162,10 @@ class MarketFeed:
         logger.debug(f"Attempting to start trades poller for {len(token_ids)} tokens")
         try:
             await self._trades.start(token_ids)
-            logger.info("✓ Trades poller started for flow analysis")
+            logger.info("Trades poller started for flow analysis")
         except Exception as e:
             # Expected in DRY_RUN mode - no credentials configured
-            logger.warning(f"✗ Trades poller not started (requires API credentials): {e}")
+            logger.warning(f"Trades poller not started (requires API credentials): {e}")
 
         return True
 

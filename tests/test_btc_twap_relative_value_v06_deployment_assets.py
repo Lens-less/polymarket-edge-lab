@@ -149,6 +149,7 @@ def test_v06_service_config_points_to_isolated_paths_and_registry() -> None:
     )
     assert config["settlement_regime_id"] == "chainlink_twap_60s_5m_and_60s_15m.v1"
     assert config["evidence_track_id"] == "btc-paper-v06-20260814"
+    assert config["minimum_free_disk_bytes"] == 15 * 1024**3
 
 
 def test_v06_service_unit_is_hardened_and_uses_v06_paths() -> None:

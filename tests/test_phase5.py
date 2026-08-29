@@ -118,6 +118,7 @@ class TestOrdersModule:
 
         print(f"✓ get_position returned {position}")
 
+    @pytest.mark.network
     def test_get_trades(self):
         """Test get_trades function."""
         from src.orders import get_trades
@@ -154,6 +155,7 @@ class TestIntegration:
 
         print("✓ Order workflow works")
 
+    @pytest.mark.network
     def test_filter_by_token(self):
         """Test filtering orders by token."""
         from src.orders import get_open_orders, get_trades

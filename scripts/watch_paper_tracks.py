@@ -5,22 +5,32 @@ from __future__ import annotations
 
 import argparse
 import glob
+import hashlib
 import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation, ROUND_CEILING
 from pathlib import Path
 from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in os.sys.path:
-    os.sys.path.insert(0, str(PROJECT_ROOT))
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts.build_btc_regime_candidate_scoreboard import build_candidate_scoreboard
+from scripts.build_btc_regime_candidate_scoreboard import (  # noqa: E402
+    build_candidate_scoreboard,
+)
+from src.edge_lab.btc_twap_relative_value_readiness import (  # noqa: E402
+    CaptureCapacityEvidence,
+    evaluate_capture_capacity,
+)
+from src.edge_lab.data_store import canonical_json_bytes  # noqa: E402
 
 
 def _parse_utc(value: str | None) -> datetime | None:
@@ -115,9 +125,10 @@ class AwsCliSnsPublisher(Publisher):
             raise ValueError("invalid SNS topic ARN")
         self.topic_arn = topic_arn
         self.region = topic_arn.split(":", 5)[3]
-        self.aws = shutil.which("aws")
-        if self.aws is None:
+        aws = shutil.which("aws")
+        if aws is None:
             raise RuntimeError("AWS CLI is required for SNS publishing")
+        self.aws = aws
 
     def publish(self, alert: AlertRecord) -> None:
         subprocess.run(
@@ -167,17 +178,64 @@ class TrackConfig:
     name: str
     status_path: Path
     health_path: Path | None = None
+    capacity_evidence_path: Path | None = None
     data_root: Path | None = None
     kind: str = "paper"
     capture_summary_glob: str = ""
     expected_cycle_seconds: int = 900
+    maximum_heartbeat_age_seconds: int = 60
+    attempt_receipt_glob: str = ""
+    # A compact-capture attempt's receipt is only touched at bootstrap and at
+    # terminal status; it is not re-stamped while the capture itself runs.
+    # A cohort's own duration already runs up to ~42 minutes (a 6-21 minute
+    # startup lead before the 15m open, plus the 15 minute K15 window, plus a
+    # 6 minute settlement grace) before a healthy attempt reaches "succeeded"
+    # or "failed". A threshold below that mislabels a still-running, healthy
+    # attempt as stuck.
+    started_receipt_stale_seconds: int = 3600
+    attempt_receipt_recent_window_count: int = 96
+    attempt_receipt_recent_window_hours: int = 24
     expected_regime: str | None = None
     regime_state_path: Path | None = None
+    lifecycle: str = "active"
 
     def __post_init__(self) -> None:
+        lifecycle = self.lifecycle.strip().lower() or "active"
+        if lifecycle not in {"active", "maintenance", "retired"}:
+            raise ValueError(f"unsupported track lifecycle: {lifecycle}")
+        object.__setattr__(self, "lifecycle", lifecycle)
+        if (
+            isinstance(self.maximum_heartbeat_age_seconds, bool)
+            or not isinstance(self.maximum_heartbeat_age_seconds, int)
+            or self.maximum_heartbeat_age_seconds <= 0
+        ):
+            raise ValueError("maximum_heartbeat_age_seconds must be positive")
+        if (
+            isinstance(self.started_receipt_stale_seconds, bool)
+            or not isinstance(self.started_receipt_stale_seconds, int)
+            or self.started_receipt_stale_seconds <= 0
+        ):
+            raise ValueError("started_receipt_stale_seconds must be positive")
+        for name in (
+            "attempt_receipt_recent_window_count",
+            "attempt_receipt_recent_window_hours",
+        ):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(f"{name} must be positive")
         object.__setattr__(self, "status_path", self.status_path.expanduser().resolve())
         if self.health_path is not None:
-            object.__setattr__(self, "health_path", self.health_path.expanduser().resolve())
+            object.__setattr__(
+                self,
+                "health_path",
+                self.health_path.expanduser().resolve(),
+            )
+        if self.capacity_evidence_path is not None:
+            object.__setattr__(
+                self,
+                "capacity_evidence_path",
+                self.capacity_evidence_path.expanduser().resolve(),
+            )
         if self.data_root is not None:
             object.__setattr__(self, "data_root", self.data_root.expanduser().resolve())
         if self.regime_state_path is not None:
@@ -187,6 +245,10 @@ class TrackConfig:
                 self.regime_state_path.expanduser().resolve(),
             )
 
+    @property
+    def monitors_runtime(self) -> bool:
+        return self.lifecycle == "active"
+
 
 @dataclass(frozen=True)
 class HostConfig:
@@ -194,6 +256,13 @@ class HostConfig:
     mem_available_threshold_bytes: int = 300 * 1024 * 1024
     cpu_credit_threshold: float = 100.0
     cpu_credit_decrease_seconds: int = 1800
+    cpu_credit_region: str | None = None
+    cpu_credit_instance_id: str | None = None
+    cpu_credit_cloudwatch_timeout_seconds: int = 10
+    cpu_credit_cloudwatch_period_seconds: int = 300
+    cpu_credit_cloudwatch_lookback_seconds: int = 1800
+    cpu_credit_cloudwatch_max_age_seconds: int = 900
+    cpu_credit_expected: bool = True
     process_rss_budgets_bytes: Mapping[str, int] | None = None
 
 
@@ -352,6 +421,480 @@ def _latest_capture_timestamp(pattern: str) -> str | None:
     return None if latest_generated_at is None else _utc_text(latest_generated_at)
 
 
+def _attempt_receipt_paths(track: TrackConfig) -> tuple[Path, ...]:
+    if not track.attempt_receipt_glob:
+        return ()
+    return tuple(
+        sorted(
+            Path(path).resolve() for path in glob.glob(track.attempt_receipt_glob)
+        )
+    )
+
+
+def _receipt_capture_summary_path(
+    receipt: Mapping[str, Any],
+    *,
+    data_root: Path,
+) -> Path | None:
+    root_value = receipt.get("capture_root")
+    if not isinstance(root_value, str) or not root_value:
+        return None
+    summary_path = Path(root_value).expanduser().resolve() / "capture-summary.json"
+    try:
+        summary_path.relative_to(data_root)
+    except ValueError:
+        return None
+    return summary_path
+
+
+def _capture_capacity_snapshot(
+    track: TrackConfig,
+    *,
+    now: datetime,
+    host_status: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Evaluate the v0.8 capacity contract from durable public artifacts."""
+
+    if track.kind != "edge_readiness":
+        return None
+    if track.data_root is None:
+        return {
+            "passed": False,
+            "reason_codes": ["capture_capacity_data_root_unconfigured"],
+            "capture_attempt_count": 0,
+        }
+    data_root = track.data_root.resolve()
+    receipt_paths = _attempt_receipt_paths(track)
+    if not receipt_paths:
+        return {
+            "passed": False,
+            "reason_codes": [
+                "capture_capacity_evidence_unavailable"
+                if track.attempt_receipt_glob
+                else "capture_attempt_receipts_unconfigured"
+            ],
+            "capture_attempt_count": 0,
+        }
+    recent_cutoff = now - timedelta(hours=track.attempt_receipt_recent_window_hours)
+    failures = 0
+    successes = 0
+    pending = 0
+    total_duration_ms = 0
+    capture_roots: set[Path] = set()
+    extra_reasons: list[str] = []
+    summary_paths: list[Path] = []
+    recent_integrity_reasons: list[str] = []
+    historical_integrity_reasons: list[str] = []
+
+    def _receipt_is_recent_by_mtime(path: Path) -> bool:
+        try:
+            modified_at = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+        except OSError:
+            return False
+        return modified_at >= recent_cutoff
+
+    def _record_receipt_integrity_issue(code: str, *, recent: bool) -> None:
+        if recent:
+            recent_integrity_reasons.append(code)
+        else:
+            historical_integrity_reasons.append(code)
+
+    def _evidence_integrity_document() -> dict[str, Any]:
+        return {
+            "recent_issue_count": len(recent_integrity_reasons),
+            "recent_reason_codes": list(dict.fromkeys(recent_integrity_reasons)),
+            "historical_issue_count": len(historical_integrity_reasons),
+            "historical_reason_codes": list(dict.fromkeys(historical_integrity_reasons)),
+        }
+
+    indexed_receipts: list[tuple[Path, dict[str, Any], datetime]] = []
+    for receipt_path in receipt_paths:
+        recent_by_mtime = _receipt_is_recent_by_mtime(receipt_path)
+        try:
+            receipt_path.relative_to(data_root)
+        except ValueError:
+            _record_receipt_integrity_issue(
+                "attempt_receipt_path_out_of_scope",
+                recent=recent_by_mtime,
+            )
+            continue
+        document = _read_object(receipt_path)
+        if document is None:
+            _record_receipt_integrity_issue(
+                "attempt_receipt_unreadable",
+                recent=recent_by_mtime,
+            )
+            continue
+        created_at = _parse_utc(
+            document.get("created_at")
+            if isinstance(document.get("created_at"), str)
+            else None
+        )
+        if created_at is None:
+            _record_receipt_integrity_issue(
+                "attempt_receipt_timestamp_invalid",
+                recent=recent_by_mtime,
+            )
+            continue
+        indexed_receipts.append((receipt_path, document, created_at))
+    selected_receipts = [
+        item for item in indexed_receipts if item[2] >= recent_cutoff
+    ]
+    selected_receipts.sort(key=lambda item: (item[2], item[0].name), reverse=True)
+    selected_receipts = selected_receipts[: track.attempt_receipt_recent_window_count]
+    if not selected_receipts:
+        evidence_integrity = _evidence_integrity_document()
+        return {
+            "passed": False,
+            "reason_codes": list(
+                dict.fromkeys(
+                    (
+                        *(
+                            ("attempt_receipt_evidence_integrity_recent",)
+                            if evidence_integrity["recent_issue_count"]
+                            else ()
+                        ),
+                        "capture_capacity_terminal_evidence_unavailable",
+                    )
+                )
+            ),
+            "capture_attempt_count": 0,
+            "capture_failure_count": 0,
+            "successful_attempt_count": 0,
+            "pending_attempt_count": 0,
+            "receipt_count": len(indexed_receipts),
+            "evidence_integrity": evidence_integrity,
+            "selection_rule": {
+                "created_at_not_before": _utc_text(recent_cutoff),
+                "maximum_receipts": track.attempt_receipt_recent_window_count,
+            },
+        }
+    seen_capture_roots: set[Path] = set()
+    seen_summary_paths: set[Path] = set()
+    seen_attempt_ids: set[str] = set()
+    terminal_receipt_paths: list[Path] = []
+    pending_receipt_paths: list[Path] = []
+    for _receipt_path, document, _created_at in selected_receipts:
+        attempt_id = document.get("attempt_id")
+        if not isinstance(attempt_id, str) or not attempt_id:
+            _record_receipt_integrity_issue(
+                "attempt_receipt_id_missing",
+                recent=True,
+            )
+            continue
+        if _receipt_path.stem != attempt_id:
+            _record_receipt_integrity_issue(
+                "attempt_receipt_filename_mismatch",
+                recent=True,
+            )
+            continue
+        if attempt_id in seen_attempt_ids:
+            _record_receipt_integrity_issue(
+                "duplicate_attempt_receipt_id",
+                recent=True,
+            )
+            continue
+        seen_attempt_ids.add(attempt_id)
+        status = document.get("status")
+        if status == "failed":
+            terminal_receipt_paths.append(_receipt_path)
+            failures += 1
+            continue
+        if status == "started":
+            marker = _parse_utc(
+                document.get("updated_at")
+                if isinstance(document.get("updated_at"), str)
+                else None
+            ) or _parse_utc(
+                document.get("created_at")
+                if isinstance(document.get("created_at"), str)
+                else None
+            )
+            if marker is None:
+                _record_receipt_integrity_issue(
+                    "attempt_receipt_timestamp_invalid",
+                    recent=True,
+                )
+            elif now - marker >= timedelta(seconds=track.started_receipt_stale_seconds):
+                terminal_receipt_paths.append(_receipt_path)
+                failures += 1
+                extra_reasons.append("stale_started_attempt_receipt")
+            else:
+                pending_receipt_paths.append(_receipt_path)
+                pending += 1
+            continue
+        if status != "succeeded":
+            _record_receipt_integrity_issue(
+                "attempt_receipt_status_invalid",
+                recent=True,
+            )
+            continue
+        terminal_receipt_paths.append(_receipt_path)
+        capture_root_value = document.get("capture_root")
+        if not isinstance(capture_root_value, str) or not capture_root_value:
+            _record_receipt_integrity_issue(
+                "attempt_receipt_capture_root_missing",
+                recent=True,
+            )
+            continue
+        capture_root = Path(capture_root_value).expanduser().resolve()
+        try:
+            capture_root.relative_to(data_root)
+        except ValueError:
+            _record_receipt_integrity_issue(
+                "attempt_receipt_capture_root_out_of_scope",
+                recent=True,
+            )
+            continue
+        if capture_root in seen_capture_roots:
+            _record_receipt_integrity_issue(
+                "duplicate_capture_root_in_recent_window",
+                recent=True,
+            )
+            continue
+        summary_path = _receipt_capture_summary_path(document, data_root=data_root)
+        if summary_path is None:
+            _record_receipt_integrity_issue(
+                "attempt_receipt_capture_root_missing",
+                recent=True,
+            )
+            continue
+        if summary_path in seen_summary_paths:
+            _record_receipt_integrity_issue(
+                "duplicate_capture_summary_in_recent_window",
+                recent=True,
+            )
+            continue
+        seen_capture_roots.add(capture_root)
+        seen_summary_paths.add(summary_path)
+        summary_paths.append(summary_path)
+    for summary_path in summary_paths:
+        document = _read_object(summary_path)
+        if document is None:
+            _record_receipt_integrity_issue(
+                "capture_summary_missing_for_success_receipt",
+                recent=True,
+            )
+            continue
+        if (
+            document.get("schema_version")
+            != "btc-twap-compact-forward-capture-summary.v1"
+            or document.get("data_root") != str(summary_path.parent.resolve())
+        ):
+            _record_receipt_integrity_issue(
+                "capture_summary_identity_mismatch",
+                recent=True,
+            )
+            continue
+        capture_roots.add(summary_path.parent)
+        integrity = document.get("integrity")
+        integrity_failed = (
+            not isinstance(integrity, Mapping)
+            or any(bool(value) for value in integrity.values())
+        )
+        recorder_failures = document.get("recorder_leg_failures")
+        if (
+            document.get("capture_error") is not None
+            or integrity_failed
+            or not isinstance(recorder_failures, list)
+            or bool(recorder_failures)
+        ):
+            failures += 1
+            continue
+        successes += 1
+        try:
+            duration = Decimal(str(document.get("duration_seconds")))
+        except (InvalidOperation, ValueError):
+            duration = Decimal(0)
+        if duration.is_finite() and duration > 0:
+            total_duration_ms += int(
+                (duration * Decimal(1_000)).to_integral_value(
+                    rounding=ROUND_CEILING
+                )
+            )
+        else:
+            extra_reasons.append("capture_duration_evidence_invalid")
+    total_capture_bytes = 0
+    for capture_root in capture_roots:
+        for path in capture_root.rglob("*"):
+            if path.is_symlink():
+                extra_reasons.append("capture_tree_contains_symlink")
+                continue
+            if path.is_file():
+                try:
+                    total_capture_bytes += path.stat().st_size
+                except OSError:
+                    extra_reasons.append("capture_tree_size_unreadable")
+    projected_daily_bytes = (
+        1024**3 + 1
+        if total_duration_ms <= 0
+        else (
+            total_capture_bytes * 86_400_000 + total_duration_ms - 1
+        )
+        // total_duration_ms
+    )
+    try:
+        free_disk_bytes = shutil.disk_usage(data_root).free
+    except OSError:
+        free_disk_bytes = 0
+        extra_reasons.append("capture_free_disk_unavailable")
+    available_memory = host_status.get("mem_available_bytes")
+    if (
+        isinstance(available_memory, bool)
+        or not isinstance(available_memory, int)
+        or available_memory < 0
+    ):
+        available_memory = 0
+        extra_reasons.append("capture_memory_telemetry_unavailable")
+    cpu_balance = host_status.get("cpu_credit_balance")
+    cpu_unavailable = host_status.get("cpu_credit_telemetry_unavailable")
+    cpu_expected = host_status.get("cpu_credit_expected", True)
+    if cpu_expected is False:
+        unavailable_reason = None
+        if isinstance(cpu_unavailable, Mapping):
+            unavailable_reason = cpu_unavailable.get("reason")
+        elif isinstance(cpu_unavailable, str):
+            unavailable_reason = cpu_unavailable
+        if cpu_unavailable is not None and unavailable_reason != "cpu_credit_not_applicable":
+            extra_reasons.append("cpu_credit_telemetry_unavailable")
+        cpu_exhausted = False
+    elif (
+        isinstance(cpu_balance, bool)
+        or not isinstance(cpu_balance, (int, float))
+        or cpu_unavailable is not None
+    ):
+        cpu_exhausted = True
+        extra_reasons.append("cpu_credit_telemetry_unavailable")
+    else:
+        cpu_exhausted = float(cpu_balance) <= 0
+    terminal_attempt_count = successes + failures
+    if terminal_attempt_count == 0:
+        evidence_integrity = _evidence_integrity_document()
+        return {
+            "passed": False,
+            "reason_codes": list(
+                dict.fromkeys(
+                    (
+                        *(
+                            ("attempt_receipt_evidence_integrity_recent",)
+                            if recent_integrity_reasons
+                            else ()
+                        ),
+                        *extra_reasons,
+                        "capture_capacity_terminal_evidence_unavailable",
+                        *(("capture_attempts_pending",) if pending else ()),
+                    )
+                )
+            ),
+            "capture_attempt_count": 0,
+            "capture_failure_count": 0,
+            "successful_attempt_count": successes,
+            "pending_attempt_count": pending,
+            "receipt_count": len(indexed_receipts),
+            "evidence_integrity": evidence_integrity,
+            "selection_rule": {
+                "created_at_not_before": _utc_text(recent_cutoff),
+                "maximum_receipts": track.attempt_receipt_recent_window_count,
+            },
+        }
+    evidence = CaptureCapacityEvidence(
+        capture_attempt_count=terminal_attempt_count,
+        capture_failure_count=min(failures, terminal_attempt_count),
+        free_disk_bytes=free_disk_bytes,
+        projected_daily_capture_bytes=projected_daily_bytes,
+        available_memory_bytes=available_memory,
+        burstable_cpu_credit_exhausted=cpu_exhausted,
+    )
+    verdict = evaluate_capture_capacity(evidence)
+    evidence_integrity = _evidence_integrity_document()
+    reasons = tuple(
+        dict.fromkeys(
+            (
+                *verdict.reason_codes,
+                *(
+                    ("attempt_receipt_evidence_integrity_recent",)
+                    if recent_integrity_reasons
+                    else ()
+                ),
+                *extra_reasons,
+                *(("capture_attempts_pending",) if pending else ()),
+            )
+        )
+    )
+    unsigned = {
+        "schema_version": "btc-twap-capture-capacity-evidence.v1",
+        "generated_at": _utc_text(now),
+        "track": track.name,
+        "attempt_receipts": [
+            {
+                "path": str(path),
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            }
+            for path in terminal_receipt_paths
+            if path.is_file()
+        ],
+        "pending_attempt_receipts": [
+            {
+                "path": str(path),
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            }
+            for path in pending_receipt_paths
+            if path.is_file()
+        ],
+        "host_metrics": {
+            "mem_available_bytes": host_status.get("mem_available_bytes"),
+            "cpu_credit_balance": (
+                None
+                if host_status.get("cpu_credit_balance") is None
+                else str(host_status.get("cpu_credit_balance"))
+            ),
+                "cpu_credit_telemetry_unavailable": host_status.get(
+                    "cpu_credit_telemetry_unavailable"
+                ),
+        },
+        "evidence_integrity": evidence_integrity,
+        "verdict": {
+            **verdict.to_document(),
+            "passed": (
+                verdict.passed
+                and not recent_integrity_reasons
+                and not extra_reasons
+                and pending == 0
+            ),
+            "reason_codes": list(reasons),
+            "capture_attempt_count": evidence.capture_attempt_count,
+            "capture_failure_count": evidence.capture_failure_count,
+            "successful_attempt_count": successes,
+            "pending_attempt_count": pending,
+            "receipt_count": len(indexed_receipts),
+            "free_disk_bytes": evidence.free_disk_bytes,
+            "projected_daily_capture_bytes": evidence.projected_daily_capture_bytes,
+            "available_memory_bytes": evidence.available_memory_bytes,
+            "burstable_cpu_credit_exhausted": (
+                evidence.burstable_cpu_credit_exhausted
+            ),
+            "selection_rule": {
+                "created_at_not_before": _utc_text(recent_cutoff),
+                "maximum_receipts": track.attempt_receipt_recent_window_count,
+            },
+        },
+    }
+    document = {
+        **unsigned["verdict"],
+        "schema_version": unsigned["schema_version"],
+        "generated_at": unsigned["generated_at"],
+        "track": unsigned["track"],
+        "attempt_receipts": unsigned["attempt_receipts"],
+        "pending_attempt_receipts": unsigned["pending_attempt_receipts"],
+        "host_metrics": unsigned["host_metrics"],
+        "evidence_integrity": unsigned["evidence_integrity"],
+    }
+    document["artifact_sha256"] = hashlib.sha256(
+        canonical_json_bytes(document)
+    ).hexdigest()
+    return document
+
+
 def evaluate_watch(
     config: WatchConfig,
     *,
@@ -365,7 +908,11 @@ def evaluate_watch(
     state_tracks: dict[str, Any] = {}
     for track in config.tracks:
         status = _read_object(track.status_path) or {}
-        health = _read_object(track.health_path) or {}
+        health = (
+            _read_object(track.health_path) or {}
+            if track.health_path is not None
+            else {}
+        )
         latest_capture_timestamp = _latest_capture_timestamp(track.capture_summary_glob)
         track_alerts, next_state = evaluate_track(
             track=TrackSpec(
@@ -427,8 +974,26 @@ def watch_once(
                 kind=str(track.get("kind", "paper")),
                 status_path=Path(str(track["status_path"])),
                 health_path=Path(str(track.get("health_path", track["status_path"]))),
+                capacity_evidence_path=(
+                    Path(str(track["capacity_evidence_path"]))
+                    if track.get("capacity_evidence_path")
+                    else None
+                ),
                 capture_summary_glob=str(track.get("capture_summary_glob", "")),
                 expected_cycle_seconds=int(track.get("expected_cycle_seconds", 900)),
+                maximum_heartbeat_age_seconds=int(
+                    track.get("maximum_heartbeat_age_seconds", 60)
+                ),
+                attempt_receipt_glob=str(track.get("attempt_receipt_glob", "")),
+                started_receipt_stale_seconds=int(
+                    track.get("started_receipt_stale_seconds", 3600)
+                ),
+                attempt_receipt_recent_window_count=int(
+                    track.get("attempt_receipt_recent_window_count", 96)
+                ),
+                attempt_receipt_recent_window_hours=int(
+                    track.get("attempt_receipt_recent_window_hours", 24)
+                ),
             )
             for track in config.get("tracks", [])
             if isinstance(track, Mapping)
@@ -484,6 +1049,11 @@ def _load_watch_config(path: Path) -> WatchConfig:
                 if track.get("health_path")
                 else None
             ),
+            capacity_evidence_path=(
+                Path(str(track["capacity_evidence_path"]))
+                if track.get("capacity_evidence_path")
+                else None
+            ),
             data_root=(
                 Path(str(track["data_root"]))
                 if track.get("data_root")
@@ -492,6 +1062,19 @@ def _load_watch_config(path: Path) -> WatchConfig:
             kind=str(track.get("kind", "paper")),
             capture_summary_glob=str(track.get("capture_summary_glob", "")),
             expected_cycle_seconds=int(track.get("expected_cycle_seconds", 900)),
+            maximum_heartbeat_age_seconds=int(
+                track.get("maximum_heartbeat_age_seconds", 60)
+            ),
+            attempt_receipt_glob=str(track.get("attempt_receipt_glob", "")),
+            started_receipt_stale_seconds=int(
+                track.get("started_receipt_stale_seconds", 1800)
+            ),
+            attempt_receipt_recent_window_count=int(
+                track.get("attempt_receipt_recent_window_count", 96)
+            ),
+            attempt_receipt_recent_window_hours=int(
+                track.get("attempt_receipt_recent_window_hours", 24)
+            ),
             expected_regime=(
                 str(track["expected_regime"])
                 if track.get("expected_regime")
@@ -502,6 +1085,7 @@ def _load_watch_config(path: Path) -> WatchConfig:
                 if track.get("regime_state_path")
                 else None
             ),
+            lifecycle=str(track.get("lifecycle", "active")),
         )
         for track in document.get("tracks", [])
     )
@@ -522,6 +1106,31 @@ def _load_watch_config(path: Path) -> WatchConfig:
             ),
             cpu_credit_decrease_seconds=int(
                 host_document.get("cpu_credit_decrease_seconds", 1800)
+            ),
+            cpu_credit_region=(
+                str(host_document["cpu_credit_region"])
+                if host_document.get("cpu_credit_region")
+                else None
+            ),
+            cpu_credit_instance_id=(
+                str(host_document["cpu_credit_instance_id"])
+                if host_document.get("cpu_credit_instance_id")
+                else None
+            ),
+            cpu_credit_cloudwatch_timeout_seconds=int(
+                host_document.get("cpu_credit_cloudwatch_timeout_seconds", 10)
+            ),
+            cpu_credit_cloudwatch_period_seconds=int(
+                host_document.get("cpu_credit_cloudwatch_period_seconds", 300)
+            ),
+            cpu_credit_cloudwatch_lookback_seconds=int(
+                host_document.get("cpu_credit_cloudwatch_lookback_seconds", 1800)
+            ),
+            cpu_credit_cloudwatch_max_age_seconds=int(
+                host_document.get("cpu_credit_cloudwatch_max_age_seconds", 900)
+            ),
+            cpu_credit_expected=bool(
+                host_document.get("cpu_credit_expected", True)
             ),
             process_rss_budgets_bytes=(
                 {
@@ -575,6 +1184,9 @@ def collect_local_host_status(
     now: datetime,
     proc_root: Path = Path("/proc"),
     previous: Mapping[str, Any] | None = None,
+    host: HostConfig | None = None,
+    subprocess_run: Any = subprocess.run,
+    aws_cli_path: str | None = None,
 ) -> dict[str, Any]:
     """Collect Linux-local memory and per-track RSS without extra privileges."""
 
@@ -586,6 +1198,7 @@ def collect_local_host_status(
             "MemAvailable",
         ),
         "process_rss_bytes": {},
+        "cpu_credit_expected": True if host is None else host.cpu_credit_expected,
     }
     process_rss: dict[str, int] = {}
     for track in tracks:
@@ -605,10 +1218,145 @@ def collect_local_host_status(
         if known:
             process_rss[track.name] = sum(known)
     snapshot["process_rss_bytes"] = process_rss
-    if isinstance(previous, Mapping):
-        for field in ("cpu_credit_balance", "cpu_credit_observed_at"):
-            if field in previous:
-                snapshot[field] = previous[field]
+    if host is not None:
+        snapshot.update(
+            _cloudwatch_cpu_credit_status(
+                host=host,
+                now=now,
+                subprocess_run=subprocess_run,
+                aws_cli_path=aws_cli_path,
+            )
+        )
+    return snapshot
+
+
+def _cloudwatch_cpu_credit_status(
+    *,
+    host: HostConfig,
+    now: datetime,
+    subprocess_run: Any,
+    aws_cli_path: str | None,
+) -> dict[str, Any]:
+    snapshot: dict[str, Any] = {"cpu_credit_refresh_attempted": True}
+    if not host.cpu_credit_region or not host.cpu_credit_instance_id:
+        snapshot["cpu_credit_telemetry_unavailable"] = {
+            "reason": "cpu_credit_config_missing",
+            "region": host.cpu_credit_region,
+            "instance_id": host.cpu_credit_instance_id,
+        }
+        return snapshot
+    aws = aws_cli_path or shutil.which("aws")
+    if aws is None:
+        snapshot["cpu_credit_telemetry_unavailable"] = {
+            "reason": "aws_cli_missing",
+            "region": host.cpu_credit_region,
+            "instance_id": host.cpu_credit_instance_id,
+        }
+        return snapshot
+    end_time = now.astimezone(timezone.utc) + timedelta(minutes=1)
+    start_time = end_time - timedelta(
+        seconds=max(host.cpu_credit_cloudwatch_lookback_seconds, 300)
+    )
+    try:
+        completed = subprocess_run(
+            [
+                aws,
+                "cloudwatch",
+                "get-metric-statistics",
+                "--region",
+                host.cpu_credit_region,
+                "--namespace",
+                "AWS/EC2",
+                "--metric-name",
+                "CPUCreditBalance",
+                "--dimensions",
+                f"Name=InstanceId,Value={host.cpu_credit_instance_id}",
+                "--statistics",
+                "Average",
+                "--period",
+                str(host.cpu_credit_cloudwatch_period_seconds),
+                "--start-time",
+                _utc_text(start_time),
+                "--end-time",
+                _utc_text(end_time),
+                "--output",
+                "json",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=host.cpu_credit_cloudwatch_timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        snapshot["cpu_credit_telemetry_unavailable"] = {
+            "reason": "cloudwatch_timeout",
+            "region": host.cpu_credit_region,
+            "instance_id": host.cpu_credit_instance_id,
+        }
+        return snapshot
+    except OSError:
+        snapshot["cpu_credit_telemetry_unavailable"] = {
+            "reason": "cloudwatch_process_failed",
+            "region": host.cpu_credit_region,
+            "instance_id": host.cpu_credit_instance_id,
+        }
+        return snapshot
+    except subprocess.CalledProcessError as exc:
+        snapshot["cpu_credit_telemetry_unavailable"] = {
+            "reason": "cloudwatch_cli_failed",
+            "region": host.cpu_credit_region,
+            "instance_id": host.cpu_credit_instance_id,
+            "stderr": exc.stderr.strip() if isinstance(exc.stderr, str) else "",
+        }
+        return snapshot
+    try:
+        document = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        snapshot["cpu_credit_telemetry_unavailable"] = {
+            "reason": "cloudwatch_bad_json",
+            "region": host.cpu_credit_region,
+            "instance_id": host.cpu_credit_instance_id,
+        }
+        return snapshot
+    datapoints = document.get("Datapoints")
+    if not isinstance(datapoints, list):
+        datapoints = []
+    points: list[tuple[datetime, float]] = []
+    for point in datapoints:
+        if not isinstance(point, Mapping):
+            continue
+        observed_at = _parse_utc(
+            point.get("Timestamp") if isinstance(point.get("Timestamp"), str) else None
+        )
+        average = point.get("Average")
+        if observed_at is None or not isinstance(average, (int, float)):
+            continue
+        points.append((observed_at, float(average)))
+    if not points:
+        snapshot["cpu_credit_telemetry_unavailable"] = {
+            "reason": (
+                "cpu_credit_not_applicable"
+                if not host.cpu_credit_expected
+                else "cloudwatch_metric_missing"
+            ),
+            "region": host.cpu_credit_region,
+            "instance_id": host.cpu_credit_instance_id,
+        }
+        return snapshot
+    observed_at, balance = max(points, key=lambda item: item[0])
+    metric_age = now.astimezone(timezone.utc) - observed_at
+    if metric_age < timedelta(minutes=-1) or metric_age > timedelta(
+        seconds=host.cpu_credit_cloudwatch_max_age_seconds
+    ):
+        snapshot["cpu_credit_telemetry_unavailable"] = {
+            "reason": "cloudwatch_metric_stale",
+            "region": host.cpu_credit_region,
+            "instance_id": host.cpu_credit_instance_id,
+            "observed_at": _utc_text(observed_at),
+        }
+        return snapshot
+    snapshot["cpu_credit_balance"] = balance
+    snapshot["cpu_credit_observed_at"] = _utc_text(observed_at)
     return snapshot
 
 
@@ -625,14 +1373,29 @@ def _refresh_local_host_status(
     ):
         return
     previous = _read_object(config.host.status_path)
+    refreshed = collect_local_host_status(
+        config.tracks,
+        now=now,
+        proc_root=proc_root,
+        previous=previous,
+        host=config.host,
+    )
+    if (
+        isinstance(previous, Mapping)
+        and refreshed.get("cpu_credit_balance") is None
+        and isinstance(previous.get("cpu_credit_balance"), (int, float))
+    ):
+        refreshed["cpu_credit_balance"] = previous["cpu_credit_balance"]
+        observed_at = previous.get("cpu_credit_observed_at")
+        if isinstance(observed_at, str) and observed_at:
+            refreshed["cpu_credit_observed_at"] = observed_at
+        decreasing_since = previous.get("cpu_credit_decreasing_since")
+        if isinstance(decreasing_since, str) and decreasing_since:
+            refreshed["cpu_credit_decreasing_since"] = decreasing_since
+        refreshed.pop("cpu_credit_telemetry_unavailable", None)
     _write_object_atomic(
         config.host.status_path,
-        collect_local_host_status(
-            config.tracks,
-            now=now,
-            proc_root=proc_root,
-            previous=previous,
-        ),
+        refreshed,
     )
 
 
@@ -645,6 +1408,8 @@ def _regime_alerts(
     alerts: dict[str, AlertRecord] = {}
     prior_tracks = prior_state.get("tracks", {})
     for track in config.tracks:
+        if not track.monitors_runtime:
+            continue
         if track.regime_state_path is None:
             continue
         regime = _read_object(track.regime_state_path) or {}
@@ -724,6 +1489,30 @@ def _host_alerts_and_state(
                 subject="host memory pressure",
                 body={"mem_available_bytes": memory},
             )
+    refresh_attempted = bool(host.get("cpu_credit_refresh_attempted"))
+    unavailable_value = host.get("cpu_credit_telemetry_unavailable")
+    unavailable = (
+        dict(unavailable_value) if isinstance(unavailable_value, Mapping) else None
+    )
+    if refresh_attempted:
+        for field in (
+            "cpu_credit_balance",
+            "cpu_credit_observed_at",
+            "cpu_credit_decreasing_since",
+        ):
+            host_state.pop(field, None)
+    if unavailable is not None:
+        host_state["cpu_credit_telemetry_unavailable"] = unavailable
+        if unavailable.get("reason") != "cpu_credit_not_applicable":
+            key = "host:cpu_credit_telemetry_unavailable"
+            alerts[key] = AlertRecord(
+                key=key,
+                severity="warn",
+                subject="host CPU credit telemetry unavailable",
+                body=unavailable,
+            )
+    else:
+        host_state.pop("cpu_credit_telemetry_unavailable", None)
     credits = host.get("cpu_credit_balance")
     observed_at = _parse_utc(
         host.get("cpu_credit_observed_at")
@@ -755,6 +1544,7 @@ def _host_alerts_and_state(
         host_state["cpu_credit_balance"] = current_credits
         if observed_at is not None:
             host_state["cpu_credit_observed_at"] = _utc_text(observed_at)
+        host_state.pop("cpu_credit_telemetry_unavailable", None)
         if decreasing_since is None:
             host_state.pop("cpu_credit_decreasing_since", None)
         else:
@@ -846,6 +1636,11 @@ def run_watch_cycle(
 ) -> None:
     state_path = config.state_path
     _refresh_local_host_status(config, now=now)
+    host_status = (
+        _read_object(config.host.status_path) or {}
+        if config.host is not None and config.host.status_path is not None
+        else {}
+    )
     state = _read_object(state_path) or {
         "schema_version": "polymm-paper-track-watch-state.v1",
         "alerts": {},
@@ -860,6 +1655,10 @@ def run_watch_cycle(
         else {}
     )
     for track in config.tracks:
+        if track.lifecycle == "retired":
+            result_tracks[track.name] = {"lifecycle": "retired"}
+            continue
+        runtime_monitored = track.monitors_runtime
         status_document = _read_object(track.status_path)
         health_document = (
             _read_object(track.health_path)
@@ -874,12 +1673,25 @@ def run_watch_cycle(
         status = status_document or {}
         health = health_document or {}
         regime = regime_document or {}
+        capture_capacity = _capture_capacity_snapshot(
+            track,
+            now=now,
+            host_status=host_status,
+        )
+        if (
+            track.kind == "edge_readiness"
+            and track.capacity_evidence_path is not None
+            and capture_capacity is not None
+        ):
+            _write_object_atomic(track.capacity_evidence_path, capture_capacity)
         unavailable_sources = []
         for kind, path, document in (
             ("status", track.status_path, status_document),
             ("health", track.health_path, health_document),
             ("regime", track.regime_state_path, regime_document),
         ):
+            if track.kind == "edge_readiness" and kind == "health":
+                continue
             if path is not None and document is None:
                 unavailable_sources.append(
                     {
@@ -940,7 +1752,7 @@ def run_watch_cycle(
             regime=regime,
             last_success_at=last_success,
         )
-        if unavailable_sources:
+        if runtime_monitored and unavailable_sources:
             active_alerts[f"{track.name}:telemetry_unavailable"] = AlertRecord(
                 key=f"{track.name}:telemetry_unavailable",
                 severity="warn",
@@ -948,8 +1760,10 @@ def run_watch_cycle(
                 body={**body, "unavailable_sources": unavailable_sources},
             )
         heartbeat_at = _parse_utc(status.get("heartbeat_at"))
-        if status_document is not None and (
-            heartbeat_at is None or now - heartbeat_at > timedelta(seconds=60)
+        if runtime_monitored and status_document is not None and (
+            heartbeat_at is None
+            or now - heartbeat_at
+            > timedelta(seconds=track.maximum_heartbeat_age_seconds)
         ):
             active_alerts[f"{track.name}:heartbeat_stale"] = AlertRecord(
                 key=f"{track.name}:heartbeat_stale",
@@ -957,7 +1771,7 @@ def run_watch_cycle(
                 subject=f"{track.name} heartbeat stale",
                 body=body,
             )
-        if track.kind != "rawcap" and (
+        if runtime_monitored and track.kind != "rawcap" and (
             report_progress_at is not None
             and now - report_progress_at
             >= timedelta(seconds=track.expected_cycle_seconds * 2)
@@ -968,8 +1782,11 @@ def run_watch_cycle(
                 subject=f"{track.name} reports stalled",
                 body={**body, "completed_report_count": report_count},
             )
-        if capture_progress_at is not None and now - capture_progress_at >= timedelta(
-            seconds=track.expected_cycle_seconds * 2
+        if (
+            runtime_monitored
+            and capture_progress_at is not None
+            and now - capture_progress_at
+            >= timedelta(seconds=track.expected_cycle_seconds * 2)
         ):
             active_alerts[f"{track.name}:capture_stalled"] = AlertRecord(
                 key=f"{track.name}:capture_stalled",
@@ -977,7 +1794,7 @@ def run_watch_cycle(
                 subject=f"{track.name} capture stalled",
                 body={**body, "latest_capture_timestamp": capture_marker},
             )
-        if status.get("phase") in {"error_wait", "stopped"} and (
+        if runtime_monitored and status.get("phase") in {"error_wait", "stopped"} and (
             last_success is None or now - last_success >= timedelta(minutes=10)
         ):
             active_alerts[f"{track.name}:phase_unhealthy"] = AlertRecord(
@@ -997,12 +1814,23 @@ def run_watch_cycle(
             if isinstance(health_failures, list)
             else []
         )
-        if material_health_failures:
+        if runtime_monitored and material_health_failures:
             active_alerts[f"{track.name}:health_gate"] = AlertRecord(
                 key=f"{track.name}:health_gate",
                 severity="warn",
                 subject=f"{track.name} health gate failed",
                 body={**body, "failures": material_health_failures},
+            )
+        if (
+            runtime_monitored
+            and capture_capacity is not None
+            and capture_capacity.get("passed") is not True
+        ):
+            active_alerts[f"{track.name}:capture_capacity"] = AlertRecord(
+                key=f"{track.name}:capture_capacity",
+                severity="page",
+                subject=f"{track.name} capture capacity gate failed",
+                body={**body, "capture_capacity": capture_capacity},
             )
         quarantine_count = regime.get("quarantine_count", 0)
         result_tracks[track.name] = {
@@ -1029,6 +1857,7 @@ def run_watch_cycle(
             "last_quarantine_count": (
                 quarantine_count if isinstance(quarantine_count, int) else 0
             ),
+            "capture_capacity": capture_capacity,
         }
     active_alerts.update(
         _regime_alerts(

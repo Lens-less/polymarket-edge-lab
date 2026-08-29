@@ -1,0 +1,11 @@
+[Unit]
+Description=Run BTC edge-readiness capture health every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Unit=polymm-btc-twap-edge-readiness-v08-health.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

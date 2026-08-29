@@ -1,38 +1,32 @@
-# Polymarket 做市商机器人 - 文档中心
+# 文档中心
 
-欢迎使用 Polymarket 做市商机器人文档。本文档旨在帮助您快速上手并有效使用该机器人进行做市交易。
+Polymarket Edge Lab 是公开数据研究与成交感知回放项目，不是可实盘运行的做市机器人，也不是 Polymarket 官方项目。软件版本是 `v0.1.0`；研究目录中出现的 `v0.5`–`v0.8` 是实验协议版本，两者不是同一版本轴。
 
-## 快速导航
+## 从这里开始
 
-- [快速开始](user/getting-started.md) - 首次使用必读
-- [配置指南](user/configuration.md) - 根据您的账户进行配置
-- [交易模式](user/trading-modes.md) - 了解 DRY_RUN（模拟交易）与 LIVE（实盘交易）的区别
-- [安全指南](user/safety.md) - 重要的风险警告和安全建议
-- [常见问题](user/faq.md) - 常见问题解答
+- [快速开始](user/getting-started.md) — 安装并完成离线验收
+- [复现指南](user/reproduction.md) — 从任意检出目录复算固定证据
+- [配置说明](user/configuration.md) — CLI、固定配置和可选环境变量
+- [安全边界](user/safety.md) — 网络、写盘、凭证和下单边界
+- [证据与执行模式](user/trading-modes.md) — L0–L4 证据等级
+- [常见问题](user/faq.md)
+- [开发环境](developer/setup.md)
+- [架构说明](developer/architecture.md)
+- [贡献指南](../CONTRIBUTING.md)
 
-## 什么是做市商？
+## 当前权威结论
 
-做市商（Market Maker）是金融市场中的重要角色，他们同时提供买入和卖出报价，为市场提供流动性。做市商通过买卖价差（Spread）赚取收益，同时可能获得流动性奖励。
+- [最终研究报告](../research/edge_discovery_2026-07-24/FINAL_REPORT.md)
+- [复现说明](../research/edge_discovery_2026-07-24/REPRODUCTION.md)
+- [实盘就绪审计](../research/edge_discovery_2026-07-24/LIVE_READINESS.md)
+- [BTC 结构线停手证明](../research/btc_5m_15m_edge_readiness_v08_2026-08-18/STRUCTURAL_LINE_STOP.md)
+- [最终投资决策](../STRATEGY_DECISION_2026-08-22.md)
+- [数据存储政策](../DATASETS.md)
 
-## 本机器人功能特点
+截至 2026-08-22，BTC 5m/15m 结构线为 `STRUCTURAL_STOP`，奖励线为未验证研究假设；仓库中没有已验证盈利策略，新订单入口保持无条件关闭。
 
-- **自动化做市** - 自动在 Polymarket 预测市场挂单
-- **智能报价** - 根据市场波动率和库存动态调整价差
-- **风险管理** - 内置仓位限制、每日亏损上限、熔断机制
-- **实时监控** - 支持终端UI界面实时监控
-- **模拟交易** - 支持 DRY_RUN 模式进行无风险测试
+## 历史材料
 
-## 文档版本
+`research/` 和 `deploy/` 中保留了冻结实验、失败证据与历史部署资产，用于复算和审计。它们不是当前操作手册。若历史文档与本页、根 README 或停手证明冲突，以停手证明和最新投资决策为准。
 
-- 当前版本: 1.0.0
-- 最后更新: 2026-03-23
-
-## 相关链接
-
-- [Polymarket 官网](https://polymarket.com)
-- [Polymarket API 文档](https://docs.polymarket.com/)
-- [GitHub 仓库](https://github.com/your-repo)
-
----
-
-**免责声明**: 本软件仅供教育和研究目的。交易预测市场存在重大亏损风险，请在充分了解风险后谨慎操作。
+本项目仅供研究，不构成投资或法律建议。所在地准入、平台条款和数据许可需要使用者自行确认。

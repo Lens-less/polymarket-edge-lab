@@ -1,5 +1,8 @@
 # BTC regime-agnostic raw capture deployment
 
+> [!WARNING]
+> Historical capture asset. It is not a supported v0.1.0 deployment path.
+
 The raw collector records public CLOB data plus `crypto_prices`, 30-second
 TWAP, and 60-second TWAP into `/var/lib/poly-mm-rawcap`. Settlement-regime
 classification is metadata only: unknown regimes are quarantined but do not
@@ -21,8 +24,8 @@ sudo systemctl enable --now polymm-btc-rawcap-health.timer
 sudo systemctl enable --now polymm-btc-rawcap-maintenance.timer
 ```
 
-The hourly maintenance unit compresses only capture attempts that already have
-`capture-summary.json` and have been inactive for at least 30 minutes. It never
+The 15-minute maintenance unit compresses only capture attempts that already have
+`capture-summary.json` and have been inactive for at least 10 minutes. It never
 touches an in-progress attempt. Completed attempts older than 30 days are
 deleted from the explicitly bounded rawcap runs tree. No S3 archival is enabled
 in this release; the first 24-hour write rate remains a required capacity check.

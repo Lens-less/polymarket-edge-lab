@@ -9,7 +9,7 @@
   ],
   "evidence_track_id": "btc-paper-v06-20260814",
   "max_history_roots": 1,
-  "minimum_free_disk_bytes": 12884901888,
+  "minimum_free_disk_bytes": 16106127360,
   "preregistration_path": "/opt/poly-mm-v06/research/btc_5m_15m_relative_value_paper_v06_linux_2026-08-14/PREREGISTRATION.json",
   "regime_registry_path": "/opt/poly-mm-v06/research/settlement_regime_break_2026-08-14/REGIME_REGISTRY.json",
   "research_root": "/var/lib/poly-mm-v06/research/btc_5m_15m_relative_value_paper_v06_linux_2026-08-14",

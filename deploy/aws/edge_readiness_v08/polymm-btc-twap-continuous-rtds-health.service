@@ -1,0 +1,22 @@
+[Unit]
+Description=Fail-closed health check for continuous official BTC 60s TWAP capture
+After=polymm-btc-twap-continuous-rtds.service
+
+[Service]
+Type=oneshot
+User=polybotv08
+Group=polybotv08
+WorkingDirectory=/opt/poly-mm-v08
+ExecStart=/opt/poly-mm-v08/.venv/bin/python /opt/poly-mm-v08/scripts/check_btc_twap_continuous_rtds.py --status /var/lib/poly-mm-v08/data/continuous-rtds/service/status.json --output /var/lib/poly-mm-v08/monitor/continuous-rtds-health-latest.json
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/opt/poly-mm-v08
+ReadOnlyPaths=/var/lib/poly-mm-v08/data/continuous-rtds
+ReadWritePaths=/var/lib/poly-mm-v08/monitor
+IPAddressDeny=any
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+UMask=0027

@@ -1,71 +1,38 @@
-# 架构概述
+# 架构说明
 
-面向想要了解机器人技术设计的开发者。
+仓库采用“薄 CLI + 深模块 + 固定证据”的结构，历史演进较长，但当前发布边界很简单。
 
-> **注意**：这是高级概述。详细技术文档请参阅项目根目录的 `PROJECT_CONTEXT.md`。
+```text
+scripts/          参数解析和命令入口
+    |
+src/edge_lab/     公开 API、采集、回放、经济性与证据审计
+    |
+research/         版本化配置、manifest、报告和决策
 
-## 系统概览
-
-```
-                          ┌─────────────────────────────────────────────────┐
-                          │                 SmartMarketMaker                 │
-                          │  - 报价计算（价差、库存偏斜、数量）              │
-                          │  - 订单生命周期管理                              │
-                          └───────────────────────┬─────────────────────────┘
-                                                    │
-          ┌─────────────────────────────────────────┼─────────────────────────────────────────┐
-          │                                         │                                         │
-          ▼                                         ▼                                         ▼
-┌─────────────────────┐              ┌─────────────────────┐              ┌─────────────────────┐
-│     MarketFeed     │              │     RiskManager     │              │   Alpha Signals    │
-│  - WebSocket数据   │              │  - 仓位限制          │              │  - 套利检测        │
-│  - REST备用方案    │              │  - 每日盈亏         │              │  - 流量分析        │
-│  - 健康状态追踪   │              │  - 熔断开关         │              │  - 竞争者检测      │
-└─────────────────────┘              └─────────────────────┘              └─────────────────────┘
+src/              保留的账户/feed/风控/模拟基础设施
+deploy/           已归档的历史 AWS 部署资产
 ```
 
-## 核心组件
+## 主要边界
 
-| 组件 | 位置 | 用途 |
-|------|------|------|
-| SmartMarketMaker | `src/strategy/market_maker.py` | 主策略，报价计算 |
-| MarketFeed | `src/feed/feed.py` | 实时市场数据 |
-| RiskManager | `src/risk/manager.py` | 风险控制 |
-| Alpha Signals | `src/alpha/` | 市场情报 |
+### 公开数据
 
-## 关键文件
+`src/edge_lab/public_api.py`、`sources.py`、recorder 与各实验 runner 负责公开端点。网络层应拒绝敏感参数、认证代理和重定向，并只持久化脱敏错误。
 
-- `run_mm.py` - 主入口点
-- `run_tui.py` - 终端 UI 入口
-- `src/config.py` - 所有配置
-- `src/strategy/market_maker.py` - 核心策略
-- `src/risk/manager.py` - 风险管理
+### 成交与回放
 
-## 数据流
+`execution.py`、`replay.py` 及策略专用 replay 模块使用逐档流动性、费用、滑点、延迟和队列边界。合成、静态、shadow 和真实成交在证据模型中分开，不能互相升级。
 
-1. MarketFeed 订阅 WebSocket 获取订单簿更新
-2. SmartMarketMaker 根据波动率、库存、流量信号计算报价
-3. RiskManager 验证每个报价是否符合仓位限制
-4. 通过 Client 下单或在 DRY_RUN 中模拟
-5. 成交处理和库存更新
-6. TradeLogger 记录所有活动
+### 数据与证据
 
-## 快速参考
+`data_store.py`、`data_manifest.py`、`evidence.py` 和 `final_bundle.py` 管理 append-only 原始记录、manifest、哈希、质量审计和最终报告。`research/` 中的固定结果是审计输入，不是普通缓存。
 
-### 运行测试
-```bash
-pytest tests/ -v
-```
+### 安全
 
-### 添加新的 Alpha 信号
-1. 在 `src/alpha/` 创建信号类
-2. 添加配置到 `src/config.py`
-3. 集成到 SmartMarketMaker._calculate_quotes()
-4. 添加测试
+`compatibility.py` 是新订单发布边界，当前无条件 fail-closed。公开 CLI 不读取 `src/config.py` 中的账户凭证。保留的 `src/trading.py` 等通用模块不是受支持的主程序。
 
-### 修改报价逻辑
-所有报价计算在 `SmartMarketMaker._calculate_quotes()` 中
+## 版本边界
 
----
+软件包/仓库版本从 `v0.1.0` 开始。研究目录中的 v05、v06、v07、v08 表示特定实验协议或资产版本，不表示软件已经发布到相同大版本。
 
-*详细技术文档：参见项目根目录的 PROJECT_CONTEXT.md*
+更细的实验设计、结算规则和复现顺序以对应 `research/` 目录中的预注册和报告为准。

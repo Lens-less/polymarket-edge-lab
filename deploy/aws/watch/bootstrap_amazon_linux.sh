@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_URL="${REPO_URL:-https://github.com/Lens-less/poly-mm.git}"
+REPO_URL="${REPO_URL:-https://github.com/Lens-less/polymarket-edge-lab.git}"
 DEPLOY_REF="${DEPLOY_REF:?DEPLOY_REF must be the immutable commit to deploy}"
 INSTALL_ROOT="${INSTALL_ROOT:-/opt/poly-mm-watch}"
 DATA_ROOT="${DATA_ROOT:-/var/lib/poly-mm-watch}"
 SERVICE_USER="${SERVICE_USER:-polybotwatch}"
 SERVICE_GROUP="${SERVICE_GROUP:-polybotwatch}"
 DEPLOYMENT_REVISION_PATH="${INSTALL_ROOT}/.deployment-revision"
+RUNTIME_CONFIG_PATH="${RUNTIME_CONFIG_PATH:-/etc/polymm-watch-config.json}"
+SNS_TOPIC_ARN="${POLYMM_SNS_TOPIC_ARN:?POLYMM_SNS_TOPIC_ARN is required for paging}"
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "Run as root." >&2
@@ -19,6 +21,10 @@ if ! grep -q '^ID="\?amzn"\?$' /etc/os-release; then
 fi
 
 dnf install -y git python3.11 python3.11-pip
+if ! getent group polybotv08 >/dev/null 2>&1; then
+  echo "Required group polybotv08 must already exist before installing the watch unit." >&2
+  exit 1
+fi
 if ! getent group "${SERVICE_GROUP}" >/dev/null 2>&1; then
   groupadd --system "${SERVICE_GROUP}"
 fi
@@ -54,18 +60,97 @@ install -o root -g root -m 0644 \
   "${INSTALL_ROOT}/deploy/aws/watch/polymm-watch.timer" \
   /etc/systemd/system/polymm-watch.timer
 
-if [[ -n "${POLYMM_SNS_TOPIC_ARN:-}" ]]; then
-  command -v aws >/dev/null
-  printf 'POLYMM_SNS_TOPIC_ARN=%s\n' "${POLYMM_SNS_TOPIC_ARN}" \
-    >/etc/polymm-watch.env
-  chmod 0644 /etc/polymm-watch.env
+WATCH_REGION_VALUE="${POLYMM_WATCH_AWS_REGION:-}"
+WATCH_INSTANCE_ID_VALUE="${POLYMM_WATCH_INSTANCE_ID:-}"
+if [[ -z "${WATCH_REGION_VALUE}" || -z "${WATCH_INSTANCE_ID_VALUE}" ]]; then
+  IDENTITY_JSON="$(
+    python3.11 - <<'PY'
+import json
+import urllib.request
+
+token_request = urllib.request.Request(
+    "http://169.254.169.254/latest/api/token",
+    method="PUT",
+    headers={"X-aws-ec2-metadata-token-ttl-seconds": "60"},
+)
+with urllib.request.urlopen(token_request, timeout=2) as response:
+    token = response.read().decode("utf-8")
+
+document_request = urllib.request.Request(
+    "http://169.254.169.254/latest/dynamic/instance-identity/document",
+    headers={"X-aws-ec2-metadata-token": token},
+)
+with urllib.request.urlopen(document_request, timeout=2) as response:
+    print(response.read().decode("utf-8"))
+PY
+  )"
+  if [[ -z "${WATCH_REGION_VALUE}" ]]; then
+    WATCH_REGION_VALUE="$(
+      python3.11 -c 'import json,sys; print(json.loads(sys.stdin.read())["region"])' \
+        <<<"${IDENTITY_JSON}"
+    )"
+  fi
+  if [[ -z "${WATCH_INSTANCE_ID_VALUE}" ]]; then
+    WATCH_INSTANCE_ID_VALUE="$(
+      python3.11 -c 'import json,sys; print(json.loads(sys.stdin.read())["instanceId"])' \
+        <<<"${IDENTITY_JSON}"
+    )"
+  fi
 fi
+
+WATCH_INSTANCE_TYPE_VALUE="${POLYMM_WATCH_INSTANCE_TYPE:-}"
+if [[ -z "${WATCH_INSTANCE_TYPE_VALUE}" && -n "${IDENTITY_JSON:-}" ]]; then
+  WATCH_INSTANCE_TYPE_VALUE="$(
+    python3.11 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("instanceType") or "")' \
+      <<<"${IDENTITY_JSON}"
+  )"
+fi
+python3.11 - "${INSTALL_ROOT}/deploy/aws/watch/watch-config.json" \
+  "${RUNTIME_CONFIG_PATH}" "${WATCH_REGION_VALUE}" \
+  "${WATCH_INSTANCE_ID_VALUE}" "${WATCH_INSTANCE_TYPE_VALUE}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+source_path = Path(sys.argv[1])
+runtime_path = Path(sys.argv[2])
+region = sys.argv[3]
+instance_id = sys.argv[4]
+instance_type = sys.argv[5] if len(sys.argv) > 5 else ""
+document = json.loads(source_path.read_text(encoding="utf-8"))
+host = document.get("host", {})
+host["cpu_credit_region"] = region
+host["cpu_credit_instance_id"] = instance_id
+host["cpu_credit_expected"] = instance_type.startswith(("t2.", "t3.", "t3a.", "t4g.")) if instance_type else True
+runtime_path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+PY
+
+chown root:root "${RUNTIME_CONFIG_PATH}"
+chmod 0644 "${RUNTIME_CONFIG_PATH}"
+
+command -v aws >/dev/null
+SNS_REGION="${SNS_TOPIC_ARN#arn:aws:sns:}"
+SNS_REGION="${SNS_REGION%%:*}"
+CONFIRMED_SNS_SUBSCRIPTIONS="$(
+  aws sns list-subscriptions-by-topic \
+    --region "${SNS_REGION}" \
+    --topic-arn "${SNS_TOPIC_ARN}" \
+    --query "length(Subscriptions[?SubscriptionArn!='PendingConfirmation'])" \
+    --output text
+)"
+if [[ ! "${CONFIRMED_SNS_SUBSCRIPTIONS}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "SNS topic must have at least one confirmed SNS subscription." >&2
+  exit 1
+fi
+printf 'POLYMM_SNS_TOPIC_ARN=%s\n' "${SNS_TOPIC_ARN}" \
+  >/etc/polymm-watch.env
+chmod 0644 /etc/polymm-watch.env
 
 chown -R root:root "${INSTALL_ROOT}"
 chmod -R a+rX "${INSTALL_ROOT}"
 "${INSTALL_ROOT}/.venv/bin/python" \
   "${INSTALL_ROOT}/scripts/watch_paper_tracks.py" \
-  --config "${INSTALL_ROOT}/deploy/aws/watch/watch-config.json" \
+  --config "${RUNTIME_CONFIG_PATH}" \
   --stdout-only
 systemctl daemon-reload
 

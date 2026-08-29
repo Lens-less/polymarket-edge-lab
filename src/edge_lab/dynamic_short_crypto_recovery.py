@@ -1973,6 +1973,16 @@ def _run_tree_open_flags() -> int:
     )
 
 
+def _descriptor_safe_run_traversal_available() -> bool:
+    """Return whether this host can provide the POSIX run-tree proof."""
+
+    try:
+        _run_tree_open_flags()
+    except RecoveryInputError:
+        return False
+    return True
+
+
 def _open_run_root_descriptor(proof: _RunRootProof) -> int:
     """Open and bind one run root for a bounded operation."""
 
@@ -3348,17 +3358,25 @@ def _recover_dynamic_short_crypto_runs(
         )
         replay_roots = prior_run_roots
         if root_proofs is None and not _checkpoint_only_reduction:
-            held_proofs: list[_RunRootProof] = []
-            roots = _run_roots(
-                prior_run_roots,
-                _proof_sink=held_proofs,
-            )
-            for proof in reversed(held_proofs):
-                resources.callback(proof.close)
-            root_proofs = {
-                proof.run_id: proof
-                for proof in held_proofs
-            }
+            if _descriptor_safe_run_traversal_available():
+                held_proofs: list[_RunRootProof] = []
+                roots = _run_roots(
+                    prior_run_roots,
+                    _proof_sink=held_proofs,
+                )
+                for proof in reversed(held_proofs):
+                    resources.callback(proof.close)
+                root_proofs = {
+                    proof.run_id: proof
+                    for proof in held_proofs
+                }
+            else:
+                # Windows has neither O_DIRECTORY nor O_NOFOLLOW. Keep the
+                # deterministic replay usable for offline analysis there,
+                # while reserving descriptor-bound race guarantees for the
+                # Linux production host.
+                roots = _run_roots(prior_run_roots)
+                root_proofs = {}
             replay_roots = tuple(path for _, path in roots)
         return _recover_dynamic_short_crypto_runs_impl(
             replay_roots,
@@ -6282,6 +6300,8 @@ def _discard_pending_record_index(
                         f"{pending_path}"
                     ),
                 )
+            if os.name == "nt":
+                pending_path.chmod(0o666)
             pending_path.unlink()
 
 
@@ -6298,7 +6318,10 @@ def _finalize_record_index(
             "recovery_record_index_unsafe",
             f"pending index has an uncommitted sidecar: {pending_path}",
         )
-    descriptor = os.open(pending_path, os.O_RDONLY)
+    descriptor = os.open(
+        pending_path,
+        os.O_RDWR if os.name == "nt" else os.O_RDONLY,
+    )
     try:
         os.fsync(descriptor)
     finally:
@@ -6330,14 +6353,17 @@ def _finalize_record_index(
                 "recovery_record_index_unsafe",
                 f"content-addressed index path conflicts: {final_path}",
             )
+        if os.name == "nt":
+            pending_path.chmod(0o666)
         pending_path.unlink()
     else:
         os.replace(pending_path, final_path)
-        directory_fd = os.open(final_path.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
+        if os.name != "nt":
+            directory_fd = os.open(final_path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
     return {
         "schema_version": RECORD_INDEX_SCHEMA,
         "path": final_path.name,
@@ -7101,6 +7127,144 @@ def _validate_direct_successor_anchor(
     run_id, run_root = successor
     anchors: list[dict[str, Any]] = []
     restart_decision_count = 0
+    if not _descriptor_safe_run_traversal_available():
+        service_root = (
+            run_root / "control" / "raw" / "dynamic_short_crypto_service"
+        )
+        chain = (
+            run_root,
+            run_root / "control",
+            run_root / "control" / "raw",
+            service_root,
+        )
+        identities: list[tuple[Path, tuple[int, int, int, int]]] = []
+        reparse_point = getattr(
+            stat,
+            "FILE_ATTRIBUTE_REPARSE_POINT",
+            0x400,
+        )
+        try:
+            for path in chain:
+                metadata = path.lstat()
+                attributes = getattr(metadata, "st_file_attributes", 0)
+                if (
+                    stat.S_ISLNK(metadata.st_mode)
+                    or bool(attributes & reparse_point)
+                    or not stat.S_ISDIR(metadata.st_mode)
+                    or path.resolve(strict=True) != path
+                ):
+                    raise RecoveryInputError(
+                        "recovery_anchor_invalid",
+                        f"anchor control directory is not strict-local: {path}",
+                    )
+                identities.append(
+                    (
+                        path,
+                        (
+                            metadata.st_dev,
+                            metadata.st_ino,
+                            metadata.st_mode,
+                            metadata.st_mtime_ns,
+                        ),
+                    )
+                )
+            names = {
+                name
+                for name in os.listdir(service_root)
+                if isinstance(name, str) and Path(name).name == name
+            }
+        except RecoveryInputError:
+            raise
+        except OSError as exc:
+            raise RecoveryInputError(
+                "recovery_anchor_invalid",
+                f"cannot enumerate direct successor anchor pairs: {run_id}",
+            ) from exc
+        raw_names = tuple(
+            sorted(
+                name
+                for name in names
+                if (
+                    name.endswith(".jsonl")
+                    and Path(name).with_suffix(".manifest.json").name
+                    in names
+                )
+            )
+        )
+        for raw_name in raw_names:
+            batch = _validate_finalized_pair(
+                run_root,
+                run_id,
+                service_root / raw_name,
+            )
+            for row in batch.rows:
+                event = row.get("payload")
+                if (
+                    row.get("source") == "dynamic_short_crypto_service"
+                    and isinstance(event, Mapping)
+                    and event.get("event_type")
+                    == "restart_recovery_decision"
+                ):
+                    restart_decision_count += 1
+                anchor = _validated_recovery_anchor_event(
+                    row,
+                    run_id=run_id,
+                    relative_path=batch.relative_path,
+                )
+                if anchor is not None:
+                    anchors.append(anchor)
+        try:
+            for path, identity in identities:
+                current = path.lstat()
+                attributes = getattr(current, "st_file_attributes", 0)
+                if (
+                    stat.S_ISLNK(current.st_mode)
+                    or bool(attributes & reparse_point)
+                    or (
+                        current.st_dev,
+                        current.st_ino,
+                        current.st_mode,
+                        current.st_mtime_ns,
+                    )
+                    != identity
+                ):
+                    raise RecoveryInputError(
+                        "recovery_anchor_invalid",
+                        f"anchor control directory changed: {path}",
+                    )
+            if {
+                name
+                for name in os.listdir(service_root)
+                if isinstance(name, str) and Path(name).name == name
+            } != names:
+                raise RecoveryInputError(
+                    "recovery_anchor_invalid",
+                    f"direct successor anchor set changed: {run_id}",
+                )
+        except RecoveryInputError:
+            raise
+        except OSError as exc:
+            raise RecoveryInputError(
+                "recovery_anchor_invalid",
+                f"anchor control directory changed: {service_root}",
+            ) from exc
+        if restart_decision_count != 1 or len(anchors) != 1:
+            raise RecoveryInputError(
+                "recovery_anchor_invalid",
+                (
+                    "snapshot prefix requires exactly one anchored recovery "
+                    f"decision in direct successor {run_id}"
+                ),
+            )
+        if canonical_json_bytes(anchors[0]) != canonical_json_bytes(
+            expected_anchor
+        ):
+            raise RecoveryInputError(
+                "recovery_anchor_mismatch",
+                f"direct successor anchor does not bind the snapshot: {run_id}",
+            )
+        return
+
     directory_proof = _validated_anchor_control_root(
         run_root,
         root_proof=root_proof,
@@ -7455,10 +7619,18 @@ def _write_recovery_snapshot(
             canonical_json_bytes(body)
         ).hexdigest(),
     }
-    _atomic_write_bytes(
-        snapshot_path,
-        canonical_json_bytes(document) + b"\n",
-    )
+    windows_existing_snapshot = os.name == "nt" and snapshot_path.exists()
+    if windows_existing_snapshot:
+        snapshot_path.chmod(0o666)
+    try:
+        _atomic_write_bytes(
+            snapshot_path,
+            canonical_json_bytes(document) + b"\n",
+        )
+    except BaseException:
+        if windows_existing_snapshot and snapshot_path.exists():
+            snapshot_path.chmod(0o444)
+        raise
     snapshot_path.chmod(0o444)
     return _recovery_anchor_payload_from_snapshot(document)
 
@@ -7474,6 +7646,16 @@ def recover_dynamic_short_crypto_runs_cached(
     cpu_ratio: float | None = None,
 ) -> CachedRecoveryOutcome:
     """Reuse a byte-identical proof, or fully replay and atomically refresh it."""
+
+    if not _descriptor_safe_run_traversal_available():
+        roots = _run_roots(prior_run_roots)
+        return _recover_dynamic_short_crypto_runs_cached_held(
+            roots,
+            root_proofs=None,
+            settlement_timeout_ms=settlement_timeout_ms,
+            snapshot_path=snapshot_path,
+            cpu_ratio=cpu_ratio,
+        )
 
     held_proofs: list[_RunRootProof] = []
     try:
@@ -7500,14 +7682,15 @@ def recover_dynamic_short_crypto_runs_cached(
 def _recover_dynamic_short_crypto_runs_cached_held(
     roots: tuple[tuple[str, Path], ...],
     *,
-    root_proofs: Mapping[str, _RunRootProof],
+    root_proofs: Mapping[str, _RunRootProof] | None,
     settlement_timeout_ms: int,
     snapshot_path: str | Path,
     cpu_ratio: float | None,
 ) -> CachedRecoveryOutcome:
     """Run cached recovery while every normalized run root remains held."""
 
-    _revalidate_run_root_proofs(root_proofs)
+    if root_proofs is not None:
+        _revalidate_run_root_proofs(root_proofs)
     target = Path(
         os.path.abspath(Path(snapshot_path).expanduser())
     )
@@ -7559,7 +7742,9 @@ def _recover_dynamic_short_crypto_runs_cached_held(
                     _prefix_checkpoint=replay_checkpoint,
                     _record_index=record_index,
                     _checkpoint_sink=checkpoint_sink,
-                    _root_proofs=root_proofs,
+                    _root_proofs=(
+                        {} if root_proofs is None else root_proofs
+                    ),
                     _input_proof_sink=replayed_input_proofs,
                 )
                 if len(checkpoint_sink) != 1:
@@ -7605,7 +7790,8 @@ def _recover_dynamic_short_crypto_runs_cached_held(
                     pending_index_path,
                 )
                 raise
-            _revalidate_run_root_proofs(root_proofs)
+            if root_proofs is not None:
+                _revalidate_run_root_proofs(root_proofs)
             input_commitment, input_summary = (
                 _recovery_input_commitment(
                     roots,
@@ -7614,7 +7800,8 @@ def _recover_dynamic_short_crypto_runs_cached_held(
                     root_proofs=root_proofs,
                 )
             )
-            _revalidate_run_root_proofs(root_proofs)
+            if root_proofs is not None:
+                _revalidate_run_root_proofs(root_proofs)
             if _recovery_validator_contract() != current_contract:
                 raise RecoveryInputError(
                     "recovery_validator_changed",
@@ -7649,7 +7836,8 @@ def _recover_dynamic_short_crypto_runs_cached_held(
                     "recovery_snapshot_input_drift",
                     "recovery inputs changed while snapshot committed",
                 )
-            _revalidate_run_root_proofs(root_proofs)
+            if root_proofs is not None:
+                _revalidate_run_root_proofs(root_proofs)
             return CachedRecoveryOutcome(
                 result=result,
                 anchor_payload=anchor_payload,
@@ -7664,7 +7852,9 @@ def _recover_dynamic_short_crypto_runs_cached_held(
             cpu_ratio=cpu_ratio,
             _record_index=record_index,
             _checkpoint_sink=checkpoint_sink,
-            _root_proofs=root_proofs,
+            _root_proofs=(
+                {} if root_proofs is None else root_proofs
+            ),
             _input_proof_sink=replayed_input_proofs,
         )
         if len(checkpoint_sink) != 1:
@@ -7704,13 +7894,15 @@ def _recover_dynamic_short_crypto_runs_cached_held(
             pending_index_path,
         )
         raise
-    _revalidate_run_root_proofs(root_proofs)
+    if root_proofs is not None:
+        _revalidate_run_root_proofs(root_proofs)
     input_commitment, input_summary = _recovery_input_commitment(
         roots,
         replayed_root_proofs=replayed_input_proofs,
         root_proofs=root_proofs,
     )
-    _revalidate_run_root_proofs(root_proofs)
+    if root_proofs is not None:
+        _revalidate_run_root_proofs(root_proofs)
     if _recovery_validator_contract() != current_contract:
         raise RecoveryInputError(
             "recovery_validator_changed",
@@ -7742,7 +7934,8 @@ def _recover_dynamic_short_crypto_runs_cached_held(
             "recovery_snapshot_input_drift",
             "recovery inputs changed while snapshot committed",
         )
-    _revalidate_run_root_proofs(root_proofs)
+    if root_proofs is not None:
+        _revalidate_run_root_proofs(root_proofs)
     return CachedRecoveryOutcome(
         result=result,
         anchor_payload=anchor_payload,

@@ -69,6 +69,11 @@ class ForwardCaptureConfig:
     clock_sync: Mapping[str, Any] | None = None
     capture_started_at_ms: int | None = None
     evidence_track_id: str | None = None
+    persist_raw_clob_frames: bool = False
+    persist_reconstructed_full_depth_frames: bool = True
+    persist_top_of_book_changes: bool = False
+    trade_page_limit: int = 1_000
+    trade_max_pages: int = 100
 
     def __post_init__(self) -> None:
         if self.capture_started_at_ms is not None and (
@@ -82,6 +87,13 @@ class ForwardCaptureConfig:
             or _SAFE_TRACK_ID.fullmatch(self.evidence_track_id) is None
         ):
             raise ValueError("evidence_track_id must be a non-empty safe token")
+        for name in (
+            "persist_raw_clob_frames",
+            "persist_reconstructed_full_depth_frames",
+            "persist_top_of_book_changes",
+        ):
+            if not isinstance(getattr(self, name), bool):
+                raise TypeError(f"{name} must be bool")
 
 
 def _unique_strings(value: Any, *, field: str) -> tuple[str, ...]:
@@ -144,6 +156,11 @@ def load_capture_config(
         "qualification_status",
         "regime_classification",
         "registry_sha256",
+        "persist_raw_clob_frames",
+        "persist_reconstructed_full_depth_frames",
+        "persist_top_of_book_changes",
+        "trade_page_limit",
+        "trade_max_pages",
     }
     unexpected = set(raw) - allowed
     if unexpected:
@@ -195,6 +212,15 @@ def load_capture_config(
         clock_sync=(dict(clock_sync) if isinstance(clock_sync, Mapping) else None),
         capture_started_at_ms=raw.get("capture_started_at_ms"),
         evidence_track_id=raw.get("evidence_track_id"),
+        persist_raw_clob_frames=raw.get("persist_raw_clob_frames", False),
+        persist_reconstructed_full_depth_frames=raw.get(
+            "persist_reconstructed_full_depth_frames", True
+        ),
+        persist_top_of_book_changes=raw.get(
+            "persist_top_of_book_changes", False
+        ),
+        trade_page_limit=int(raw.get("trade_page_limit", 1_000)),
+        trade_max_pages=int(raw.get("trade_max_pages", 100)),
     )
     # Reuse the recorder's strict allowlist and timing validation.
     RecorderConfig(
@@ -269,6 +295,8 @@ async def run_forward_capture(
         condition_ids=config.condition_ids,
         reward_page_limit=config.reward_page_limit,
         reward_max_pages=config.reward_max_pages,
+        trade_page_limit=config.trade_page_limit,
+        trade_max_pages=config.trade_max_pages,
         rule_market_ids=config.rule_market_ids,
     )
     recorder = PublicRecorder(

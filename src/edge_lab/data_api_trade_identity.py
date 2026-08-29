@@ -28,11 +28,12 @@ def _decimal_text(value: Any, *, label: str) -> str:
 
 
 def data_api_trade_event_key(trade: Mapping[str, Any]) -> str:
-    """Return a stable composite key for one documented taker-only match.
+    """Return a stable normalized fingerprint for one documented match row.
 
     One transaction can contain several match rows, so transaction hash alone
-    is insufficient. The same match also appears in repeated polling
-    snapshots, so snapshot record ID must not enter this identity.
+    is insufficient. This fingerprint intentionally excludes snapshot/page/row
+    provenance so repeated polling of the same row stays comparable across
+    snapshots.
     """
 
     condition_id = trade.get("conditionId")
@@ -85,4 +86,37 @@ def data_api_trade_event_key(trade: Mapping[str, Any]) -> str:
     return hashlib.sha256(canonical_json_bytes(identity)).hexdigest()
 
 
-__all__ = ["data_api_trade_event_key"]
+def data_api_trade_observation_id(
+    trade: Mapping[str, Any],
+    *,
+    snapshot_id: str,
+    page_number: int,
+    row_number: int,
+) -> str:
+    """Return a unique ID for one observed row instance inside a snapshot."""
+
+    if not isinstance(snapshot_id, str) or not snapshot_id:
+        raise ValueError("snapshot_id must be a non-empty string")
+    if (
+        isinstance(page_number, bool)
+        or not isinstance(page_number, int)
+        or page_number <= 0
+    ):
+        raise ValueError("page_number must be a positive integer")
+    if (
+        isinstance(row_number, bool)
+        or not isinstance(row_number, int)
+        or row_number <= 0
+    ):
+        raise ValueError("row_number must be a positive integer")
+    identity = {
+        "schema_version": "edge-lab.data-api-trade-observation-id.v1",
+        "trade_fingerprint": data_api_trade_event_key(trade),
+        "snapshot_id": snapshot_id,
+        "page_number": page_number,
+        "row_number": row_number,
+    }
+    return hashlib.sha256(canonical_json_bytes(identity)).hexdigest()
+
+
+__all__ = ["data_api_trade_event_key", "data_api_trade_observation_id"]

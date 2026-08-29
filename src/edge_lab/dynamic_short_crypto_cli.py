@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import fcntl
 import json
 import math
 import os
@@ -29,12 +28,14 @@ from .dynamic_short_crypto_service import (
     freeze_finalized_discovery_paths,
 )
 from .network_safety import configure_public_session
+from .portable_fcntl import LOCK_EX, LOCK_NB, LOCK_UN, flock
 from .recorder import DefaultWebSocketFactory
 from .sources import PublicSourcesClient
 
 
 STATUS_SCHEMA_VERSION = "edge-lab-dynamic-short-crypto-cli-status.v1"
 RESTART_RECOVERY = "finalized_only_reducer_v1"
+_ACTIVE_SERVICE_LOCKS: set[Path] = set()
 
 
 def _verify_live_order_guard() -> None:
@@ -161,15 +162,20 @@ def _isolated_run_config(
 def _exclusive_service_lock(output_root: Path) -> Iterator[None]:
     service_dir = output_root / "service"
     service_dir.mkdir(parents=True, exist_ok=True)
-    lock_path = service_dir / "dynamic-short-crypto.lock"
+    lock_path = (service_dir / "dynamic-short-crypto.lock").resolve()
+    if lock_path in _ACTIVE_SERVICE_LOCKS:
+        raise RuntimeError(
+            "another dynamic short-crypto capture process owns the data root"
+        )
     handle = lock_path.open("a+", encoding="utf-8")
     try:
         try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            flock(handle.fileno(), LOCK_EX | LOCK_NB)
         except BlockingIOError as exc:
             raise RuntimeError(
                 "another dynamic short-crypto capture process owns the data root"
             ) from exc
+        _ACTIVE_SERVICE_LOCKS.add(lock_path)
         handle.seek(0)
         handle.truncate()
         handle.write(f"{os.getpid()}\n")
@@ -178,8 +184,9 @@ def _exclusive_service_lock(output_root: Path) -> Iterator[None]:
         yield
     finally:
         try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            flock(handle.fileno(), LOCK_UN)
         finally:
+            _ACTIVE_SERVICE_LOCKS.discard(lock_path)
             handle.close()
 
 

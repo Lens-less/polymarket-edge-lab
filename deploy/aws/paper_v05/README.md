@@ -1,5 +1,8 @@
 # BTC 5m/15m relative-value paper v0.5 Linux deployment
 
+> [!WARNING]
+> Historical paper asset. The strategy track is closed; do not deploy or enable it.
+
 These assets stage an isolated public-only paper run under
 `/opt/poly-mm-v05` and `/var/lib/poly-mm-v05`.
 They are frozen to the repository path

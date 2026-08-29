@@ -1,109 +1,48 @@
-# 快速开始指南
+# 快速开始
 
-本指南将帮助您完成 Polymarket 做市商机器人的首次设置和运行。
+本页带你从新克隆的仓库完成一次离线验收。不会访问 Polymarket、读取凭证或提交订单。
 
-## 前置要求
+## 前置条件
 
-在开始之前，您需要准备以下内容：
+- Git
+- Python 3.11+（CI 验证 3.11 和 3.12）
+- 推荐使用 `uv`
 
-### 1. Python 3.11 或更高版本
+Windows 用户如果要复算 `research/` 中最深层的冻结证据，建议克隆到短路径（例如 `C:\src\polymarket-edge-lab`）。普通快速验收不受影响。
 
-- 从 [python.org](https://www.python.org/downloads/) 下载安装
-- 验证安装：`python3 --version`
-
-### 2. Polymarket 账户（如需实盘交易）
-
-- 在 [polymarket.com](https://polymarket.com) 注册账户
-- 实盘交易需要申请 API 凭证
-
-## 安装步骤
-
-### 第一步：克隆代码仓库
+## 安装与验收
 
 ```bash
-git clone <仓库URL>
-cd polymarket-mm-bot
+git clone https://github.com/Lens-less/polymarket-edge-lab.git
+cd polymarket-edge-lab
+uv sync --locked --python 3.12 --extra dev
+uv run python scripts/run_edge_capture.py --config research/edge_discovery_2026-07-24/FORWARD_CAPTURE_CONFIG.json --validate-only
 ```
 
-### 第二步：创建虚拟环境
+成功输出应包含：
+
+```json
+{
+  "new_orders_disabled": true,
+  "valid": true
+}
+```
+
+这里使用的是冻结研究配置，只做 schema 和安全门校验。它包含历史市场与历史采集路径，不能直接当作新的实时采集计划。
+
+`uv run` 在 Windows、macOS 和 Linux 上命令一致，也不要求手工激活 `.venv`。pip 安装方式见[根 README](../../README.md#快速开始)。
+
+## 接下来
 
 ```bash
-# macOS / Linux
-python3 -m venv venv
-source venv/bin/activate
+# 查看所有主命令；离线
+uv run python scripts/run_edge_lab.py --help
 
-# Windows
-python -m venv venv
-venv\Scripts\activate
+# 合成账本诊断；离线，不是盈利证据
+uv run python scripts/run_backtest.py --mock
+
+# SDK 与地域限制检查；访问公开网络，但不读取凭证、不下单
+uv run python scripts/run_edge_lab.py audit
 ```
 
-### 第三步：安装依赖
-
-```bash
-pip install -r requirements.txt
-```
-
-### 第四步：配置环境变量
-
-```bash
-cp .env.example .env
-```
-
-使用文本编辑器打开 `.env` 文件，默认设置适合首次测试。
-
-## 运行机器人（DRY_RUN 模式）
-
-DRY_RUN 模式即模拟交易模式，机器人会模拟真实交易但不真正下单，这是测试和学习的安全方式。
-
-```bash
-python run_mm.py
-```
-
-正常运行后您应该看到类似输出：
-
-```
-INFO: Starting SmartMarketMaker in DRY_RUN mode
-INFO: Connected to market feed
-INFO: Placing quotes on [token_id]...
-```
-
-**恭喜！** 您的机器人已在模拟交易模式下运行。
-
-## 验证机器人是否正常运行
-
-- 检查控制台输出中的交易活动
-- 观察挂单消息
-- 监控成交通知
-
-## 下一步
-
-1. **阅读配置指南** - 根据您的账户自定义设置
-2. **了解交易模式** - 学习 DRY_RUN 与 LIVE 的区别
-3. **查看安全指南** - 实盘交易前的风险警告
-
-## 常见问题排查
-
-### "Module not found" 错误
-
-- 解决方案：重新运行 `pip install -r requirements.txt`
-
-### "No markets found"（未找到市场）
-
-- 解决方案：检查网络连接，等待市场数据
-
-### 机器人无法挂单
-
-- 解决方案：确认 .env 中 `DRY_RUN=true`
-
-## 切换到实盘交易
-
-在熟悉 DRY_RUN 模式后：
-
-1. 阅读[交易模式](trading-modes.md)文档
-2. 查看[安全指南](safety.md)
-3. 在 .env 中配置 API 凭证
-4. 从小额开始测试
-
----
-
-**相关链接**: [配置指南](user/configuration.md) | [常见问题](user/faq.md)
+真实数据采集前，请先读[安全边界](safety.md)、[配置说明](configuration.md)和[复现说明](../../research/edge_discovery_2026-07-24/REPRODUCTION.md)。当前没有受支持的实盘启动命令。

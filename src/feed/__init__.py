@@ -1,34 +1,33 @@
-"""
-Market data feed with automatic failover.
+"""Feed package with lazy imports for optional runtime dependencies."""
 
-Simple usage:
-    feed = MarketFeed()
-    await feed.start(["token1", "token2"])
+from __future__ import annotations
 
-    if feed.is_healthy:
-        price = feed.get_midpoint("token1")
+from importlib import import_module
+from typing import Any
 
-Persistence:
-    store = PersistentDataStore(db_path="data/market.db")
-    store.update_book(token_id, bids, asks)
-    store.export_to_parquet("output/")
-"""
+_LAZY_EXPORTS = {
+    "MarketFeed": ("src.feed.feed", "MarketFeed"),
+    "FeedState": ("src.feed.feed", "FeedState"),
+    "PersistentDataStore": ("src.feed.persistent_data_store", "PersistentDataStore"),
+    "GammaAPI": ("src.feed.gamma_api", "GammaAPI"),
+    "MarketFilter": ("src.feed.gamma_api", "MarketFilter"),
+    "SQLiteStore": ("src.feed.persistence", "SQLiteStore"),
+    "SnapshotRecord": ("src.feed.persistence", "SnapshotRecord"),
+    "TradeRecord": ("src.feed.persistence", "TradeRecord"),
+    "PositionRecord": ("src.feed.persistence", "PositionRecord"),
+    "MarkoutMetrics": ("src.feed.persistence", "MarkoutMetrics"),
+}
 
-from src.feed.feed import MarketFeed, FeedState
-from src.feed.persistent_data_store import PersistentDataStore
-from src.feed.gamma_api import GammaAPI, MarketFilter
-from src.feed.persistence import (
-    SQLiteStore,
-    SnapshotRecord,
-    TradeRecord,
-    PositionRecord,
-    MarkoutMetrics,
-)
 
-__all__ = [
-    'MarketFeed', 'FeedState',
-    'PersistentDataStore',
-    'GammaAPI', 'MarketFilter',
-    'SQLiteStore', 'SnapshotRecord', 'TradeRecord',
-    'PositionRecord', 'MarkoutMetrics',
-]
+def __getattr__(name: str) -> Any:
+    try:
+        module_name, attr_name = _LAZY_EXPORTS[name]
+    except KeyError as exc:
+        raise AttributeError(name) from exc
+    module = import_module(module_name)
+    value = getattr(module, attr_name)
+    globals()[name] = value
+    return value
+
+
+__all__ = list(_LAZY_EXPORTS)

@@ -1,0 +1,62 @@
+{
+  "schema_version": "btc-5m-15m-edge-readiness-v08-service-config.v2",
+  "track_id": "btc_5m_15m_edge_readiness_v08_2026_08_18",
+  "mode": "public_capture_and_locked_structural_shadow",
+  "data_root": "/var/lib/poly-mm-v08/data",
+  "research_root": "/var/lib/poly-mm-v08/research/btc_5m_15m_edge_readiness_v08_2026-08-18",
+  "preregistration_path": "/opt/poly-mm-v08/research/btc_5m_15m_edge_readiness_v08_2026-08-18/PREREGISTRATION.json",
+  "settlement_grace_seconds": 360,
+  "retry_seconds": 30,
+  "status_interval_seconds": 15,
+  "max_history_roots": 1,
+  "decision_tau_seconds": [240, 180, 120, 60],
+  "clock_sync_source": "Chrony Amazon Time Sync Service 169.254.169.123",
+  "settlement_regime_id": "chainlink_twap_60s_5m_and_60s_15m.v1",
+  "regime_registry_path": "/opt/poly-mm-v08/research/settlement_regime_break_2026-08-14/REGIME_REGISTRY.json",
+  "continuous_rtds_root": "/var/lib/poly-mm-v08/data/continuous-rtds",
+  "continuous_rtds_status_path": "/var/lib/poly-mm-v08/data/continuous-rtds/service/status.json",
+  "rolling_lock_journal_root": "/var/lib/poly-mm-v08/data/locked-shadow-v08",
+  "gate_0_report_path": "/var/lib/poly-mm-v08/reports/gate-0-upper-bound-41.json",
+  "official_rtds": {
+    "topic": "crypto_prices_twap_sixty",
+    "type": "update",
+    "filter": {
+      "symbol": "btc/usd"
+    },
+    "continuous": true,
+    "maximum_gap_ms": 2000,
+    "disconnect_policy": "dirty"
+  },
+  "pair_capture": {
+    "token_scope": "paired_four_tokens_only",
+    "persist_raw_clob_frames": false,
+    "persist_reconstructed_full_depth_frames": false,
+    "persist_top_of_book_changes": true,
+    "full_clob_snapshot_interval_seconds": 30,
+    "public_taker_trades_interval_seconds": 5,
+    "rules_interval_seconds": 30,
+    "retain_source_receipt_and_monotonic_timestamps": true,
+    "single_recorder_leg_failure_policy": "dirty"
+  },
+  "capacity_gate": {
+    "capture_failure_rate_upper_bound_exclusive": 0.05,
+    "minimum_free_disk_bytes": 10737418240,
+    "maximum_projected_daily_capture_bytes": 1073741824,
+    "minimum_memory_bytes": 2147483648,
+    "burstable_cpu_credit_exhaustion_allowed": false,
+    "failure_action": "stop_all_statistical_and_probe_promotion"
+  },
+  "safety": {
+    "paper_only": true,
+    "public_only": true,
+    "new_orders_disabled": true,
+    "credentials_allowed": false,
+    "authenticated_endpoints_allowed": false,
+    "production_probe_adapter_installed": false
+  },
+  "eligibility_defaults": {
+    "execution_probe_eligible": false,
+    "strategy_live_eligible": false,
+    "predictive_live_fallback_allowed": false
+  }
+}

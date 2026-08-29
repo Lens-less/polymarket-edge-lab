@@ -55,6 +55,7 @@ class TestModels:
         print(f"✓ Market model works: {len(market.outcomes)} outcomes")
 
 
+@pytest.mark.network
 class TestMarketDiscovery:
     """Test market discovery from Gamma API"""
 
@@ -103,6 +104,7 @@ class TestMarketDiscovery:
         print(f"  First event: {events[0].title[:50]}...")
 
 
+@pytest.mark.network
 class TestPricing:
     """Test pricing and order book fetching"""
 
@@ -166,6 +168,7 @@ class TestPricing:
         print(f"✓ Spread: {spread}, Spread %: {spread_pct}")
 
 
+@pytest.mark.network
 class TestIntegration:
     """Integration tests combining market discovery and pricing"""
 

@@ -11,7 +11,7 @@ import sys
 import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
-from decimal import Decimal
+from decimal import ROUND_FLOOR, Decimal, InvalidOperation
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
@@ -88,6 +88,10 @@ from src.edge_lab.compatibility import (  # noqa: E402
     LiveExecutionBlocked,
     assert_new_orders_disabled,
 )
+from src.edge_lab.data_api_trade_identity import (  # noqa: E402
+    data_api_trade_event_key,
+    data_api_trade_observation_id,
+)
 from src.edge_lab.data_store import canonical_json_bytes  # noqa: E402
 from src.edge_lab.network_safety import high_confidence_secret_findings  # noqa: E402
 from src.edge_lab.settlement_regime import (  # noqa: E402
@@ -98,6 +102,33 @@ from src.edge_lab.settlement_regime import (  # noqa: E402
 MANIFEST_SCHEMA_VERSION = "btc-5m-15m-v07-counterfactual-manifest.v2"
 REPORT_SCHEMA_VERSION = "btc-5m-15m-v07-counterfactual-report.v8"
 LOCK_JOURNAL_SCHEMA_VERSION = "btc-5m-15m-v07-lock-journal.v4"
+CASE_DATA_QUALITY_ERROR_CODES = frozenset(
+    {
+        "boundary_source_event_ids_missing",
+        "causal_predictor_history_missing",
+        "causal_signal_books_incomplete",
+        "causal_strike_or_state_missing",
+        "exact_shared_60s_boundaries_missing",
+        "executable_market_baseline_missing",
+        "official_resolution_evidence_missing",
+        "terminal_state_stale",
+    }
+)
+
+
+class CaseDataQualityError(ValueError):
+    """A single prospective case lacks evidence but did not violate safety."""
+
+    def __init__(self, *, case_alias: str, error_code: str) -> None:
+        if not isinstance(case_alias, str) or not case_alias:
+            raise ValueError("case_alias must be non-empty")
+        if error_code not in CASE_DATA_QUALITY_ERROR_CODES:
+            raise ValueError("unsupported case data-quality error code")
+        self.case_alias = case_alias
+        self.error_code = error_code
+        super().__init__(f"case {case_alias}: {error_code}")
+
+
 LOCK_JOURNAL_SOURCE = "v07_locked_oos_journal"
 CAPTURE_CONFIG_SCHEMA_VERSION = "btc-5m-15m-relative-value-capture.v1"
 SOURCE_BASELINE = "c557160d0c98e195a988f4353bbe19a3b00b3576"
@@ -1083,6 +1114,7 @@ def _validate_rules_and_fees(
 
 def _validated_resolution_evidence(
     *,
+    case_alias: str,
     capture_root: Path,
     targets: Sequence[Mapping[str, Any]],
     expected_outcomes: Mapping[str, str],
@@ -1147,7 +1179,10 @@ def _validated_resolution_evidence(
     result: dict[str, Any] = {}
     for market_id, events in candidates.items():
         if not events:
-            raise ValueError(f"official resolution evidence missing for {market_id}")
+            raise CaseDataQualityError(
+                case_alias=case_alias,
+                error_code="official_resolution_evidence_missing",
+            )
         semantics = {
             (
                 str(event["condition_id"]).lower(),
@@ -1175,6 +1210,366 @@ def _validated_resolution_evidence(
             "duplicate_consistent_event_count": len(events),
         }
     return result
+
+
+def _validated_future_public_trades(
+    *,
+    case_alias: str,
+    capture_root: Path,
+    pair: SameExpiryPair,
+    decision_at_ms: int,
+    expiry_ms: int,
+) -> Mapping[str, tuple[_FuturePublicTrade, ...]] | None:
+    def _epoch_seconds_to_ms(value: Any) -> int:
+        if isinstance(value, bool):
+            raise ValueError("epoch seconds must be numeric text")
+        try:
+            parsed = Decimal(str(value))
+        except (InvalidOperation, ValueError) as exc:
+            raise ValueError("epoch seconds must be numeric text") from exc
+        if not parsed.is_finite() or parsed < 0:
+            raise ValueError("epoch seconds must be finite and non-negative")
+        return int(
+            (parsed * Decimal(1_000)).to_integral_value(
+                rounding=ROUND_FLOOR
+            )
+        )
+
+    receipt_offset_ms = _receipt_clock_offset_ms(capture_root)
+    target_by_condition = {
+        pair.market_5.condition_id.lower(): pair.market_5,
+        pair.market_15.condition_id.lower(): pair.market_15,
+    }
+    token_ids = (
+        pair.market_5.up_token_id,
+        pair.market_5.down_token_id,
+        pair.market_15.up_token_id,
+        pair.market_15.down_token_id,
+    )
+    records = tuple(_records(capture_root, "trades_http"))
+    if not records:
+        return None
+    complete_post_expiry_snapshots: list[
+        tuple[
+            tuple[
+                tuple[str, tuple[tuple[int, tuple[str, ...]], ...]],
+                ...,
+            ],
+            tuple[
+                tuple[str, tuple[tuple[str, int], ...]],
+                ...,
+            ],
+            dict[str, tuple[_FuturePublicTrade, ...]],
+        ]
+    ] = []
+    for record_index, record in enumerate(records, start=1):
+        payload = record.get("payload")
+        if not isinstance(payload, Mapping):
+            return None
+        if payload.get("source") != "trades_http":
+            return None
+        if payload.get("schema_version") != "trades-http.snapshot.v1":
+            return None
+        if (
+            payload.get("kind") != "snapshot"
+            or payload.get("event_type") != "trades_snapshot"
+        ):
+            return None
+        snapshot = payload.get("payload")
+        if not isinstance(snapshot, Mapping):
+            return None
+        if snapshot.get("schema_version") != "edge-lab-public-snapshot.v1":
+            return None
+        if snapshot.get("snapshot_kind") != "trades":
+            return None
+        responses = snapshot.get("responses")
+        truncated = snapshot.get("truncated_resources")
+        if (
+            snapshot.get("requested_asset_ids") != []
+            or not isinstance(responses, list)
+            or not responses
+            or truncated != []
+        ):
+            return None
+        try:
+            received_at_ms = _iso_to_epoch_ms(
+                record.get("received_at"),
+                receipt_clock_offset_ms=receipt_offset_ms,
+            )
+        except (TypeError, ValueError):
+            return None
+        responses_by_condition: dict[
+            str, list[tuple[Mapping[str, Any], int, int]]
+        ] = {
+            condition_id: [] for condition_id in target_by_condition
+        }
+        for response in responses:
+            if not isinstance(response, Mapping):
+                return None
+            if response.get("resource") != "data_api_trades":
+                return None
+            condition_id = str(response.get("request_key", "")).lower()
+            if condition_id not in responses_by_condition:
+                return None
+            provenance = response.get("provenance")
+            if not isinstance(provenance, Mapping):
+                return None
+            try:
+                response_requested_at_ms = _epoch_seconds_to_ms(
+                    provenance.get("requested_at_epoch_seconds")
+                ) + receipt_offset_ms
+                response_received_at_ms = _epoch_seconds_to_ms(
+                    provenance.get("received_at_epoch_seconds")
+                ) + receipt_offset_ms
+            except ValueError:
+                return None
+            responses_by_condition[condition_id].append(
+                (
+                    response,
+                    response_requested_at_ms,
+                    response_received_at_ms,
+                )
+            )
+        if any(not rows for rows in responses_by_condition.values()):
+            return None
+
+        ordered_signature_by_condition: list[
+            tuple[str, tuple[tuple[int, tuple[str, ...]], ...]]
+        ] = []
+        snapshot_trade_counts: dict[str, dict[str, int]] = {
+            token_id: {} for token_id in token_ids
+        }
+        snapshot_trades: dict[str, list[_FuturePublicTrade]] = {
+            token_id: [] for token_id in token_ids
+        }
+        for condition_id, condition_responses in sorted(
+            responses_by_condition.items()
+        ):
+            contract = target_by_condition[condition_id]
+            pages: dict[int, list[Any]] = {}
+            page_received_at_ms_by_number: dict[int, int] = {}
+            prior_page_requested_at_ms: int | None = None
+            prior_page_received_at_ms: int | None = None
+            for (
+                response,
+                response_requested_at_ms,
+                response_received_at_ms,
+            ) in condition_responses:
+                page_number = response.get("page_number")
+                if (
+                    isinstance(page_number, bool)
+                    or not isinstance(page_number, int)
+                    or page_number <= 0
+                    or page_number in pages
+                ):
+                    return None
+                if (
+                    received_at_ms >= expiry_ms
+                    and response_received_at_ms < expiry_ms
+                ):
+                    return None
+                if (
+                    response_requested_at_ms > response_received_at_ms
+                    or response_received_at_ms > received_at_ms
+                ):
+                    return None
+                if response.get("response_status") == "error":
+                    return None
+                provenance = response.get("provenance")
+                assert isinstance(provenance, Mapping)
+                request_params = provenance.get("request_params")
+                if not isinstance(request_params, Mapping):
+                    return None
+                status_code = provenance.get("status_code")
+                if (
+                    set(request_params)
+                    != {"market", "takerOnly", "limit", "offset"}
+                    or request_params.get("market") != condition_id
+                    or request_params.get("takerOnly") != "true"
+                    or request_params.get("limit") != 1_000
+                    or request_params.get("offset") != (page_number - 1) * 1_000
+                    or provenance.get("source") != "data_api_trades"
+                    or provenance.get("method") != "GET"
+                    or provenance.get("url")
+                    != "https://data-api.polymarket.com/trades"
+                    or isinstance(status_code, bool)
+                    or not isinstance(status_code, int)
+                    or not 200 <= status_code < 300
+                ):
+                    return None
+                raw_json = response.get("raw_json")
+                if not isinstance(raw_json, list):
+                    return None
+                body_utf8 = provenance.get("body_utf8")
+                body_sha256 = provenance.get("body_sha256")
+                body_bytes = provenance.get("body_bytes")
+                if not isinstance(body_utf8, str):
+                    return None
+                body = body_utf8.encode("utf-8")
+                try:
+                    decoded_body = json.loads(body_utf8)
+                except (ValueError, TypeError):
+                    return None
+                if (
+                    body_sha256 != hashlib.sha256(body).hexdigest()
+                    or body_bytes != len(body)
+                    or decoded_body != raw_json
+                ):
+                    return None
+                pages[page_number] = raw_json
+                page_received_at_ms_by_number[page_number] = (
+                    response_received_at_ms
+                )
+                if (
+                    prior_page_requested_at_ms is not None
+                    and response_requested_at_ms < prior_page_requested_at_ms
+                ):
+                    return None
+                if (
+                    prior_page_received_at_ms is not None
+                    and response_received_at_ms < prior_page_received_at_ms
+                ):
+                    return None
+                prior_page_requested_at_ms = response_requested_at_ms
+                prior_page_received_at_ms = response_received_at_ms
+
+            ordered_pages = sorted(pages.items())
+            if [number for number, _rows in ordered_pages] != list(
+                range(1, len(ordered_pages) + 1)
+            ):
+                return None
+            if any(len(rows) != 1_000 for _number, rows in ordered_pages[:-1]):
+                return None
+            if len(ordered_pages[-1][1]) >= 1_000:
+                return None
+
+            ordered_page_signatures: list[tuple[int, tuple[str, ...]]] = []
+            for page_number, raw_json in ordered_pages:
+                page_signatures: list[str] = []
+                for row_number, trade in enumerate(raw_json, start=1):
+                    if not isinstance(trade, Mapping):
+                        return None
+                    if str(trade.get("conditionId", "")).lower() != condition_id:
+                        return None
+                    token_id = trade.get("asset")
+                    if token_id not in {
+                        contract.up_token_id,
+                        contract.down_token_id,
+                    }:
+                        return None
+                    timestamp_raw = trade.get("timestamp")
+                    if (
+                        isinstance(timestamp_raw, bool)
+                        or not isinstance(timestamp_raw, (str, int))
+                        or not str(timestamp_raw).isdigit()
+                    ):
+                        return None
+                    timestamp_ms = int(str(timestamp_raw)) * 1_000
+                    if (
+                        timestamp_ms > received_at_ms
+                        or timestamp_ms > page_received_at_ms_by_number[page_number]
+                    ):
+                        return None
+                    try:
+                        trade_fingerprint = data_api_trade_event_key(trade)
+                        price = Decimal(str(trade.get("price")))
+                        quantity = Decimal(str(trade.get("size")))
+                    except (ValueError, ArithmeticError):
+                        return None
+                    side = trade.get("side")
+                    if (
+                        side not in {"BUY", "SELL"}
+                        or not price.is_finite()
+                        or not quantity.is_finite()
+                        or not Decimal(0) < price < Decimal(1)
+                        or quantity <= 0
+                    ):
+                        return None
+                    page_signatures.append(trade_fingerprint)
+                    if not decision_at_ms < timestamp_ms < expiry_ms:
+                        continue
+                    token_id_text = str(token_id)
+                    normalized_token_id = token_id_text
+                    normalized_price = price
+                    if side == "BUY":
+                        normalized_token_id = (
+                            contract.down_token_id
+                            if token_id == contract.up_token_id
+                            else contract.up_token_id
+                        )
+                        normalized_price = Decimal(1) - price
+                    snapshot_trade_counts[normalized_token_id][trade_fingerprint] = (
+                        snapshot_trade_counts[normalized_token_id].get(
+                            trade_fingerprint, 0
+                        )
+                        + 1
+                    )
+                    snapshot_trades[normalized_token_id].append(
+                        _FuturePublicTrade(
+                            token_id=normalized_token_id,
+                            source_event_id=data_api_trade_observation_id(
+                                trade,
+                                snapshot_id=(
+                                    f"{case_alias}:{record_index}:"
+                                    f"{page_received_at_ms_by_number[page_number]}"
+                                ),
+                                page_number=page_number,
+                                row_number=row_number,
+                            ),
+                            timestamp_ms=timestamp_ms,
+                            received_at_ms=page_received_at_ms_by_number[
+                                page_number
+                            ],
+                            aggressor_side="SELL",
+                            price=normalized_price,
+                            quantity=quantity,
+                        )
+                    )
+                ordered_page_signatures.append(
+                    (page_number, tuple(page_signatures))
+                )
+            ordered_signature_by_condition.append(
+                (condition_id, tuple(ordered_page_signatures))
+            )
+        if received_at_ms < expiry_ms:
+            continue
+        complete_post_expiry_snapshots.append(
+            (
+                tuple(ordered_signature_by_condition),
+                tuple(
+                    (
+                        token_id,
+                        tuple(sorted(counts.items())),
+                    )
+                    for token_id, counts in sorted(
+                        snapshot_trade_counts.items()
+                    )
+                ),
+                {
+                    token_id: tuple(
+                        sorted(
+                            trades,
+                            key=lambda item: (
+                                item.timestamp_ms,
+                                item.received_at_ms,
+                                item.source_event_id,
+                            ),
+                        )
+                    )
+                    for token_id, trades in snapshot_trades.items()
+                },
+            )
+        )
+    if len(complete_post_expiry_snapshots) < 2:
+        return None
+    previous_snapshot = complete_post_expiry_snapshots[-2]
+    latest_snapshot = complete_post_expiry_snapshots[-1]
+    if (
+        previous_snapshot[0] != latest_snapshot[0]
+        or previous_snapshot[1] != latest_snapshot[1]
+    ):
+        return None
+    return MappingProxyType(latest_snapshot[2])
 
 
 def _validate_pair_targets(
@@ -1233,6 +1628,7 @@ class _RawDecisionContext:
     closing_source_event_id: str
     resolution_source_event_ids: Mapping[str, str]
     resolution_received_at_ms: Mapping[str, int]
+    future_public_trades_by_token_id: Mapping[str, tuple["_FuturePublicTrade", ...]] | None
     immutable_public_capture_evidence: bool
     capture_config_evidence: Mapping[str, Any]
 
@@ -1247,6 +1643,17 @@ class _RawDecisionContext:
     @property
     def expiry_cluster_id(self) -> str:
         return canonical_expiry_cluster_id(self.expiry_ms)
+
+
+@dataclass(frozen=True)
+class _FuturePublicTrade:
+    token_id: str
+    source_event_id: str
+    timestamp_ms: int
+    received_at_ms: int
+    aggressor_side: str
+    price: Decimal
+    quantity: Decimal
 
 
 def _load_case_contexts(
@@ -1380,8 +1787,9 @@ def _load_case_contexts(
     opening_15 = _exact_observation(shared_twap, pair.market_15.opens_at_ms)
     closing = _exact_observation(shared_twap, expiry_ms)
     if opening_5 is None or opening_15 is None or closing is None:
-        raise ValueError(
-            f"case {cluster_alias} exact shared 60s boundaries are missing"
+        raise CaseDataQualityError(
+            case_alias=cluster_alias,
+            error_code="exact_shared_60s_boundaries_missing",
         )
     opening_5_event = _opening_event_id(
         twap_roots,
@@ -1402,7 +1810,10 @@ def _load_case_contexts(
         expected_value=closing[2],
     )
     if not opening_5_event or not opening_15_event or not closing_event:
-        raise ValueError(f"case {cluster_alias} boundary source event IDs are missing")
+        raise CaseDataQualityError(
+            case_alias=cluster_alias,
+            error_code="boundary_source_event_ids_missing",
+        )
 
     actual5 = closing[2] >= opening_5[2]
     actual15 = closing[2] >= opening_15[2]
@@ -1411,6 +1822,7 @@ def _load_case_contexts(
         pair.market_15.market_id: "Up" if actual15 else "Down",
     }
     resolution_evidence = _validated_resolution_evidence(
+        case_alias=cluster_alias,
         capture_root=capture_root,
         targets=targets,
         expected_outcomes=expected_outcomes,
@@ -1443,7 +1855,10 @@ def _load_case_contexts(
         contract.down_token_id: contract for contract in (pair.market_5, pair.market_15)
     }
     replay = CausalBookReplay.from_records(
-        _records(capture_root, "clob_market_ws"),
+        (
+            *_records(capture_root, "clob_market_ws"),
+            *_records(capture_root, "clob_http"),
+        ),
         receipt_clock_offset_ms=receipt_offset,
         tokens={
             token_id: BookReplayToken(
@@ -1478,15 +1893,17 @@ def _load_case_contexts(
         )
         state = _latest_before(shared_twap, decision_at_ms)
         if strike5 is None or strike15 is None or state is None:
-            raise ValueError(
-                f"case {cluster_alias} has missing causal strike/state at tau {tau}"
+            raise CaseDataQualityError(
+                case_alias=cluster_alias,
+                error_code="causal_strike_or_state_missing",
             )
         if (
             decision_at_ms - state[0] > strategy.maximum_chainlink_staleness_ms
             or decision_at_ms - state[1] > strategy.maximum_chainlink_staleness_ms
         ):
-            raise ValueError(
-                f"case {cluster_alias} terminal state is stale at tau {tau}"
+            raise CaseDataQualityError(
+                case_alias=cluster_alias,
+                error_code="terminal_state_stale",
             )
         predictor_prices = _resample_one_second(
             predictor,
@@ -1494,8 +1911,9 @@ def _load_case_contexts(
             seconds=model.minimum_history_seconds,
         )
         if split != "test" and len(predictor_prices) != model.minimum_history_seconds:
-            raise ValueError(
-                f"case {cluster_alias} lacks causal predictor history at tau {tau}"
+            raise CaseDataQualityError(
+                case_alias=cluster_alias,
+                error_code="causal_predictor_history_missing",
             )
         required_tokens = (
             pair.market_5.up_token_id,
@@ -1509,8 +1927,9 @@ def _load_case_contexts(
             maximum_age_ms=strategy.maximum_book_staleness_ms,
         )
         if set(signal) != set(required_tokens):
-            raise ValueError(
-                f"case {cluster_alias} has incomplete causal signal books at tau {tau}"
+            raise CaseDataQualityError(
+                case_alias=cluster_alias,
+                error_code="causal_signal_books_incomplete",
             )
         signal_books = {key: value.snapshot for key, value in signal.items()}
         market5 = executable_binary_ask_probability(
@@ -1543,10 +1962,17 @@ def _load_case_contexts(
             or raw_market5 is None
             or raw_market15 is None
         ):
-            raise ValueError(
-                f"case {cluster_alias} executable market baseline is missing "
-                f"at tau {tau}"
+            raise CaseDataQualityError(
+                case_alias=cluster_alias,
+                error_code="executable_market_baseline_missing",
             )
+        future_public_trades_by_token_id = _validated_future_public_trades(
+            case_alias=cluster_alias,
+            capture_root=capture_root,
+            pair=pair,
+            decision_at_ms=decision_at_ms,
+            expiry_ms=expiry_ms,
+        )
         contexts.append(
             _RawDecisionContext(
                 event_cluster_id=cluster_id,
@@ -1590,6 +2016,7 @@ def _load_case_contexts(
                     resolution_source_event_ids
                 ),
                 resolution_received_at_ms=MappingProxyType(resolution_received_at_ms),
+                future_public_trades_by_token_id=future_public_trades_by_token_id,
                 immutable_public_capture_evidence=(
                     capture_config["generated_fixture"] is False
                 ),

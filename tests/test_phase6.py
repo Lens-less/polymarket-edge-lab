@@ -213,6 +213,7 @@ class TestIntegration:
 
         print("✓ Full workflow works")
 
+    @pytest.mark.network
     def test_with_real_market(self):
         from src.config import DRY_RUN
         from src.trading import place_order, cancel_all_orders

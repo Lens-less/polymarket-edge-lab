@@ -1,13 +1,16 @@
+# Human-readable direct dependencies. pyproject.toml is authoritative;
+# requirements.lock is generated from uv.lock for pip compatibility.
+
 # Main dependencies
-py-clob-client
+polymarket-client==0.6.0
 python-dotenv
 websockets
 python-socks[asyncio]
+numpy
 pandas
 pyarrow  # For Parquet export
 certifi
 requests
-rich>=13.0.0
 
 # Development dependencies
 pytest

@@ -1,12 +1,22 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+from hashlib import sha256
 from pathlib import Path
+from types import SimpleNamespace
 
+import pytest
+
+import src.edge_lab.btc_twap_relative_value_readiness as readiness
+from src.edge_lab.data_store import canonical_json_bytes
 from scripts.watch_paper_tracks import (
     AlertRecord,
     Publisher,
+    TrackConfig,
+    _capture_capacity_snapshot,
     _load_watch_config,
     collect_local_host_status,
     run_watch_cycle,
@@ -33,10 +43,509 @@ def _touch(path: Path, when: datetime) -> None:
     if not path.exists():
         path.write_text("{}", encoding="utf-8")
     path.touch()
-    path.chmod(0o644)
+    path.chmod(0o755 if path.is_dir() else 0o644)
     import os
 
     os.utime(path, (timestamp, timestamp))
+
+
+def test_v08_capacity_snapshot_calls_fail_closed_capacity_gate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = datetime(2026, 8, 18, 12, 0, tzinfo=UTC)
+    data_root = tmp_path / "v08" / "data"
+    for index in range(21):
+        capture_root = data_root / "runs" / str(index) / f"attempt-{index}"
+        _write_json(
+            capture_root / "capture-summary.json",
+            {
+                "schema_version": "btc-twap-compact-forward-capture-summary.v1",
+                "data_root": str(capture_root.resolve()),
+                "duration_seconds": "300",
+                "capture_error": (
+                    {"code": "capture_failed"} if index == 0 else None
+                ),
+                "recorder_leg_failures": [],
+                "integrity": {
+                    "orphan_partials": [],
+                    "raw_without_manifest": [],
+                    "manifest_without_raw": [],
+                    "checksum_mismatches": [],
+                    "invalid_manifests": [],
+                },
+            },
+        )
+        (capture_root / "payload.bin").write_bytes(b"x" * 100)
+        _write_json(
+            data_root / "service" / "attempt-receipts" / f"attempt-{index}.json",
+            {
+                "schema_version": "btc-twap-capture-attempt-receipt.v1",
+                "attempt_id": f"attempt-{index}",
+                "track_id": "v08",
+                "created_at": now.isoformat().replace("+00:00", "Z"),
+                "started_at": now.isoformat().replace("+00:00", "Z"),
+                "updated_at": now.isoformat().replace("+00:00", "Z"),
+                "scheduled_expiry_seconds": index,
+                "expiry_seconds": index,
+                "status": "failed" if index == 0 else "succeeded",
+                "capture_root": str(capture_root),
+            },
+        )
+    track = TrackConfig(
+        name="v08",
+        kind="edge_readiness",
+        status_path=tmp_path / "status.json",
+        data_root=data_root,
+        capture_summary_glob=str(
+            data_root / "runs" / "*" / "*" / "capture-summary.json"
+        ),
+        attempt_receipt_glob=str(
+            data_root / "service" / "attempt-receipts" / "*.json"
+        ),
+    )
+    monkeypatch.setattr(
+        "scripts.watch_paper_tracks.shutil.disk_usage",
+        lambda _path: SimpleNamespace(free=11 * 1024**3),
+    )
+
+    passing = _capture_capacity_snapshot(
+        track,
+        now=now,
+        host_status={
+            "mem_available_bytes": 3 * 1024**3,
+            "cpu_credit_balance": 50.0,
+        },
+    )
+    missing_cpu = _capture_capacity_snapshot(
+        track,
+        now=now,
+        host_status={"mem_available_bytes": 3 * 1024**3},
+    )
+
+    assert passing is not None and passing["passed"] is True
+    assert passing["track"] == "v08"
+    assert passing["capture_attempt_count"] == 21
+    assert passing["capture_failure_count"] == 1
+    assert passing["failure_rate"] == str(Decimal(1) / Decimal(21))
+    assert passing["schema_version"] == "btc-twap-capture-capacity-evidence.v1"
+    assert passing["selection_rule"] == {
+        "created_at_not_before": "2026-08-17T12:00:00Z",
+        "maximum_receipts": 96,
+    }
+    assert missing_cpu is not None and missing_cpu["passed"] is False
+    assert "cpu_credit_telemetry_unavailable" in missing_cpu["reason_codes"]
+
+    not_applicable = _capture_capacity_snapshot(
+        track,
+        now=now,
+        host_status={
+            "mem_available_bytes": 3 * 1024**3,
+            "cpu_credit_expected": False,
+            "cpu_credit_telemetry_unavailable": {
+                "reason": "cpu_credit_not_applicable"
+            },
+        },
+    )
+    assert not_applicable is not None and not_applicable["passed"] is True
+    assert not_applicable["burstable_cpu_credit_exhausted"] is False
+    assert "cpu_credit_telemetry_unavailable" not in not_applicable["reason_codes"]
+    assert "burstable_cpu_credit_exhausted" not in not_applicable["reason_codes"]
+
+
+def test_v08_capacity_snapshot_uses_recent_window_and_pending_started_are_not_successes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = datetime(2026, 8, 18, 12, 0, tzinfo=UTC)
+    data_root = tmp_path / "v08" / "data"
+    recent_root = data_root / "runs" / "recent" / "attempt-recent"
+    old_root = data_root / "runs" / "old" / "attempt-old"
+    for capture_root in (recent_root, old_root):
+        _write_json(
+            capture_root / "capture-summary.json",
+            {
+                "schema_version": "btc-twap-compact-forward-capture-summary.v1",
+                "data_root": str(capture_root.resolve()),
+                "duration_seconds": "300",
+                "capture_error": None,
+                "recorder_leg_failures": [],
+                "integrity": {
+                    "orphan_partials": [],
+                    "raw_without_manifest": [],
+                    "manifest_without_raw": [],
+                    "checksum_mismatches": [],
+                    "invalid_manifests": [],
+                },
+            },
+        )
+    _write_json(
+        data_root / "service" / "attempt-receipts" / "attempt-old.json",
+        {
+            "schema_version": "btc-twap-capture-attempt-receipt.v1",
+            "attempt_id": "attempt-old",
+            "track_id": "v08",
+            "created_at": "2026-08-16T11:00:00Z",
+            "started_at": "2026-08-16T11:00:00Z",
+            "updated_at": "2026-08-16T11:10:00Z",
+            "scheduled_expiry_seconds": 1,
+            "expiry_seconds": 1,
+            "status": "succeeded",
+            "capture_root": str(old_root),
+        },
+    )
+    _write_json(
+        data_root / "service" / "attempt-receipts" / "attempt-recent.json",
+        {
+            "schema_version": "btc-twap-capture-attempt-receipt.v1",
+            "attempt_id": "attempt-recent",
+            "track_id": "v08",
+            "created_at": "2026-08-18T11:00:00Z",
+            "started_at": "2026-08-18T11:00:00Z",
+            "updated_at": "2026-08-18T11:45:00Z",
+            "scheduled_expiry_seconds": 2,
+            "expiry_seconds": 2,
+            "status": "started",
+            "capture_root": str(recent_root),
+        },
+    )
+    track = TrackConfig(
+        name="v08",
+        kind="edge_readiness",
+        status_path=tmp_path / "status.json",
+        data_root=data_root,
+        capture_summary_glob=str(
+            data_root / "runs" / "*" / "*" / "capture-summary.json"
+        ),
+        attempt_receipt_glob=str(
+            data_root / "service" / "attempt-receipts" / "*.json"
+        ),
+    )
+    monkeypatch.setattr(
+        "scripts.watch_paper_tracks.shutil.disk_usage",
+        lambda _path: SimpleNamespace(free=11 * 1024**3),
+    )
+
+    result = _capture_capacity_snapshot(
+        track,
+        now=now,
+        host_status={
+            "mem_available_bytes": 3 * 1024**3,
+            "cpu_credit_balance": 50.0,
+        },
+    )
+
+    assert result is not None
+    assert result["passed"] is False
+    assert result["capture_attempt_count"] == 0
+    assert result["pending_attempt_count"] == 1
+    assert result["receipt_count"] == 2
+    assert result["selection_rule"] == {
+        "created_at_not_before": "2026-08-17T12:00:00Z",
+        "maximum_receipts": 96,
+    }
+    assert "capture_capacity_terminal_evidence_unavailable" in result["reason_codes"]
+
+
+def test_v08_capacity_snapshot_ignores_historical_receipt_corruption_outside_recent_window(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = datetime(2026, 8, 18, 12, 0, tzinfo=UTC)
+    data_root = tmp_path / "v08" / "data"
+    capture_root = data_root / "runs" / "recent" / "attempt-recent"
+    _write_json(
+        capture_root / "capture-summary.json",
+        {
+            "schema_version": "btc-twap-compact-forward-capture-summary.v1",
+            "data_root": str(capture_root.resolve()),
+            "duration_seconds": "300",
+            "capture_error": None,
+            "recorder_leg_failures": [],
+            "integrity": {
+                "orphan_partials": [],
+                "raw_without_manifest": [],
+                "manifest_without_raw": [],
+                "checksum_mismatches": [],
+                "invalid_manifests": [],
+            },
+        },
+    )
+    _write_json(
+        data_root / "service" / "attempt-receipts" / "attempt-recent.json",
+        {
+            "schema_version": "btc-twap-capture-attempt-receipt.v1",
+            "attempt_id": "attempt-recent",
+            "track_id": "v08",
+            "created_at": "2026-08-18T11:00:00Z",
+            "started_at": "2026-08-18T11:00:00Z",
+            "updated_at": "2026-08-18T11:10:00Z",
+            "status": "succeeded",
+            "capture_root": str(capture_root),
+        },
+    )
+    stale_corrupt = _write_json(
+        data_root / "service" / "attempt-receipts" / "attempt-stale-corrupt.json",
+        {
+            "schema_version": "btc-twap-capture-attempt-receipt.v1",
+            "attempt_id": "attempt-stale-corrupt",
+            "track_id": "v08",
+            "status": "failed",
+        },
+    )
+    _touch(stale_corrupt, now - timedelta(days=2))
+    track = TrackConfig(
+        name="v08",
+        kind="edge_readiness",
+        status_path=tmp_path / "status.json",
+        data_root=data_root,
+        capture_summary_glob=str(
+            data_root / "runs" / "*" / "*" / "capture-summary.json"
+        ),
+        attempt_receipt_glob=str(
+            data_root / "service" / "attempt-receipts" / "*.json"
+        ),
+    )
+    monkeypatch.setattr(
+        "scripts.watch_paper_tracks.shutil.disk_usage",
+        lambda _path: SimpleNamespace(free=11 * 1024**3),
+    )
+
+    result = _capture_capacity_snapshot(
+        track,
+        now=now,
+        host_status={
+            "mem_available_bytes": 3 * 1024**3,
+            "cpu_credit_balance": 50.0,
+        },
+    )
+
+    assert result is not None
+    assert result["passed"] is True
+    assert result["capture_attempt_count"] == 1
+    assert result["capture_failure_count"] == 0
+    assert result["failure_rate"] == "0"
+    assert "attempt_receipt_evidence_integrity_recent" not in result["reason_codes"]
+    assert result["evidence_integrity"] == {
+        "recent_issue_count": 0,
+        "recent_reason_codes": [],
+        "historical_issue_count": 1,
+        "historical_reason_codes": ["attempt_receipt_timestamp_invalid"],
+    }
+
+
+def test_v08_capacity_snapshot_reports_recent_receipt_corruption_without_failure_rate_pollution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = datetime(2026, 8, 18, 12, 0, tzinfo=UTC)
+    data_root = tmp_path / "v08" / "data"
+    capture_root = data_root / "runs" / "recent" / "attempt-recent"
+    _write_json(
+        capture_root / "capture-summary.json",
+        {
+            "schema_version": "btc-twap-compact-forward-capture-summary.v1",
+            "data_root": str(capture_root.resolve()),
+            "duration_seconds": "300",
+            "capture_error": None,
+            "recorder_leg_failures": [],
+            "integrity": {
+                "orphan_partials": [],
+                "raw_without_manifest": [],
+                "manifest_without_raw": [],
+                "checksum_mismatches": [],
+                "invalid_manifests": [],
+            },
+        },
+    )
+    _write_json(
+        data_root / "service" / "attempt-receipts" / "attempt-recent.json",
+        {
+            "schema_version": "btc-twap-capture-attempt-receipt.v1",
+            "attempt_id": "attempt-recent",
+            "track_id": "v08",
+            "created_at": "2026-08-18T11:00:00Z",
+            "started_at": "2026-08-18T11:00:00Z",
+            "updated_at": "2026-08-18T11:10:00Z",
+            "status": "succeeded",
+            "capture_root": str(capture_root),
+        },
+    )
+    _write_json(
+        data_root / "service" / "attempt-receipts" / "attempt-corrupt.json",
+        {
+            "schema_version": "btc-twap-capture-attempt-receipt.v1",
+            "attempt_id": "attempt-corrupt",
+            "track_id": "v08",
+            "status": "failed",
+        },
+    )
+    track = TrackConfig(
+        name="v08",
+        kind="edge_readiness",
+        status_path=tmp_path / "status.json",
+        data_root=data_root,
+        capture_summary_glob=str(
+            data_root / "runs" / "*" / "*" / "capture-summary.json"
+        ),
+        attempt_receipt_glob=str(
+            data_root / "service" / "attempt-receipts" / "*.json"
+        ),
+    )
+    monkeypatch.setattr(
+        "scripts.watch_paper_tracks.shutil.disk_usage",
+        lambda _path: SimpleNamespace(free=11 * 1024**3),
+    )
+
+    result = _capture_capacity_snapshot(
+        track,
+        now=now,
+        host_status={
+            "mem_available_bytes": 3 * 1024**3,
+            "cpu_credit_balance": 50.0,
+        },
+    )
+
+    assert result is not None
+    assert result["passed"] is False
+    assert result["capture_attempt_count"] == 1
+    assert result["capture_failure_count"] == 0
+    assert result["successful_attempt_count"] == 1
+    assert result["failure_rate"] == "0"
+    assert "attempt_receipt_evidence_integrity_recent" in result["reason_codes"]
+    assert result["evidence_integrity"] == {
+        "recent_issue_count": 1,
+        "recent_reason_codes": ["attempt_receipt_timestamp_invalid"],
+        "historical_issue_count": 0,
+        "historical_reason_codes": [],
+    }
+
+
+def test_watch_cycle_writes_capacity_artifact_without_overwriting_health(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    track_name = "btc_5m_15m_edge_readiness_v08_2026_08_18"
+    now = datetime(2026, 8, 18, 12, 0, tzinfo=UTC)
+    status_path = tmp_path / "v08" / "service" / "status.json"
+    health_path = tmp_path / "v08" / "monitor" / "edge-readiness-health-latest.json"
+    capacity_path = tmp_path / "watch" / "state" / "v08-capture-capacity.json"
+    host_status_path = tmp_path / "watch" / "state" / "host-status.json"
+    data_root = tmp_path / "v08" / "data"
+    capture_root = data_root / "runs" / "1786737600" / "attempt-1"
+    _write_json(
+        capture_root / "capture-summary.json",
+        {
+            "schema_version": "btc-twap-compact-forward-capture-summary.v1",
+            "data_root": str(capture_root.resolve()),
+            "duration_seconds": "300",
+            "capture_error": None,
+            "recorder_leg_failures": [],
+            "integrity": {
+                "orphan_partials": [],
+                "raw_without_manifest": [],
+                "manifest_without_raw": [],
+                "checksum_mismatches": [],
+                "invalid_manifests": [],
+            },
+        },
+    )
+    _write_json(
+        data_root / "service" / "attempt-receipts" / "attempt-1.json",
+        {
+            "schema_version": "btc-twap-capture-attempt-receipt.v1",
+            "attempt_id": "attempt-1",
+            "track_id": track_name,
+            "created_at": "2026-08-18T11:00:00Z",
+            "started_at": "2026-08-18T11:00:00Z",
+            "updated_at": "2026-08-18T11:10:00Z",
+            "terminal_at": "2026-08-18T11:10:00Z",
+            "scheduled_expiry_seconds": 1786737600,
+            "expiry_seconds": 1786737600,
+            "status": "succeeded",
+            "capture_root": str(capture_root),
+        },
+    )
+    _write_json(
+        status_path,
+        {
+            "phase": "capturing",
+            "heartbeat_at": "2026-08-18T12:00:00Z",
+            "completed_report_count": 1,
+        },
+    )
+    _write_json(
+        health_path,
+        {"schema_version": "btc-twap-service-health-evidence.v1", "sentinel": True},
+    )
+    _write_json(
+        host_status_path,
+        {
+            "schema_version": "polymm-local-host-status.v1",
+            "mem_available_bytes": 3 * 1024**3,
+            "cpu_credit_balance": 50.0,
+        },
+    )
+    config_path = _write_json(
+        tmp_path / "watch-config.json",
+        {
+            "schema_version": "polymm-paper-track-watch-config.v1",
+            "state_path": str(tmp_path / "watch" / "state" / "watch-state.json"),
+            "host": {"status_path": str(host_status_path)},
+            "tracks": [
+                {
+                    "name": track_name,
+                    "kind": "edge_readiness",
+                    "status_path": str(status_path),
+                    "health_path": str(health_path),
+                    "capacity_evidence_path": str(capacity_path),
+                    "data_root": str(data_root),
+                    "capture_summary_glob": str(
+                        data_root / "runs" / "*" / "*" / "capture-summary.json"
+                    ),
+                    "attempt_receipt_glob": str(
+                        data_root / "service" / "attempt-receipts" / "*.json"
+                    ),
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        "scripts.watch_paper_tracks.shutil.disk_usage",
+        lambda _path: SimpleNamespace(free=11 * 1024**3),
+    )
+
+    run_watch_cycle(
+        _load_watch_config(config_path),
+        publisher=CollectingPublisher(),
+        now=now,
+    )
+
+    health = json.loads(health_path.read_text(encoding="utf-8"))
+    artifact = readiness.load_verified_json_artifact(capacity_path)
+    valid, reasons = readiness._validated_capture_capacity_artifact(artifact)
+    raw_artifact = json.loads(capacity_path.read_text(encoding="utf-8"))
+    unsigned = {
+        key: value
+        for key, value in raw_artifact.items()
+        if key != "artifact_sha256"
+    }
+
+    assert health == {
+        "schema_version": "btc-twap-service-health-evidence.v1",
+        "sentinel": True,
+    }
+    assert valid is True
+    assert reasons == ()
+    assert raw_artifact["track"] == track_name
+    assert sha256(canonical_json_bytes(unsigned)).hexdigest() == raw_artifact[
+        "artifact_sha256"
+    ]
+    assert sha256(
+        canonical_json_bytes(
+            {key: value for key, value in unsigned.items() if key != "track"}
+        )
+    ).hexdigest() != raw_artifact["artifact_sha256"]
 
 
 def _watch_config(
@@ -78,6 +587,8 @@ def _watch_config(
             "mem_available_threshold_bytes": 300,
             "cpu_credit_threshold": 100.0,
             "cpu_credit_decrease_seconds": 1800,
+            "cpu_credit_region": "us-east-1",
+            "cpu_credit_instance_id": "i-1234567890abcdef0",
             "process_rss_budgets_bytes": {"v05": 600},
         }
     return _write_json(tmp_path / "watch-config.json", config)
@@ -204,6 +715,7 @@ def test_watch_cycle_pages_digest_and_recovers_on_progress_stall(
 
 def test_watch_cycle_warns_on_host_pressure_and_heartbeat(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     now = datetime(2026, 8, 14, 16, 0, tzinfo=UTC)
     config_path = _watch_config(tmp_path, include_host=True)
@@ -246,6 +758,10 @@ def test_watch_cycle_warns_on_host_pressure_and_heartbeat(
     )
     config = _load_watch_config(config_path)
     publisher = CollectingPublisher()
+    monkeypatch.setattr(
+        "scripts.watch_paper_tracks._refresh_local_host_status",
+        lambda *args, **kwargs: None,
+    )
 
     run_watch_cycle(config, publisher=publisher, now=now)
 
@@ -297,6 +813,97 @@ def test_unreadable_status_reports_telemetry_gap_not_stale_heartbeat(
         }
     ]
     assert "v05:heartbeat_stale" not in alerts
+
+
+def test_track_specific_heartbeat_lease_avoids_false_pages_for_slow_shadow(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 8, 18, 12, 0, tzinfo=UTC)
+    status_path = _write_json(
+        tmp_path / "v07" / "service" / "status.json",
+        {
+            "phase": "ok",
+            "heartbeat_at": (now - timedelta(minutes=20))
+            .isoformat()
+            .replace("+00:00", "Z"),
+        },
+    )
+    config_path = _write_json(
+        tmp_path / "watch-config.json",
+        {
+            "schema_version": "polymm-paper-track-watch-config.v1",
+            "state_path": str(tmp_path / "watch" / "state.json"),
+            "tracks": [
+                {
+                    "name": "v07",
+                    "kind": "paper",
+                    "status_path": str(status_path),
+                    "expected_cycle_seconds": 1800,
+                    "maximum_heartbeat_age_seconds": 2700,
+                }
+            ],
+        },
+    )
+    publisher = CollectingPublisher()
+
+    run_watch_cycle(
+        _load_watch_config(config_path),
+        publisher=publisher,
+        now=now,
+    )
+
+    assert "v07:heartbeat_stale" not in {alert.key for alert in publisher.alerts}
+
+
+def test_retired_track_suppresses_runtime_and_telemetry_alerts(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    now = datetime(2026, 8, 14, 16, 0, tzinfo=UTC)
+    config_path = _watch_config(tmp_path)
+    status_path = tmp_path / "v05" / "service" / "status.json"
+    _write_json(status_path, {"phase": "error_wait"})
+    document = json.loads(config_path.read_text(encoding="utf-8"))
+    document["tracks"][0]["lifecycle"] = "retired"
+    config_path.write_text(json.dumps(document), encoding="utf-8")
+    original_read_text = Path.read_text
+    original_exists = Path.exists
+
+    def deny_status_read(path: Path, *args, **kwargs):
+        if path == status_path:
+            raise PermissionError(status_path)
+        return original_read_text(path, *args, **kwargs)
+
+    def deny_status_exists(path: Path) -> bool:
+        if path == status_path:
+            raise PermissionError(status_path)
+        return original_exists(path)
+
+    monkeypatch.setattr(Path, "read_text", deny_status_read)
+    monkeypatch.setattr(Path, "exists", deny_status_exists)
+    publisher = CollectingPublisher()
+
+    run_watch_cycle(
+        _load_watch_config(config_path),
+        publisher=publisher,
+        now=now,
+    )
+
+    assert publisher.alerts == []
+    state = json.loads(
+        (tmp_path / "watch" / "state.json").read_text(encoding="utf-8")
+    )
+    assert state["tracks"]["v05"] == {"lifecycle": "retired"}
+
+
+def test_watch_config_rejects_unknown_track_lifecycle(tmp_path: Path) -> None:
+    config_path = _watch_config(tmp_path)
+    document = json.loads(config_path.read_text(encoding="utf-8"))
+    document["tracks"][0]["lifecycle"] = "retierd"
+    config_path.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="unsupported track lifecycle"):
+        _load_watch_config(config_path)
 
 
 def test_watch_cycle_warns_on_regime_mismatch_and_quarantine_growth(
@@ -403,6 +1010,45 @@ def test_rawcap_track_does_not_require_report_progress(tmp_path: Path) -> None:
     assert "rawcap:report_stalled" not in {
         alert.key for alert in publisher.alerts
     }
+
+
+def test_maintenance_track_suppresses_runtime_alerts(tmp_path: Path) -> None:
+    now = datetime(2026, 8, 14, 16, 0, tzinfo=UTC)
+    status_path = _write_json(
+        tmp_path / "rawcap" / "status.json",
+        {
+            "phase": "stopped",
+            "heartbeat_at": (now - timedelta(hours=1))
+            .isoformat()
+            .replace("+00:00", "Z"),
+        },
+    )
+    config_path = _write_json(
+        tmp_path / "watch-config.json",
+        {
+            "schema_version": "polymm-paper-track-watch-config.v1",
+            "state_path": str(tmp_path / "watch" / "state.json"),
+            "tracks": [
+                {
+                    "name": "rawcap",
+                    "kind": "rawcap",
+                    "lifecycle": "maintenance",
+                    "status_path": str(status_path),
+                    "data_root": str(tmp_path / "rawcap" / "data"),
+                    "expected_cycle_seconds": 900,
+                }
+            ],
+        },
+    )
+    publisher = CollectingPublisher()
+
+    run_watch_cycle(
+        _load_watch_config(config_path),
+        publisher=publisher,
+        now=now,
+    )
+
+    assert publisher.alerts == []
 
 
 def test_watch_cycle_persists_active_alert_snapshot(tmp_path: Path) -> None:
@@ -539,6 +1185,7 @@ def test_capture_progress_uses_summary_timestamp_not_run_directory_mtime(
 
 def test_watch_pages_on_sustained_cpu_credit_decline_above_absolute_floor(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     now = datetime(2026, 8, 14, 16, 0, tzinfo=UTC)
     config_path = _watch_config(tmp_path, include_host=True)
@@ -567,6 +1214,10 @@ def test_watch_pages_on_sustained_cpu_credit_decline_above_absolute_floor(
         },
     )
     publisher = CollectingPublisher()
+    monkeypatch.setattr(
+        "scripts.watch_paper_tracks._refresh_local_host_status",
+        lambda *args, **kwargs: None,
+    )
 
     run_watch_cycle(
         _load_watch_config(config_path),
@@ -577,3 +1228,242 @@ def test_watch_pages_on_sustained_cpu_credit_decline_above_absolute_floor(
     assert "host:cpu_credit_declining" in {
         alert.key for alert in publisher.alerts
     }
+
+
+def test_local_host_snapshot_uses_fresh_cloudwatch_cpu_credit(
+    tmp_path: Path,
+) -> None:
+    proc_root = tmp_path / "proc"
+    (proc_root / "meminfo").parent.mkdir(parents=True, exist_ok=True)
+    (proc_root / "meminfo").write_text(
+        "MemAvailable:    850000 kB\n",
+        encoding="utf-8",
+    )
+    config = _load_watch_config(_watch_config(tmp_path, include_host=True))
+
+    def fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args=args[0],
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "Datapoints": [
+                        {
+                            "Average": 87.5,
+                            "Timestamp": "2026-08-14T15:55:00+00:00",
+                        }
+                    ]
+                }
+            ),
+            stderr="",
+        )
+
+    snapshot = collect_local_host_status(
+        config.tracks,
+        now=datetime(2026, 8, 14, 16, 0, tzinfo=UTC),
+        proc_root=proc_root,
+        previous={
+            "cpu_credit_balance": 244.11,
+            "cpu_credit_observed_at": "2026-08-14T03:00:00Z",
+        },
+        host=config.host,
+        subprocess_run=fake_run,
+        aws_cli_path="aws",
+    )
+
+    assert snapshot["cpu_credit_balance"] == 87.5
+    assert snapshot["cpu_credit_observed_at"] == "2026-08-14T15:55:00Z"
+
+
+def test_local_host_snapshot_rejects_stale_cloudwatch_cpu_credit(
+    tmp_path: Path,
+) -> None:
+    proc_root = tmp_path / "proc"
+    (proc_root / "meminfo").parent.mkdir(parents=True, exist_ok=True)
+    (proc_root / "meminfo").write_text(
+        "MemAvailable:    850000 kB\n",
+        encoding="utf-8",
+    )
+    config = _load_watch_config(_watch_config(tmp_path, include_host=True))
+
+    def fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args=args[0],
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "Datapoints": [
+                        {
+                            "Average": 244.11,
+                            "Timestamp": "2026-08-14T15:30:00+00:00",
+                        }
+                    ]
+                }
+            ),
+            stderr="",
+        )
+
+    snapshot = collect_local_host_status(
+        config.tracks,
+        now=datetime(2026, 8, 14, 16, 0, tzinfo=UTC),
+        proc_root=proc_root,
+        host=config.host,
+        subprocess_run=fake_run,
+        aws_cli_path="aws",
+    )
+
+    assert "cpu_credit_balance" not in snapshot
+    assert snapshot["cpu_credit_telemetry_unavailable"]["reason"] == (
+        "cloudwatch_metric_stale"
+    )
+
+
+def test_local_host_snapshot_reports_cloudwatch_process_failure(
+    tmp_path: Path,
+) -> None:
+    proc_root = tmp_path / "proc"
+    (proc_root / "meminfo").parent.mkdir(parents=True, exist_ok=True)
+    (proc_root / "meminfo").write_text(
+        "MemAvailable:    850000 kB\n",
+        encoding="utf-8",
+    )
+    config = _load_watch_config(_watch_config(tmp_path, include_host=True))
+
+    def fake_run(*args, **kwargs):
+        raise OSError("aws executable unavailable")
+
+    snapshot = collect_local_host_status(
+        config.tracks,
+        now=datetime(2026, 8, 14, 16, 0, tzinfo=UTC),
+        proc_root=proc_root,
+        host=config.host,
+        subprocess_run=fake_run,
+        aws_cli_path="aws",
+    )
+
+    assert "cpu_credit_balance" not in snapshot
+    assert snapshot["cpu_credit_telemetry_unavailable"]["reason"] == (
+        "cloudwatch_process_failed"
+    )
+
+
+def test_local_host_snapshot_treats_missing_cpu_credits_as_not_applicable_when_unexpected(
+    tmp_path: Path,
+) -> None:
+    proc_root = tmp_path / "proc"
+    (proc_root / "meminfo").parent.mkdir(parents=True, exist_ok=True)
+    (proc_root / "meminfo").write_text(
+        "MemAvailable:    850000 kB\n",
+        encoding="utf-8",
+    )
+    config_path = _watch_config(tmp_path, include_host=True)
+    config_document = json.loads(config_path.read_text(encoding="utf-8"))
+    config_document["host"]["cpu_credit_expected"] = False
+    config_path.write_text(json.dumps(config_document), encoding="utf-8")
+    config = _load_watch_config(config_path)
+
+    def fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args=args[0],
+            returncode=0,
+            stdout=json.dumps({"Datapoints": []}),
+            stderr="",
+        )
+
+    snapshot = collect_local_host_status(
+        config.tracks,
+        now=datetime(2026, 8, 14, 16, 0, tzinfo=UTC),
+        proc_root=proc_root,
+        host=config.host,
+        subprocess_run=fake_run,
+        aws_cli_path="aws",
+    )
+
+    assert snapshot["cpu_credit_expected"] is False
+    assert "cpu_credit_balance" not in snapshot
+    assert snapshot["cpu_credit_telemetry_unavailable"]["reason"] == (
+        "cpu_credit_not_applicable"
+    )
+
+
+def test_watch_does_not_page_when_cpu_credits_are_not_applicable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = datetime(2026, 8, 14, 16, 0, tzinfo=UTC)
+    config_path = _watch_config(tmp_path, include_host=True)
+    _write_json(
+        tmp_path / "watch" / "host-status.json",
+        {
+            "cpu_credit_refresh_attempted": True,
+            "cpu_credit_expected": False,
+            "cpu_credit_telemetry_unavailable": {
+                "reason": "cpu_credit_not_applicable",
+                "region": "eu-west-1",
+                "instance_id": "i-nonburstable",
+            },
+            "mem_available_bytes": 3 * 1024**3,
+        },
+    )
+    publisher = CollectingPublisher()
+    monkeypatch.setattr(
+        "scripts.watch_paper_tracks._refresh_local_host_status",
+        lambda *args, **kwargs: None,
+    )
+
+    run_watch_cycle(
+        _load_watch_config(config_path),
+        publisher=publisher,
+        now=now,
+    )
+
+    assert "host:cpu_credit_telemetry_unavailable" not in {
+        alert.key for alert in publisher.alerts
+    }
+    assert "host:cpu_credit_low" not in {alert.key for alert in publisher.alerts}
+
+
+def test_watch_replaces_stale_cpu_credit_decline_with_telemetry_unavailable(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 8, 14, 16, 0, tzinfo=UTC)
+    config_path = _watch_config(tmp_path, include_host=True)
+    _write_json(
+        tmp_path / "watch" / "host-status.json",
+        {
+            "cpu_credit_refresh_attempted": True,
+            "cpu_credit_telemetry_unavailable": {
+                "reason": "cloudwatch_timeout",
+                "region": "us-east-1",
+                "instance_id": "i-1234567890abcdef0",
+            },
+        },
+    )
+    _write_json(
+        tmp_path / "watch" / "state.json",
+        {
+            "schema_version": "polymm-paper-track-watch-state.v1",
+            "alerts": {},
+            "tracks": {},
+            "host": {
+                "cpu_credit_balance": 120.0,
+                "cpu_credit_observed_at": "2026-08-14T15:30:00Z",
+                "cpu_credit_decreasing_since": "2026-08-14T15:20:00Z",
+            },
+        },
+    )
+    publisher = CollectingPublisher()
+
+    run_watch_cycle(
+        _load_watch_config(config_path),
+        publisher=publisher,
+        now=now,
+    )
+
+    keys = {alert.key for alert in publisher.alerts}
+    assert "host:cpu_credit_telemetry_unavailable" in keys
+    assert "host:cpu_credit_declining" not in keys
+    state = json.loads(
+        (tmp_path / "watch" / "state.json").read_text(encoding="utf-8")
+    )
+    assert "cpu_credit_balance" not in state["host"]

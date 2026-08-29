@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_URL="${REPO_URL:-https://github.com/Lens-less/poly-mm.git}"
+REPO_URL="${REPO_URL:-https://github.com/Lens-less/polymarket-edge-lab.git}"
 DEPLOY_REF="${DEPLOY_REF:?DEPLOY_REF must be the immutable commit to deploy}"
 INSTALL_ROOT="${INSTALL_ROOT:-/opt/poly-mm-rawcap}"
 DATA_ROOT="${DATA_ROOT:-/var/lib/poly-mm-rawcap}"
@@ -78,7 +78,7 @@ chmod -R a+rX "${INSTALL_ROOT}"
 "${INSTALL_ROOT}/.venv/bin/python" \
   "${INSTALL_ROOT}/scripts/maintain_btc_rawcap.py" \
   --data-root "${DATA_ROOT}/data" \
-  --compress-after-seconds 1800 \
+  --compress-after-seconds 600 \
   --retention-days 30 \
   --status-path "${DATA_ROOT}/monitor/maintenance-latest.json" \
   --validate-only

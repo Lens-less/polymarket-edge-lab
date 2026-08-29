@@ -94,10 +94,10 @@ def test_rawcap_maintenance_is_bounded_to_completed_capture_tree() -> None:
 
     assert "scripts/maintain_btc_rawcap.py" in service_text
     assert "--data-root /var/lib/poly-mm-rawcap/data" in service_text
-    assert "--compress-after-seconds 1800" in service_text
+    assert "--compress-after-seconds 600" in service_text
     assert "--retention-days 30" in service_text
     assert "ReadWritePaths=/var/lib/poly-mm-rawcap" in service_text
-    assert "OnUnitActiveSec=1h" in timer_text
+    assert "OnUnitActiveSec=15min" in timer_text
 
 
 def test_v04_archive_snapshot_is_complete_and_hash_bound() -> None:

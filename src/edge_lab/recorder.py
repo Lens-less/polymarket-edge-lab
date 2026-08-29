@@ -187,7 +187,12 @@ class RecorderClientConnection(ClientConnection):
 
         self.protocol.receive_eof()
         self.set_recv_exc(exc)
-        self.terminate_pending_pings()
+        # websockets 15 renamed this cleanup hook from
+        # ``terminate_pending_pings`` to ``abort_pings``.
+        abort_pings = getattr(self, "abort_pings", None)
+        if abort_pings is None:  # pragma: no cover - websockets < 15
+            abort_pings = getattr(self, "terminate_pending_pings")
+        abort_pings()
         if self.keepalive_task is not None:
             self.keepalive_task.cancel()
         if not self.connection_lost_waiter.done():
@@ -264,6 +269,7 @@ class RecorderConfig:
     """All recorder inputs are explicit and contain no credentials."""
 
     clob_asset_ids: tuple[str, ...]
+    clob_enabled: bool = True
     rtds_subscriptions: tuple[Mapping[str, Any], ...] = field(
         default_factory=_default_rtds_subscriptions
     )
@@ -318,23 +324,36 @@ class RecorderConfig:
             for value in numeric_values.values()
         ):
             raise ValueError("recorder timing values must be finite")
-        if not self.clob_asset_ids:
-            raise ValueError("clob_asset_ids must contain at least one public asset")
-        if any(
-            not isinstance(asset_id, str) or not asset_id.strip()
-            for asset_id in self.clob_asset_ids
-        ):
-            raise ValueError("clob_asset_ids must contain non-empty strings")
+        if not isinstance(self.clob_enabled, bool):
+            raise ValueError("clob_enabled must be a boolean")
+        if self.clob_enabled:
+            if not self.clob_asset_ids:
+                raise ValueError(
+                    "clob_asset_ids must contain at least one public asset"
+                )
+            if any(
+                not isinstance(asset_id, str) or not asset_id.strip()
+                for asset_id in self.clob_asset_ids
+            ):
+                raise ValueError("clob_asset_ids must contain non-empty strings")
+        elif self.clob_asset_ids:
+            raise ValueError("clob_asset_ids must be empty when CLOB is disabled")
         if not isinstance(self.rtds_enabled, bool):
             raise ValueError("rtds_enabled must be a boolean")
         if not isinstance(self.initial_clob_resnapshot, bool):
             raise ValueError("initial_clob_resnapshot must be a boolean")
+        if not self.clob_enabled and self.initial_clob_resnapshot:
+            raise ValueError(
+                "initial_clob_resnapshot requires CLOB capture to be enabled"
+            )
         if self.rtds_enabled and not self.rtds_subscriptions:
             raise ValueError("rtds_subscriptions must not be empty")
         if not self.rtds_enabled and self.rtds_subscriptions:
             raise ValueError(
                 "rtds_subscriptions must be empty when RTDS is disabled"
             )
+        if not self.clob_enabled and not self.rtds_enabled:
+            raise ValueError("at least one capture transport must be enabled")
         if self.market_heartbeat_seconds <= 0 or self.rtds_heartbeat_seconds <= 0:
             raise ValueError("heartbeat intervals must be positive")
         if self.reconnect_initial_seconds < 0:
@@ -371,10 +390,12 @@ class RecorderConfig:
         ):
             raise ValueError("recorder operation timeouts must be positive")
         for kind, interval in self.snapshot_intervals.items():
-            if kind not in {"gamma", "clob", "rewards", "rules"}:
+            if kind not in {"gamma", "clob", "rewards", "rules", "trades"}:
                 raise ValueError(f"unsupported public snapshot kind: {kind}")
             if not math.isfinite(float(interval)) or interval <= 0:
                 raise ValueError("snapshot intervals must be positive")
+        if not self.clob_enabled and "clob" in self.snapshot_intervals:
+            raise ValueError("clob snapshots require CLOB capture to be enabled")
         for subscription in self.rtds_subscriptions:
             unexpected_keys = set(subscription) - {"topic", "type", "filters"}
             channel_values = {
@@ -584,23 +605,25 @@ class PublicRecorder:
         self._session_id = uuid.uuid4().hex
         self._fatal_error = None
         self._states = {}
-        self._tasks = [
-            asyncio.create_task(
-                self._stream_forever(
-                    source="clob_market_ws",
-                    url=self.config.clob_url,
-                    subscription={
-                        "assets_ids": list(self.config.clob_asset_ids),
-                        "type": "market",
-                        "custom_feature_enabled": True,
-                    },
-                    heartbeat_seconds=self.config.market_heartbeat_seconds,
-                    resnapshot_on_reconnect=True,
-                    receive_idle_timeout_seconds=None,
-                ),
-                name="edge-lab-clob-market-recorder",
-            ),
-        ]
+        self._tasks = []
+        if self.config.clob_enabled:
+            self._tasks.append(
+                asyncio.create_task(
+                    self._stream_forever(
+                        source="clob_market_ws",
+                        url=self.config.clob_url,
+                        subscription={
+                            "assets_ids": list(self.config.clob_asset_ids),
+                            "type": "market",
+                            "custom_feature_enabled": True,
+                        },
+                        heartbeat_seconds=self.config.market_heartbeat_seconds,
+                        resnapshot_on_reconnect=True,
+                        receive_idle_timeout_seconds=None,
+                    ),
+                    name="edge-lab-clob-market-recorder",
+                )
+            )
         if self.config.rtds_enabled:
             self._tasks.append(
                 asyncio.create_task(

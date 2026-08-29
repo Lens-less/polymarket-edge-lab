@@ -1,131 +1,39 @@
-# 配置指南
+# 配置说明
 
-本指南说明如何根据不同的账户规模和风险承受能力配置机器人。
+公开研究入口优先使用显式 CLI 参数和版本化 JSON 配置，不依赖全局 `.env`。
 
-## 配置概述
+## 默认路径
 
-机器人通过 `.env` 文件中的环境变量进行配置。每个设置项控制特定的行为。
+- `scripts/run_edge_lab.py`：公开 API 扫描、回放和兼容性审计
+- `scripts/run_edge_capture.py`：前向公开数据采集
+- `scripts/run_reward_experiment.py`：奖励市场公开数据实验
+- `scripts/run_weather_experiment.py`：天气公开数据实验
+- `research/`：冻结输入、配置、报告和 manifest
+- `data/`：本地运行数据，已被 Git 忽略
 
-## 按账户规模的快速配置
-
-### 小额账户（$100 - $500）
-
-适合测试和学习，使用保守设置：
-
-```bash
-# 交易设置
-DRY_RUN=true
-MM_SIZE=5              # 每次挂单数量
-MM_SPREAD=0.05         # 买卖价差（5美分）
-MM_POSITION_LIMIT=20   # 触发暂停的仓位阈值
-RISK_MAX_POSITION=20   # 单币种最大仓位
-RISK_MAX_TOTAL_EXPOSURE=100   # 总暴露仓位上限
-RISK_MAX_DAILY_LOSS=10        # 每日亏损上限
-
-# 市场筛选
-MARKET_MIN_VOLUME=5000        # 最小24小时交易量
-MARKET_MIN_HOURS_TO_RESOLUTION=24  # 距离结算最小小时数
-```
-
-**配置说明**：较小的仓位可以在您学习过程中限制潜在亏损。
-
-### 中等账户（$500 - $5000）
-
-平衡风险和收益：
+先用每个命令的 `--help` 查看当前参数：
 
 ```bash
-# 交易设置
-DRY_RUN=true
-MM_SIZE=10
-MM_SPREAD=0.04
-MM_POSITION_LIMIT=50
-RISK_MAX_POSITION=50
-RISK_MAX_TOTAL_EXPOSURE=500
-RISK_MAX_DAILY_LOSS=25
-
-# 市场筛选
-MARKET_MIN_VOLUME=10000
-MARKET_MIN_HOURS_TO_RESOLUTION=12
+uv run python scripts/run_edge_lab.py --help
+uv run python scripts/run_edge_capture.py --help
+uv run python scripts/run_reward_experiment.py --help
 ```
 
-### 大额账户（$5000+）
+## `.env.example`
 
-更高容量，但需要仔细监控：
+公开研究不需要复制 `.env.example`。该文件只保留给通用账户/feed 基础设施开发，默认 `DRY_RUN=true`，凭证为空。即使设置 `DRY_RUN=false`，`src/edge_lab/compatibility.py` 仍无条件拒绝新订单。
 
-```bash
-# 交易设置
-DRY_RUN=true
-MM_SIZE=25
-MM_SPREAD=0.03
-MM_POSITION_LIMIT=100
-RISK_MAX_POSITION=100
-RISK_MAX_TOTAL_EXPOSURE=2000
-RISK_MAX_DAILY_LOSS=100
+如确需调试保留的认证读取或撤单代码：
 
-# 市场筛选
-MARKET_MIN_VOLUME=25000
-MARKET_MIN_HOURS_TO_RESOLUTION=6
-```
+1. 使用隔离测试钱包和最小权限。
+2. 将 `.env.example` 复制为 `.env`，不要改动示例文件本身。
+3. 不要把密钥、钱包地址、订单 ID 或认证代理 URL 写入 Issue、报告或提交。
+4. 任务完成后撤销临时凭证并删除本地 `.env`。
 
-## 核心参数说明
+## 网络与代理
 
-### 交易参数
+支持代理的采集命令要求显式传参，并只接受无认证 loopback URL。代理不能用于绕过地域限制、平台条款或当地法律。`run_edge_lab.py audit` 会访问 Polymarket 的公开 geoblock 端点；其结果不是法律意见。
 
-| 参数 | 说明 | 推荐范围 |
-|------|------|----------|
-| MM_SPREAD | 买卖价差（美元） | 0.03 - 0.10 |
-| MM_SIZE | 每次挂单数量（合约数） | 5 - 50 |
-| MM_POSITION_LIMIT | 暂停挂单前单币种最大仓位 | 20 - 100 |
+## 固定研究配置
 
-### 风险管理
-
-| 参数 | 说明 | 推荐范围 |
-|------|------|----------|
-| RISK_MAX_POSITION | 单币种硬性仓位上限 | 20 - 100 |
-| RISK_MAX_TOTAL_EXPOSURE | 整体仓位上限 | 100 - 5000 |
-| RISK_MAX_DAILY_LOSS | 触发暂停的每日亏损阈值 | 10 - 100 |
-
-### 市场筛选
-
-| 参数 | 说明 | 推荐范围 |
-|------|------|----------|
-| MARKET_MIN_VOLUME | 最小24小时交易量 | 5000 - 25000 |
-| MARKET_MIN_SPREAD | 避免过度竞争的市场 | 0.02 - 0.05 |
-| MARKET_MAX_SPREAD | 避免流动性不足的市场 | 0.10 - 0.20 |
-
-## 常见配置方案
-
-### 激进型（较高收益，较高风险）
-
-```bash
-MM_SPREAD=0.03
-MM_SIZE=20
-KELLY_FRACTION=0.35
-RISK_MAX_POSITION=80
-```
-
-### 保守型（较低收益，较低风险）
-
-```bash
-MM_SPREAD=0.06
-MM_SIZE=5
-KELLY_FRACTION=0.15
-RISK_MAX_POSITION=15
-```
-
-## 测试配置更改
-
-1. 在 `.env` 中修改配置
-2. 重启机器人
-3. 在 DRY_RUN 模式监控 24 小时以上
-4. 检查盈亏和仓位情况
-
-## 高级参数（需理解做市原理）
-
-- `KELLY_FRACTION` - 凯利公式（Kelly Criterion）仓位管理参数
-- `VOL_MULT_MAX` - 最大波动率乘数
-- `ADVERSE_TOXIC_THRESHOLD` - 反向选择（Adverse Selection）检测阈值
-
----
-
-**相关链接**: [快速开始](user/getting-started.md) | [交易模式](user/trading-modes.md)
+`research/` 中的 JSON 是历史证据的一部分，可能包含固定日期、市场 ID 和当时的本机路径。不要原地覆盖它们。新实验应复制到新的输出目录，记录输入、时间和版本，并遵循对应复现文档的 append-only 约束。历史路径属于复现元数据，不是你当前机器必须复刻的目录结构。

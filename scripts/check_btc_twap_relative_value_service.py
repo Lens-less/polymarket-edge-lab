@@ -165,6 +165,17 @@ def _clock_policy_limits(preregistration_path: Path) -> tuple[int, int]:
         else None
     )
     if not isinstance(clock_sync, Mapping):
+        runtime = preregistration.get("runtime_capture_contract")
+        if (
+            preregistration.get("schema_version")
+            == "btc-5m-15m-edge-readiness-preregistration.v08-draft"
+            and isinstance(runtime, Mapping)
+            and isinstance(runtime.get("clock_sync_source"), str)
+            and runtime.get("clock_sync_source").strip()
+        ):
+            # v0.8 froze the clock source, not the v0.6 measurement envelope.
+            # Keep the same numeric envelope so capture health stays fail-closed.
+            return 100, 1200 * 1_000
         raise ValueError("preregistration has no frozen clock-sync policy")
     uncertainty_ms = _integer_field(clock_sync, "maximum_measurement_uncertainty_ms")
     maximum_age_seconds = _integer_field(clock_sync, "maximum_measurement_age_seconds")

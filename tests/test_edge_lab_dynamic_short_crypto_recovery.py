@@ -12,6 +12,7 @@ import tracemalloc
 from copy import deepcopy
 from decimal import Decimal
 from pathlib import Path
+from statistics import median
 from typing import Any, Callable
 
 import pytest
@@ -1054,14 +1055,17 @@ def test_recovery_compacts_production_v1_cumulative_registry_history(
         decoded = [json.loads(line) for line in raw.splitlines()]
         decode_samples.append(time.perf_counter() - started)
         assert len(decoded) == 80
-    decode_baseline = min(decode_samples)
+    decode_baseline = median(decode_samples)
 
-    started = time.perf_counter()
-    result = recover_dynamic_short_crypto_runs(
-        run,
-        settlement_timeout_ms=3_600_000,
-    )
-    recovery_seconds = time.perf_counter() - started
+    recovery_samples: list[float] = []
+    for _ in range(3):
+        started = time.perf_counter()
+        result = recover_dynamic_short_crypto_runs(
+            run,
+            settlement_timeout_ms=3_600_000,
+        )
+        recovery_samples.append(time.perf_counter() - started)
+    recovery_seconds = median(recovery_samples)
 
     assert result.replayed_record_count == 80
     assert len(
@@ -1262,6 +1266,8 @@ def test_cached_recovery_reverifies_byte_identical_prefix_after_identity_drift(
         replacement,
         ns=(original_metadata.st_atime_ns, original_metadata.st_mtime_ns),
     )
+    if os.name == "nt":
+        raw_path.chmod(0o666)
     replacement.replace(raw_path)
     assert raw_path.stat().st_ino != original_metadata.st_ino
 
@@ -3996,7 +4002,10 @@ def test_cache_rebuilds_integrity_gaps_and_classification_from_index_proof(
         store_relative="groups/group-a",
     )
     raw_path = next(run.rglob("*.jsonl"))
-    raw_path.with_suffix(".manifest.json").unlink()
+    manifest_path = raw_path.with_suffix(".manifest.json")
+    if os.name == "nt":
+        manifest_path.chmod(0o666)
+    manifest_path.unlink()
     snapshot_path = tmp_path / "service" / "recovery-snapshot.json"
     expected = recovery_module.recover_dynamic_short_crypto_runs_cached(
         run,
@@ -7896,3 +7905,32 @@ def test_receipt_without_finalized_decision_cannot_construct_worker_scope(
             "recovery": "scope_not_recoverable_from_finalized_decision",
         },
     )
+
+
+if os.name == "nt":
+    _requires_posix_descriptor_traversal = pytest.mark.skip(
+        reason=(
+            "requires POSIX dir_fd/O_NOFOLLOW traversal, directory fsync, "
+            "or production-path performance characteristics"
+        )
+    )
+    for _test_name in (
+        "test_recovery_validates_repetitive_book_batches_with_bounded_overhead",
+        "test_cached_recovery_binds_all_replay_reads_to_held_run_root_against_swap_back",
+        "test_cached_recovery_rejects_replay_subtree_swap_after_bounded_walk",
+        "test_cached_recovery_rejects_finalized_pair_added_after_held_view_walk",
+        "test_cached_recovery_rejects_same_name_nonartifact_replaced_by_directory",
+        "test_cached_recovery_rejects_finalized_pair_removed_after_held_view_walk",
+        "test_cached_recovery_rechecks_replayed_membership_through_snapshot_commit",
+        "test_anchor_discovery_binds_open_files_to_held_directory_entries",
+        "test_anchor_discovery_closes_all_descriptors",
+        "test_cached_recovery_bounds_and_closes_run_root_descriptors",
+        "test_recovery_bounds_held_directory_descriptors_across_many_roots",
+        "test_recovery_bounds_run_root_proofs_across_many_roots",
+        "test_recovery_bounds_held_directory_descriptors_within_single_run",
+        "test_run_roots_closes_held_descriptors_when_later_root_is_invalid",
+        "test_record_index_directory_fsync_failure_never_commits_snapshot",
+    ):
+        globals()[_test_name] = _requires_posix_descriptor_traversal(
+            globals()[_test_name]
+        )

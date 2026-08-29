@@ -24,7 +24,6 @@ POLY_PRIVATE_KEY = os.getenv("POLY_PRIVATE_KEY")
 POLY_API_KEY = os.getenv("POLY_API_KEY")
 POLY_API_SECRET = os.getenv("POLY_API_SECRET")
 POLY_PASSPHRASE = os.getenv("POLY_PASSPHRASE")
-POLY_SIGNATURE_TYPE = int(os.getenv("POLY_SIGNATURE_TYPE", "0"))
 POLY_FUNDER = os.getenv("POLY_FUNDER")
 
 # === WebSocket ===
@@ -39,9 +38,8 @@ WS_HEARTBEAT_INTERVAL = float(os.getenv("WS_HEARTBEAT_INTERVAL", "30.0"))
 WS_STALE_DATA_THRESHOLD = float(os.getenv("WS_STALE_DATA_THRESHOLD", "60.0"))
 
 # === Legacy Contract Context ===
-# The old adapter used Polygon USDC.e at the address below.  CLOB V2 uses pUSD;
-# a future V2 adapter must resolve current official contract roles instead of
-# importing this legacy address into an order path.
+# Retained only for historical reporting.  The official unified SDK resolves
+# current pUSD/conditional-token approvals and no order path imports this value.
 LEGACY_USDC_E_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
 
 # === Trading ===
@@ -161,6 +159,18 @@ MAX_CORRELATED_EXPOSURE = Decimal(os.getenv("MAX_CORRELATED_EXPOSURE", "500"))
 # === Simulation ===
 SIMULATED_FEE_RATE = Decimal(os.getenv("SIMULATED_FEE_RATE", "0.001"))  # 0.1% per trade
 
+# === Live fee accounting ===
+# Polymarket's public fee docs describe: fee = feeRateBps/10000 * C *
+# (p * (1-p)) ** exponent, where C is the traded size. exponent=1 reproduces
+# every observed value in this repo's fixtures/tests to date, but that has
+# only been checked against inferred/self-reported payloads, never against a
+# live fee_rate_bps confirmed by Polymarket. If the real formula instead bills
+# off min(p, 1-p) (a common alternative in prediction-market fee schedules),
+# fees at p=0.5 would be computed 2x too low here (p*(1-p)=0.25 vs
+# min(p,1-p)=0.5). Do not treat LIVE_FEE_RATE_EXPONENT as verified; see
+# scripts/probe_account_trade_semantics.py for the open question.
+LIVE_FEE_RATE_EXPONENT = Decimal(os.getenv("LIVE_FEE_RATE_EXPONENT", "1"))
+
 # === Rate Limiting ===
 RATE_LIMIT_ORDERS_PER_SECOND = float(os.getenv("RATE_LIMIT_ORDERS_PER_SECOND", "5"))
 RATE_LIMIT_DATA_PER_SECOND = float(os.getenv("RATE_LIMIT_DATA_PER_SECOND", "10"))
@@ -180,14 +190,10 @@ QUEUE_IMPROVE_THRESHOLD = float(os.getenv("QUEUE_IMPROVE_THRESHOLD", "100"))
 
 def has_credentials() -> bool:
     """Check if enough auth material exists to create an authenticated client."""
-    if not POLY_PRIVATE_KEY:
-        return False
-
-    # Polymarket clients can derive/create API creds from the signing key.
-    if POLY_SIGNATURE_TYPE == 1 and not POLY_FUNDER:
-        return False
-
-    return True
+    # SecureClient can derive API credentials and accepts an optional deposit
+    # wallet.  A private key is therefore the only mandatory construction input;
+    # live-readiness checks separately reconcile the wallet and its pUSD state.
+    return bool(POLY_PRIVATE_KEY)
 
 
 def get_mode_string() -> str:

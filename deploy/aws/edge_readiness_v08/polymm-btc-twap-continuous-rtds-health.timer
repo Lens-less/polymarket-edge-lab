@@ -1,0 +1,11 @@
+[Unit]
+Description=Run continuous BTC 60s TWAP health check every 10 seconds
+
+[Timer]
+OnBootSec=20s
+OnUnitActiveSec=10s
+AccuracySec=1s
+Unit=polymm-btc-twap-continuous-rtds-health.service
+
+[Install]
+WantedBy=timers.target

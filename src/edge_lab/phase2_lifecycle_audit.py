@@ -710,7 +710,9 @@ def _load_inventory(
 ]:
     by_id = _RecordInventory()
     service_events: list[_ServiceEvent] = []
-    compressed_registry_payloads: dict[bytes, bytes] = {}
+    compressed_registry_payloads: dict[
+        bytes, tuple[bytes, bytes]
+    ] = {}
     manifest_count = 0
     record_count = 0
     try:
@@ -841,43 +843,59 @@ def _load_inventory(
                         schema_version = event_payload.get(
                             "schema_version"
                         )
-                        if schema_version == REGISTRY_SNAPSHOT_SCHEMA:
-                            event_payload = (
-                                _validated_v1_registry_payload(
-                                    event_payload,
-                                    record_id=record_id,
-                                )
-                            )
-                            registry_v1_validated = True
-                        canonical_payload = canonical_json_bytes(
-                            event_payload
+                        cache_identity_payload = (
+                            {
+                                field: event_payload.get(field)
+                                for field in REGISTRY_SNAPSHOT_FIELDS
+                            }
+                            if schema_version == REGISTRY_SNAPSHOT_SCHEMA
+                            else event_payload
+                        )
+                        raw_canonical_payload = canonical_json_bytes(
+                            cache_identity_payload
                         )
                         payload_digest = hashlib.sha256(
-                            canonical_payload
+                            raw_canonical_payload
                         ).digest()
-                        candidate_payload = zlib.compress(
-                            canonical_payload,
-                            level=1,
-                        )
                         cached_payload = compressed_registry_payloads.get(
                             payload_digest
                         )
-                        if cached_payload is None:
-                            compressed_registry_payloads[
-                                payload_digest
-                            ] = candidate_payload
-                            compressed_payload = candidate_payload
-                        elif cached_payload != candidate_payload:
-                            _fail(
-                                "registry_payload_digest_collision",
-                                (
-                                    f"{record_id} canonical registry payload "
-                                    "collided with different finalized bytes"
-                                ),
+                        if cached_payload is not None:
+                            if cached_payload[0] != raw_canonical_payload:
+                                _fail(
+                                    "registry_payload_digest_collision",
+                                    (
+                                        f"{record_id} canonical registry "
+                                        "payload collided with different "
+                                        "finalized bytes"
+                                    ),
+                                )
+                            compressed_payload = cached_payload[1]
+                            registry_v1_validated = (
+                                schema_version == REGISTRY_SNAPSHOT_SCHEMA
                             )
+                            event_payload = {}
                         else:
-                            compressed_payload = cached_payload
-                        event_payload = {}
+                            if schema_version == REGISTRY_SNAPSHOT_SCHEMA:
+                                event_payload = (
+                                    _validated_v1_registry_payload(
+                                        event_payload,
+                                        record_id=record_id,
+                                    )
+                                )
+                                registry_v1_validated = True
+                            canonical_payload = canonical_json_bytes(
+                                event_payload
+                            )
+                            compressed_payload = zlib.compress(
+                                canonical_payload,
+                                level=1,
+                            )
+                            compressed_registry_payloads[payload_digest] = (
+                                raw_canonical_payload,
+                                compressed_payload,
+                            )
+                            event_payload = {}
                     service_events.append(
                         _ServiceEvent(
                             event_type=event_type,
@@ -1028,8 +1046,17 @@ def _registry_targets(
             event.record_id,
         ),
     )
+    decoded_registry_payloads: dict[bytes, Mapping[str, Any]] = {}
     for event in registry_events:
-        payload = _service_event_payload(event)
+        if event.compressed_payload is None:
+            payload = _service_event_payload(event)
+        else:
+            payload = decoded_registry_payloads.get(
+                event.compressed_payload
+            )
+            if payload is None:
+                payload = _service_event_payload(event)
+                decoded_registry_payloads[event.compressed_payload] = payload
         schema_version = payload.get("schema_version")
         if schema_version == REGISTRY_REVISION_V2_SCHEMA:
             unknown_fields = set(payload) - REGISTRY_REVISION_V2_FIELDS

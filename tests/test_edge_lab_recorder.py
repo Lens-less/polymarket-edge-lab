@@ -2466,6 +2466,31 @@ def test_default_binance_subscription_omits_broken_empty_filter() -> None:
         {"topic": "crypto_prices", "type": "update"},
     )
 
+
+def test_recorder_config_allows_rtds_only_capture_without_clob_assets() -> None:
+    config = RecorderConfig(
+        clob_enabled=False,
+        clob_asset_ids=(),
+        rtds_subscriptions=(
+            {
+                "topic": "crypto_prices_twap_sixty",
+                "type": "update",
+                "filters": '{"symbol":"btc/usd"}',
+            },
+        ),
+        snapshot_intervals={},
+    )
+
+    assert config.clob_enabled is False
+    assert config.clob_asset_ids == ()
+    assert config.rtds_subscriptions == (
+        {
+            "topic": "crypto_prices_twap_sixty",
+            "type": "update",
+            "filters": '{"symbol":"btc/usd"}',
+        },
+    )
+
 @pytest.mark.parametrize(
     "overrides",
     [

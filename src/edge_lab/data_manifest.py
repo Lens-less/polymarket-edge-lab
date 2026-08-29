@@ -31,11 +31,10 @@ from typing import Any
 
 from .data_store import (
     DataContractError,
-    canonical_json_bytes,
     canonical_event_fingerprint,
+    canonical_json_bytes,
     canonical_record_id,
 )
-
 
 MANIFEST_SCHEMA_VERSION = "edge-data-manifest.v1"
 QUALITY_SCHEMA_VERSION = "edge-data-quality.v1"
@@ -77,6 +76,9 @@ _MANIFEST_COUNT_FIELDS = (
     "schema_drift_count",
     "schema_change_count",
 )
+_DESCRIPTOR_BOUND_READS_AVAILABLE = all(
+    hasattr(os, name) for name in ("O_NOFOLLOW", "O_DIRECTORY")
+) and os.open in os.supports_dir_fd
 
 
 @dataclass(frozen=True)
@@ -106,9 +108,7 @@ def _sha256(data: bytes) -> str:
 
 
 def _open_flags(*, directory: bool) -> int:
-    required = ("O_NOFOLLOW", "O_DIRECTORY")
-    missing = [name for name in required if not hasattr(os, name)]
-    if missing:
+    if not _DESCRIPTOR_BOUND_READS_AVAILABLE:
         raise UnsafeInputPathError(
             "descriptor-bound audit reads are unavailable on this platform"
         )
@@ -207,6 +207,11 @@ def _open_root_directory_fd(allowed_root: Path) -> int:
 def _open_regular_input_fd(path: Path, *, allowed_root: Path) -> int:
     """Open an input through root-anchored, no-follow file descriptors."""
 
+    if not _DESCRIPTOR_BOUND_READS_AVAILABLE:
+        raise UnsafeInputPathError(
+            "descriptor-bound audit reads are unavailable on this platform"
+        )
+
     parts = _relative_input_parts(path, allowed_root=allowed_root)
     root_fd: int | None = None
     parent_fd: int | None = None
@@ -264,13 +269,111 @@ def _open_regular_input_fd(path: Path, *, allowed_root: Path) -> int:
             os.close(root_fd)
 
 
+def _portable_identity(metadata: os.stat_result) -> tuple[int, int, int, int, int]:
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+    )
+
+
+def _is_link_like(metadata: os.stat_result) -> bool:
+    reparse_point = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    attributes = getattr(metadata, "st_file_attributes", 0)
+    return stat.S_ISLNK(metadata.st_mode) or bool(attributes & reparse_point)
+
+
+def _open_regular_input_fd_portable(path: Path, *, allowed_root: Path) -> int:
+    """Best available stable, no-reparse read on platforms without ``dir_fd``.
+
+    Linux production keeps the descriptor-anchored path above.  This fallback
+    captures every ancestor identity, rejects symlinks/junctions, opens the
+    absolute regular file, and revalidates the chain before returning its file
+    descriptor.  It closes the Windows/dev portability gap without pretending
+    to provide the stronger POSIX rename-race proof.
+    """
+
+    parts = _relative_input_parts(path, allowed_root=allowed_root)
+    root = Path(os.path.abspath(allowed_root))
+    absolute = root.joinpath(*parts)
+    chain = (root, *(root.joinpath(*parts[:index]) for index in range(1, len(parts))))
+    identities: list[tuple[Path, tuple[int, int, int, int, int]]] = []
+    try:
+        for ancestor in chain:
+            metadata = ancestor.lstat()
+            if _is_link_like(metadata) or not stat.S_ISDIR(metadata.st_mode):
+                raise UnsafeInputPathError(
+                    "symbolic links are not accepted as audit inputs"
+                )
+            identities.append((ancestor, _portable_identity(metadata)))
+        before = absolute.lstat()
+    except FileNotFoundError as exc:
+        raise UnsafeInputPathError("input disappeared during audit") from exc
+    except OSError as exc:
+        raise UnsafeInputPathError(f"unable to inspect audit input: {exc}") from exc
+    if _is_link_like(before):
+        raise UnsafeInputPathError(
+            "symbolic links are not accepted as audit inputs"
+        )
+    if not stat.S_ISREG(before.st_mode):
+        raise UnsafeInputPathError("audit input is not a regular file")
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0)
+    try:
+        descriptor = os.open(absolute, flags)
+    except OSError as exc:
+        _raise_unsafe_open(exc)
+    try:
+        opened = os.fstat(descriptor)
+        after = absolute.lstat()
+        if (
+            _is_link_like(after)
+            or _portable_identity(before) != _portable_identity(opened)
+            or _portable_identity(opened) != _portable_identity(after)
+        ):
+            raise UnsafeInputPathError("audit input changed while it was opened")
+        for ancestor, identity in identities:
+            current = ancestor.lstat()
+            if _is_link_like(current) or _portable_identity(current) != identity:
+                raise UnsafeInputPathError(
+                    "audit input ancestor changed while the file was opened"
+                )
+        return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def _open_regular_input_fd_best_available(
+    path: Path,
+    *,
+    allowed_root: Path,
+) -> int:
+    """Open non-readiness inputs with the strongest platform primitive.
+
+    Formal data-audit entry points separately reject this portable fallback
+    unless the caller explicitly requests a non-authoritative diagnostic.
+    """
+
+    if _DESCRIPTOR_BOUND_READS_AVAILABLE:
+        return _open_regular_input_fd(path, allowed_root=allowed_root)
+    return _open_regular_input_fd_portable(path, allowed_root=allowed_root)
+
+
 def _validate_input_path(path: Path, *, allowed_root: Path) -> None:
-    descriptor = _open_regular_input_fd(path, allowed_root=allowed_root)
+    descriptor = _open_regular_input_fd_best_available(
+        path,
+        allowed_root=allowed_root,
+    )
     os.close(descriptor)
 
 
 def _read_bytes(path: Path, *, allowed_root: Path) -> bytes:
-    descriptor = _open_regular_input_fd(path, allowed_root=allowed_root)
+    descriptor = _open_regular_input_fd_best_available(
+        path,
+        allowed_root=allowed_root,
+    )
     with os.fdopen(descriptor, "rb", closefd=True) as handle:
         return handle.read()
 
@@ -1138,12 +1241,6 @@ def _analyze_jsonl(
         record_id = str(row["record_id"])
         payload = row.get("payload")
         assert isinstance(payload, Mapping)
-        event_type_value = payload.get("event_type") or payload.get("type")
-        normalized_time_event = (
-            event_type_value
-            if isinstance(event_type_value, str) and event_type_value
-            else "unknown"
-        )
         frame_metadata = _time_frame_metadata(payload)
         if last_received is not None and received is not None and received < last_received:
             recorder_global_time_regressions.append(
@@ -2685,7 +2782,7 @@ def _cross_source_overlap(
     }
 
 
-def build_data_audit(
+def _build_data_audit(
     *,
     project_root: str | Path,
     capture_root: str | Path,
@@ -2929,8 +3026,22 @@ def build_data_audit(
             + len(legacy_entries)
         ),
     }
+    read_binding = {
+        "mode": (
+            "descriptor_bound_no_follow"
+            if _DESCRIPTOR_BOUND_READS_AVAILABLE
+            else "portable_identity_revalidation"
+        ),
+        "authoritative_for_readiness": _DESCRIPTOR_BOUND_READS_AVAILABLE,
+        "guarantee": (
+            "root_anchored_descriptor_bound_no_follow"
+            if _DESCRIPTOR_BOUND_READS_AVAILABLE
+            else "best_effort_only_no_rename_race_proof"
+        ),
+    }
     manifest_without_hash: dict[str, Any] = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
+        "read_binding": read_binding,
         "roots": {
             "project": ".",
             "capture": _relative(capture, project),
@@ -2978,6 +3089,19 @@ def build_data_audit(
         inventory_stable=inventory_stable,
         time_order=time_order,
     )
+    if not read_binding["authoritative_for_readiness"]:
+        gaps.append(
+            {
+                "code": "non_authoritative_portable_read_binding",
+                "severity": "error",
+                "scope": "audit/read_binding",
+                "detail": (
+                    "portable identity revalidation cannot prove the "
+                    "descriptor-bound rename-race guarantee required for "
+                    "readiness evidence"
+                ),
+            }
+        )
     batch_levels = [str(entry["evidence_level"]) for entry in finalized]
     legacy_levels = [str(entry["evidence_level"]) for entry in legacy_entries]
     forward_l2_sources = sorted(
@@ -3012,6 +3136,7 @@ def build_data_audit(
     quality = {
         "schema_version": QUALITY_SCHEMA_VERSION,
         "data_manifest_hash": data_manifest_hash,
+        "read_binding": read_binding,
         "status": (
             "fail"
             if any(item["severity"] == "error" for item in gaps)
@@ -3103,7 +3228,9 @@ def build_data_audit(
                 cross_source_inputs_present
             ),
             "cross_source_latency_l2_ready": bool(
-                cross_source_inputs_present and not latency_source_error
+                read_binding["authoritative_for_readiness"]
+                and cross_source_inputs_present
+                and not latency_source_error
             ),
             "warning": (
                 "Evidence level describes input fidelity, not profitability, "
@@ -3113,6 +3240,40 @@ def build_data_audit(
         "gaps": gaps,
     }
     return DataAuditBundle(manifest=manifest, quality=quality)
+
+
+def build_data_audit(
+    *,
+    project_root: str | Path,
+    capture_root: str | Path,
+    legacy_root: str | Path,
+    allow_non_authoritative_portable_reads: bool = False,
+) -> DataAuditBundle:
+    """Build an audit under an explicit filesystem-read authority policy.
+
+    Formal readiness audits fail closed when root-anchored descriptor reads are
+    unavailable. The opt-in portable mode exists for deterministic development
+    and test diagnostics only; its output is marked non-authoritative and has a
+    failing quality status.
+    """
+
+    if _DESCRIPTOR_BOUND_READS_AVAILABLE:
+        return _build_data_audit(
+            project_root=project_root,
+            capture_root=capture_root,
+            legacy_root=legacy_root,
+        )
+    if not allow_non_authoritative_portable_reads:
+        raise UnsafeInputPathError(
+            "descriptor-bound audit reads are unavailable; pass "
+            "allow_non_authoritative_portable_reads=True only for "
+            "non-authoritative development diagnostics"
+        )
+    return _build_data_audit(
+        project_root=project_root,
+        capture_root=capture_root,
+        legacy_root=legacy_root,
+    )
 
 
 def _write_new_file(path: Path, data: bytes) -> None:
@@ -3139,7 +3300,14 @@ def _write_new_file(path: Path, data: bytes) -> None:
 
 
 def _fsync_directory(path: Path) -> None:
-    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        descriptor = os.open(path, os.O_RDONLY)
+    except PermissionError:
+        if os.name == "nt":
+            # Windows has no portable directory fsync primitive. File payloads
+            # are still fsynced before the atomic hard-link publication.
+            return
+        raise
     try:
         os.fsync(descriptor)
     finally:
@@ -3201,6 +3369,14 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="build and print the deterministic hash without writing files",
     )
+    parser.add_argument(
+        "--allow-non-authoritative-portable-reads",
+        action="store_true",
+        help=(
+            "allow best-effort portable reads for development diagnostics; "
+            "the resulting audit is explicitly non-authoritative and failed"
+        ),
+    )
     return parser
 
 
@@ -3215,6 +3391,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         project_root=project,
         capture_root=resolve_from_project(args.capture_root),
         legacy_root=resolve_from_project(args.legacy_root),
+        allow_non_authoritative_portable_reads=(
+            args.allow_non_authoritative_portable_reads
+        ),
     )
     if not args.check_only:
         write_data_audit(

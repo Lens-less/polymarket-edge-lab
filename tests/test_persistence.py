@@ -12,6 +12,7 @@ from decimal import Decimal
 
 import pytest
 import pandas as pd
+import src.feed.persistence as persistence
 
 from src.feed.persistence import (
     SQLiteStore,
@@ -149,11 +150,36 @@ class TestSQLiteStore:
 
         # Export
         output_dir = Path(self.temp_dir) / "parquet"
+        if persistence.pa is None or persistence.pq is None:
+            with pytest.raises(RuntimeError, match="requires pyarrow"):
+                self.store.export_to_parquet(str(output_dir))
+            assert not output_dir.exists()
+            return
+
         self.store.export_to_parquet(str(output_dir))
 
         # Check files exist
         assert (output_dir / "snapshots.parquet").exists()
         assert (output_dir / "trades.parquet").exists()
+
+    def test_export_never_writes_json_with_parquet_suffix(self, monkeypatch):
+        """Missing Parquet support must be a hard error with no fake files."""
+        snapshot = SnapshotRecord(
+            timestamp=time.time(),
+            token_id="test-token",
+            best_bid=0.5,
+            best_ask=0.51,
+            midpoint=0.505,
+        )
+        self.store.save_snapshot(snapshot)
+        output_dir = Path(self.temp_dir) / "missing-pyarrow"
+        monkeypatch.setattr(persistence, "pa", None)
+        monkeypatch.setattr(persistence, "pq", None)
+
+        with pytest.raises(RuntimeError, match="requires pyarrow"):
+            self.store.export_to_parquet(str(output_dir))
+
+        assert not output_dir.exists()
 
     def test_market_metadata(self):
         """Test saving market metadata."""
@@ -243,6 +269,12 @@ class TestPersistentDataStore:
 
         # Export
         output_dir = Path(self.temp_dir) / "export"
+        if persistence.pa is None or persistence.pq is None:
+            with pytest.raises(RuntimeError, match="requires pyarrow"):
+                self.store.export_to_parquet(str(output_dir))
+            assert not output_dir.exists()
+            return
+
         path = self.store.export_to_parquet(str(output_dir))
 
         assert Path(path).exists()

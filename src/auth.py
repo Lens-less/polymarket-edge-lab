@@ -4,23 +4,84 @@ Authentication utilities.
 Helper functions for wallet and credential management.
 """
 
-from typing import Optional, Dict, Any
+from collections.abc import Mapping
+from typing import Any, Dict
 from decimal import Decimal
 
 from src.client import get_auth_client
-from src.config import POLY_SIGNATURE_TYPE
 from src.utils import setup_logging
-from py_clob_client.clob_types import BalanceAllowanceParams, AssetType
 
 logger = setup_logging()
 
 TOKEN_DECIMALS = Decimal("1000000")
 
 
+class PolymarketAdapterError(RuntimeError):
+    """Raised when the installed SDK returns an unexpected contract shape."""
+
+
+def require_sdk_field(subject: object, field_name: str) -> object:
+    """Return a required SDK field or raise a typed adapter error."""
+    if not hasattr(subject, field_name):
+        raise PolymarketAdapterError(
+            f"{type(subject).__module__}.{type(subject).__name__} "
+            f"is missing required field '{field_name}'"
+        )
+    return getattr(subject, field_name)
+
+
+def require_sdk_mapping(subject: object, field_name: str) -> Mapping[object, object]:
+    """Return a required SDK mapping field or raise a typed adapter error."""
+    value = require_sdk_field(subject, field_name)
+    if not isinstance(value, Mapping):
+        raise PolymarketAdapterError(
+            f"{type(subject).__module__}.{type(subject).__name__}.{field_name} "
+            f"must be a mapping, got {type(value).__name__}"
+        )
+    return value
+
+
+def require_sdk_iter_items(response: object):
+    """Return an SDK paginator iterator or raise a typed adapter error."""
+    iter_items = require_sdk_field(response, "iter_items")
+    if not callable(iter_items):
+        raise PolymarketAdapterError(
+            f"{type(response).__module__}.{type(response).__name__}.iter_items "
+            "must be callable"
+        )
+    return iter_items()
+
+
+def normalize_sdk_scalar(value: object, *, field_name: str) -> str:
+    """Normalize enum-like SDK scalars to plain strings."""
+    normalized = value.value if hasattr(value, "value") else value
+    if isinstance(normalized, str):
+        return normalized
+    raise PolymarketAdapterError(
+        f"SDK field '{field_name}' must be a string or enum-like string, "
+        f"got {type(normalized).__name__}"
+    )
+
+
+def _balance_allowance(*, token_id: str | None = None) -> tuple[Decimal, Decimal]:
+    client = get_auth_client()
+    result = client.get_balance_allowance(
+        asset_type="COLLATERAL" if token_id is None else "CONDITIONAL",
+        token_id=token_id,
+    )
+    raw_balance = Decimal(str(require_sdk_field(result, "balance")))
+    allowances = require_sdk_mapping(result, "allowances")
+    max_allowance = max(
+        (Decimal(str(value)) for value in allowances.values()),
+        default=Decimal("0"),
+    )
+    return raw_balance / TOKEN_DECIMALS, max_allowance / TOKEN_DECIMALS
+
+
 def get_wallet_address() -> str:
     """Get the wallet address associated with the authenticated client."""
     client = get_auth_client()
-    return client.get_address()
+    return str(require_sdk_field(client, "wallet"))
 
 
 def get_balances() -> Dict[str, Decimal]:
@@ -30,29 +91,18 @@ def get_balances() -> Dict[str, Decimal]:
     Returns:
         Dict with 'matic' and 'usdc' balances
     """
-    client = get_auth_client()
-
-    # Get MATIC balance (native token)
-    # Note: py-clob-client may not have direct balance methods
-    # This is a placeholder - actual implementation depends on client version
-
     try:
-        # Legacy V1 collateral lookup. New orders are blocked until this module
-        # is replaced with a verified pUSD/V2 implementation.
-        collateral = client.get_balance_allowance(
-            BalanceAllowanceParams(
-                asset_type=AssetType.COLLATERAL,
-                signature_type=POLY_SIGNATURE_TYPE,
-            )
-        )
-        raw_balance = Decimal(str(collateral.get('balance', 0)))
-        allowances = collateral.get('allowances', {}) or {}
-        max_allowance = max((Decimal(str(v)) for v in allowances.values()), default=Decimal("0"))
+        balance, allowance = _balance_allowance()
 
         return {
-            'usdc_allowance': raw_balance / TOKEN_DECIMALS,
-            'usdc_allowance_max': max_allowance / TOKEN_DECIMALS,
+            'pusd_balance': balance,
+            'pusd_allowance': allowance,
+            # Compatibility key retained for existing risk callers.
+            'usdc_allowance': balance,
+            'usdc_allowance_max': allowance,
         }
+    except PolymarketAdapterError:
+        raise
     except Exception as e:
         logger.error(f"Error getting balances: {e}")
         return {
@@ -68,25 +118,17 @@ def check_allowances() -> Dict[str, Any]:
     Returns:
         Dict indicating which allowances are set
     """
-    client = get_auth_client()
-
     try:
-        result = client.get_balance_allowance(
-            BalanceAllowanceParams(
-                asset_type=AssetType.COLLATERAL,
-                signature_type=POLY_SIGNATURE_TYPE,
-            )
-        )
-
-        # Allowance should be very large (max uint256) if properly set
-        allowances = result.get('allowances', {}) or {}
-        allowance = max((Decimal(str(v)) for v in allowances.values()), default=Decimal("0"))
+        _balance, allowance = _balance_allowance()
         has_allowance = allowance > Decimal("0")
 
         return {
+            'pusd_approved': has_allowance,
             'usdc_approved': has_allowance,
-            'allowance_amount': allowance / TOKEN_DECIMALS,
+            'allowance_amount': allowance,
         }
+    except PolymarketAdapterError:
+        raise
     except Exception as e:
         logger.error(f"Error checking allowances: {e}")
         return {
@@ -95,33 +137,28 @@ def check_allowances() -> Dict[str, Any]:
         }
 
 
-def get_conditional_balance(token_id: str) -> Dict[str, Decimal]:
+def get_conditional_balance(
+    token_id: str,
+    *,
+    raise_on_error: bool = False,
+) -> Dict[str, Decimal]:
     """
     Get spendable balance/allowance for a specific outcome token.
 
     Values are normalized to token units (6 decimals).
     """
-    client = get_auth_client()
-
     try:
-        result = client.get_balance_allowance(
-            BalanceAllowanceParams(
-                asset_type=AssetType.CONDITIONAL,
-                token_id=token_id,
-                signature_type=POLY_SIGNATURE_TYPE,
-            )
-        )
-        raw_balance = Decimal(str(result.get("balance", 0)))
-        allowances = result.get("allowances", {}) or {}
-        max_allowance = max((Decimal(str(v)) for v in allowances.values()), default=Decimal("0"))
-        balance = raw_balance / TOKEN_DECIMALS
-        allowance = max_allowance / TOKEN_DECIMALS
+        balance, allowance = _balance_allowance(token_id=token_id)
         return {
             "balance": balance,
             "allowance": allowance,
             "sellable": min(balance, allowance),
         }
+    except PolymarketAdapterError:
+        raise
     except Exception as e:
+        if raise_on_error:
+            raise
         logger.error(f"Error getting conditional balance for {token_id[:16]}...: {e}")
         return {
             "balance": Decimal("0"),
@@ -134,8 +171,7 @@ def set_allowances() -> bool:
     """
     Set token allowances for trading.
 
-    Legacy V1 allowance helper. New live orders are disabled; do not use this
-    as a pUSD/CLOB V2 setup path.
+    Submit the official unified SDK's pUSD/conditional-token approval setup.
 
     Returns:
         True if successful
@@ -143,9 +179,18 @@ def set_allowances() -> bool:
     client = get_auth_client()
 
     try:
-        client.set_allowances()
-        logger.info("Allowances set successfully")
-        return True
+        handle = client.setup_trading_approvals()
+        wait = require_sdk_field(handle, "wait")
+        if not callable(wait):
+            raise PolymarketAdapterError(
+                f"{type(handle).__module__}.{type(handle).__name__}.wait must be callable"
+            )
+        wait()
+        approved = bool(check_allowances().get("pusd_approved"))
+        logger.info("Trading approvals confirmed: %s", approved)
+        return approved
+    except PolymarketAdapterError:
+        raise
     except Exception as e:
         logger.error(f"Error setting allowances: {e}")
         return False
@@ -174,7 +219,7 @@ def verify_setup() -> Dict[str, Any]:
         logger.info(f"Balances: {balances}")
 
         if balances.get('usdc_allowance', 0) == 0:
-            issues.append("Legacy collateral balance is zero; V2 pUSD is not verified")
+            issues.append("pUSD collateral balance is zero")
     except Exception as e:
         issues.append(f"Cannot check balances: {e}")
 
@@ -184,7 +229,7 @@ def verify_setup() -> Dict[str, Any]:
         logger.info(f"Allowances: {allowances}")
 
         if not allowances.get('usdc_approved', False):
-            issues.append("Legacy allowance absent; V2 pUSD allowance is not verified")
+            issues.append("pUSD allowance is absent")
     except Exception as e:
         issues.append(f"Cannot check allowances: {e}")
 

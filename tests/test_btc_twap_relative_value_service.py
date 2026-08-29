@@ -220,6 +220,14 @@ def test_capture_plan_targets_the_next_same_expiry_pair(tmp_path: Path) -> None:
         "crypto_prices_twap_sixty",
     ]
     assert plan.capture_config["checkpoint_every_records"] == 10_000
+    assert plan.capture_config["snapshot_intervals"] == {
+        "clob": 5,
+        "trades": 30,
+        "rules": 30,
+    }
+    assert plan.capture_config["persist_raw_clob_frames"] is False
+    assert plan.capture_config["persist_reconstructed_full_depth_frames"] is True
+    assert plan.capture_config["persist_top_of_book_changes"] is False
     assert plan.capture_config["capture_started_at_ms"] == now_seconds * 1_000
     assert plan.capture_config["evidence_track_id"] == "paper-v05"
     assert plan.capture_config["clock_sync"] == {
@@ -591,7 +599,7 @@ def test_gamma_slug_lookup_discards_response_cookies(
 
 
 @pytest.mark.asyncio
-async def test_compact_sink_keeps_target_top_five_book_without_duplicate_frame(
+async def test_compact_sink_keeps_target_full_depth_book_without_duplicate_frame(
     tmp_path: Path,
 ) -> None:
     from src.edge_lab.btc_twap_relative_value_service import CompactRecorderSink
@@ -651,13 +659,19 @@ async def test_compact_sink_keeps_target_top_five_book_without_duplicate_frame(
     inner = stored["payload"]
     assert "raw_frame" not in inner
     assert inner["frame_hash"] == "a" * 64
-    assert len(inner["payload"]["bids"]) == 5
+    assert len(inner["payload"]["bids"]) == 11
     assert [level["price"] for level in inner["payload"]["bids"]] == [
         "0.11",
         "0.1",
         "0.09",
         "0.08",
         "0.07",
+        "0.06",
+        "0.05",
+        "0.04",
+        "0.03",
+        "0.02",
+        "0.01",
     ]
     assert [level["price"] for level in inner["payload"]["asks"]] == [
         "0.12",
@@ -665,11 +679,17 @@ async def test_compact_sink_keeps_target_top_five_book_without_duplicate_frame(
         "0.14",
         "0.15",
         "0.16",
+        "0.17",
+        "0.18",
+        "0.19",
+        "0.2",
+        "0.21",
+        "0.22",
     ]
 
 
 @pytest.mark.asyncio
-async def test_compact_sink_drops_redundant_and_unrelated_records(
+async def test_compact_sink_keeps_causal_clob_snapshots_and_drops_unrelated_records(
     tmp_path: Path,
 ) -> None:
     from src.edge_lab.btc_twap_relative_value_service import CompactRecorderSink
@@ -687,11 +707,47 @@ async def test_compact_sink_drops_redundant_and_unrelated_records(
         "sequence": None,
         "session_id": "session-1",
         "connection_id": "connection-1",
+        "monotonic_ns": 123_456_789,
         "frame_hash": "a" * 64,
         "payload_hash": "b" * 64,
     }
     assert await sink.emit({**base, "source": "gamma_http"}) is None
-    assert await sink.emit({**base, "source": "clob_http"}) is None
+    assert (
+        await sink.emit(
+            {
+                **base,
+                "source": "clob_http",
+                "event_type": "snapshot",
+                "payload": {
+                    "snapshot_kind": "clob",
+                    "responses": [
+                        {
+                            "resource": "clob_server_time",
+                            "raw_json": 1_786_896_000,
+                        },
+                        {
+                            "resource": "clob_book",
+                            "request_key": "token",
+                            "raw_json": {
+                                "asset_id": "token",
+                                "timestamp": "1786896000000",
+                                "bids": [{"price": "0.49", "size": "50"}],
+                                "asks": [{"price": "0.50", "size": "50"}],
+                            },
+                        },
+                        {
+                            "resource": "clob_market",
+                            "raw_json": {
+                                "condition_id": "condition",
+                                "fd": {"r": "0.07", "e": 1, "to": True},
+                            },
+                        },
+                    ],
+                },
+            }
+        )
+        is not None
+    )
     assert (
         await sink.emit(
             {
@@ -709,7 +765,13 @@ async def test_compact_sink_drops_redundant_and_unrelated_records(
         is None
     )
     await sink.close()
-    assert not tuple((tmp_path / "capture" / "raw").rglob("*.jsonl"))
+    raw_files = tuple((tmp_path / "capture" / "raw" / "clob_http").glob("*.jsonl"))
+    assert len(raw_files) == 1
+    stored = json.loads(raw_files[0].read_text(encoding="utf-8"))
+    assert stored["payload"]["monotonic_ns"] == 123_456_789
+    assert stored["payload"]["payload"]["responses"][1]["raw_json"]["asks"] == [
+        {"price": "0.50", "size": "50"}
+    ]
 
 
 @pytest.mark.asyncio
@@ -866,6 +928,166 @@ async def test_compact_sink_coalesces_target_price_changes_into_causal_books(
     assert reconstructed["asset_id"] == "target-token"
     assert reconstructed["asks"][0] == {"price": "0.51", "size": "11"}
     assert reconstructed["depth_policy"] == (
-        "top_5_each_side_reconstructed_from_price_change"
+        "full_depth_reconstructed_from_price_change"
     )
     assert reconstructed["source_event_type"] == "price_change"
+
+
+@pytest.mark.asyncio
+async def test_compact_sink_can_keep_top_changes_without_reconstructed_depth(
+    tmp_path: Path,
+) -> None:
+    from src.edge_lab.btc_twap_relative_value_service import CompactRecorderSink
+
+    backing = CaptureStoreRecorderSink(
+        CaptureStore(tmp_path / "capture"),
+        max_records_per_batch=100,
+    )
+    sink = CompactRecorderSink(
+        backing,
+        allowed_asset_ids=("target-token",),
+        persist_reconstructed_full_depth_frames=False,
+        persist_top_of_book_changes=True,
+    )
+    await sink.emit(
+        {
+            "schema_version": "clob-market-ws.price_change.v1",
+            "source": "clob_market_ws",
+            "received_at": "1970-01-01T00:00:01.100000Z",
+            "event_at": "1970-01-01T00:00:01.100000Z",
+            "event_type": "price_change",
+            "kind": "data",
+            "connection_id": "connection-1",
+            "frame_hash": "a" * 64,
+            "payload_hash": "b" * 64,
+            "payload": {
+                "event_type": "price_change",
+                "market": "condition",
+                "timestamp": "1100",
+                "price_changes": [
+                    {
+                        "asset_id": "target-token",
+                        "price": "0.50",
+                        "size": "0",
+                        "side": "SELL",
+                        "best_bid": "0.49",
+                        "best_ask": "0.51",
+                    },
+                    {
+                        "asset_id": "other-token",
+                        "price": "0.60",
+                        "size": "9",
+                        "side": "SELL",
+                        "best_bid": "0.59",
+                        "best_ask": "0.60",
+                    },
+                ],
+            },
+        }
+    )
+    await sink.close()
+
+    raw_path = next(
+        (tmp_path / "capture" / "raw" / "clob_market_ws").glob("*.jsonl")
+    )
+    stored = json.loads(raw_path.read_text(encoding="utf-8"))["payload"]
+    assert stored["event_type"] == "best_bid_ask"
+    assert stored["schema_version"] == "clob-market-ws.compact-top-of-book.v1"
+    assert stored["payload"] == {
+        "event_type": "best_bid_ask",
+        "market": "condition",
+        "timestamp": "1100",
+        "changes": [
+            {
+                "asset_id": "target-token",
+                "best_bid": "0.49",
+                "best_ask": "0.51",
+            }
+        ],
+        "source_event_type": "price_change",
+    }
+
+
+@pytest.mark.asyncio
+async def test_top_of_book_changes_dedup_repeated_best_bid_ask(
+    tmp_path: Path,
+) -> None:
+    """A price_change that leaves the touch level unmoved must not be re-persisted.
+
+    The upstream stream reports best_bid/best_ask on every message that
+    touches an allowed token, including changes deeper in the book. Without
+    dedup this turns "top-of-book changes" into "every relevant message".
+    """
+
+    from src.edge_lab.btc_twap_relative_value_service import CompactRecorderSink
+
+    def price_change_record(*, size: str, best_bid: str, best_ask: str) -> dict:
+        return {
+            "schema_version": "clob-market-ws.price_change.v1",
+            "source": "clob_market_ws",
+            "received_at": "1970-01-01T00:00:01.100000Z",
+            "event_at": "1970-01-01T00:00:01.100000Z",
+            "event_type": "price_change",
+            "kind": "data",
+            "connection_id": "connection-1",
+            "frame_hash": "a" * 64,
+            "payload_hash": "b" * 64,
+            "payload": {
+                "event_type": "price_change",
+                "market": "condition",
+                "timestamp": "1100",
+                "price_changes": [
+                    {
+                        "asset_id": "target-token",
+                        "price": "0.30",
+                        "size": size,
+                        "side": "SELL",
+                        "best_bid": best_bid,
+                        "best_ask": best_ask,
+                    },
+                ],
+            },
+        }
+
+    backing = CaptureStoreRecorderSink(
+        CaptureStore(tmp_path / "capture"),
+        max_records_per_batch=100,
+    )
+    sink = CompactRecorderSink(
+        backing,
+        allowed_asset_ids=("target-token",),
+        persist_reconstructed_full_depth_frames=False,
+        persist_top_of_book_changes=True,
+    )
+    # First observation: always persisted.
+    await sink.emit(
+        price_change_record(size="0", best_bid="0.49", best_ask="0.51")
+    )
+    # A deeper-book change reporting the same touch level: must be skipped.
+    await sink.emit(
+        price_change_record(size="5", best_bid="0.49", best_ask="0.51")
+    )
+    await sink.emit(
+        price_change_record(size="7", best_bid="0.49", best_ask="0.51")
+    )
+    # A genuine touch-level move: must be persisted again.
+    await sink.emit(
+        price_change_record(size="3", best_bid="0.48", best_ask="0.51")
+    )
+    await sink.close()
+
+    raw_paths = sorted(
+        (tmp_path / "capture" / "raw" / "clob_market_ws").glob("*.jsonl")
+    )
+    stored = [
+        json.loads(line)["payload"]["payload"]
+        for path in raw_paths
+        for line in path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert len(stored) == 2
+    assert stored[0]["changes"] == [
+        {"asset_id": "target-token", "best_bid": "0.49", "best_ask": "0.51"}
+    ]
+    assert stored[1]["changes"] == [
+        {"asset_id": "target-token", "best_bid": "0.48", "best_ask": "0.51"}
+    ]

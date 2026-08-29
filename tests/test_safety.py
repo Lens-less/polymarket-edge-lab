@@ -4,20 +4,21 @@ Tests for Phase 1 Safety features.
 Tests:
 1. Order created_at timestamps
 2. Balance check blocks large orders
-3. Startup cleanup detects orphaned orders
-4. Stale order detection
-5. Connection lost callback registration
+3. Stale order detection
+4. Connection lost callback registration
+
+Startup orphan-order cleanup lived on the deleted generic market-maker
+runner and is no longer part of this module.
 """
 
 import pytest
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from src.models import Order, OrderSide, OrderStatus
 from src.trading import OrderError, check_balance_for_order
 from src.simulator import get_simulator, reset_simulator
-from src.strategy.runner import cleanup_orphaned_orders
 
 
 class TestOrderTimestamps:
@@ -67,54 +68,17 @@ class TestBalanceCheck:
                     with pytest.raises(OrderError, match="exceeds 50%"):
                         check_balance_for_order(Decimal("0.60"), Decimal("10"))
 
-
-class TestStartupCleanup:
-    """Test orphaned order cleanup on startup."""
-
-    def test_cleanup_returns_zero_in_dry_run(self):
-        """Cleanup should return 0 in DRY_RUN mode (no persistence)."""
-        with patch('src.strategy.runner.DRY_RUN', True):
-            result = cleanup_orphaned_orders("test_token")
-            assert result == 0
-
-    def test_cleanup_handles_no_orders(self):
-        """Cleanup should handle case of no existing orders."""
-        with patch('src.strategy.runner.DRY_RUN', False):
-            with patch('src.strategy.runner.get_open_orders', return_value=[]):
-                result = cleanup_orphaned_orders("test_token")
-                assert result == 0
-
-    def test_cleanup_cancels_orphaned_orders(self):
-        """Cleanup should cancel existing orders."""
-        mock_orders = [
-            Order(
-                id="order1",
-                token_id="test_token",
-                side=OrderSide.BUY,
-                price=Decimal("0.50"),
-                size=Decimal("10"),
-                filled=Decimal("0"),
-                status=OrderStatus.LIVE,
-                is_simulated=False,
-            ),
-            Order(
-                id="order2",
-                token_id="test_token",
-                side=OrderSide.SELL,
-                price=Decimal("0.60"),
-                size=Decimal("10"),
-                filled=Decimal("0"),
-                status=OrderStatus.LIVE,
-                is_simulated=False,
-            ),
-        ]
-
-        with patch('src.strategy.runner.DRY_RUN', False):
-            with patch('src.strategy.runner.get_open_orders', return_value=mock_orders):
-                with patch('src.strategy.runner.cancel_all_orders', return_value=2) as mock_cancel:
-                    result = cleanup_orphaned_orders("test_token")
-                    assert result == 2
-                    mock_cancel.assert_called_once_with("test_token")
+    def test_balance_check_fails_closed_when_pusd_cannot_be_verified(self):
+        """A read error must never authorize an otherwise unchecked order."""
+        with patch('src.trading.DRY_RUN', False):
+            with patch('src.trading._cached_balance', None):
+                with patch('src.trading._last_balance_check', 0):
+                    with patch(
+                        'src.auth.get_balances',
+                        side_effect=RuntimeError("unavailable"),
+                    ):
+                        with pytest.raises(OrderError, match="verify pUSD"):
+                            check_balance_for_order(Decimal("0.50"), Decimal("5"))
 
 
 class TestStaleOrderDetection:
@@ -184,40 +148,3 @@ class TestConnectionLostCallback:
             ws.on_connection_lost()
 
         assert callback_called
-
-
-class TestBalanceMonitoring:
-    """Test periodic balance monitoring."""
-
-    def test_balance_drop_detection(self):
-        """Test that large balance drops trigger kill switch."""
-        from src.strategy.market_maker import SmartMarketMaker, BALANCE_DROP_ALERT_PCT
-
-        mm = SmartMarketMaker(token_id="test_token")
-
-        # Set initial balance
-        mm._initial_balance = Decimal("100.00")
-
-        # Mock get_balances to return dropped balance
-        with patch('src.strategy.market_maker.DRY_RUN', False):
-            with patch('src.auth.get_balances', return_value={'usdc_allowance': Decimal("70.00")}):
-                with patch.object(mm.risk, 'kill_switch') as mock_kill:
-                    with patch.object(mm, 'stop') as mock_stop:
-                        mm._check_balance()
-                        # 30% drop > 20% threshold
-                        mock_kill.assert_called_once()
-                        mock_stop.assert_called_once()
-
-    def test_balance_no_alert_on_small_drop(self):
-        """Test that small balance drops don't trigger alert."""
-        from src.strategy.market_maker import SmartMarketMaker
-
-        mm = SmartMarketMaker(token_id="test_token")
-        mm._initial_balance = Decimal("100.00")
-
-        with patch('src.strategy.market_maker.DRY_RUN', False):
-            with patch('src.auth.get_balances', return_value={'usdc_allowance': Decimal("90.00")}):
-                with patch.object(mm.risk, 'kill_switch') as mock_kill:
-                    mm._check_balance()
-                    # 10% drop < 20% threshold
-                    mock_kill.assert_not_called()

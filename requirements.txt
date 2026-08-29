@@ -1,11 +1,3 @@
-py-clob-client
-python-dotenv
-websockets
-python-socks[asyncio]
-pandas
-pytest
-pytest-asyncio
-pytest-timeout
-certifi
-requests
-rich>=13.0.0
+# Compatibility wrapper. The exact, hashed environment is generated from
+# uv.lock into requirements.lock; pyproject.toml remains the dependency source.
+-r requirements.lock

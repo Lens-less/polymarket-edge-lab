@@ -1,14 +1,12 @@
-import asyncio
-import sys
 from decimal import Decimal
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from src.feed.feed import FeedState, MarketFeed
 from src.models import Order, OrderSide, OrderStatus
 from src.risk.manager import RiskManager, RiskStatus
+from src.trading import OrderCancellationError
 
 
 def _make_live_order(order_id: str, side: OrderSide, size: str) -> Order:
@@ -115,24 +113,6 @@ async def test_health_monitor_retries_ws_and_waits_for_ws_book_before_cutover():
     assert feed.data_source == "websocket"
 
 
-@pytest.mark.asyncio
-async def test_parity_overpriced_cancels_existing_quotes():
-    from src.strategy.market_maker import SmartMarketMaker
-
-    mm = SmartMarketMaker(token_id="yes-token", complement_token_id="no-token")
-    mm.feed = MagicMock()
-    mm.feed.is_healthy = True
-    mm.feed.get_midpoint.side_effect = lambda token_id: 0.60 if token_id == "yes-token" else 0.45
-    mm.arb_detector.scan_all = MagicMock(return_value=[])
-    mm.trade_logger.log_event = MagicMock()
-    mm._cancel_all_quotes = AsyncMock(return_value=True)
-    mm.risk.check = MagicMock(return_value=SimpleNamespace(status=RiskStatus.OK))
-
-    await mm._loop_iteration()
-
-    mm._cancel_all_quotes.assert_awaited_once()
-
-
 def test_risk_manager_stops_on_pending_order_exposure():
     manager = RiskManager(max_position=Decimal("100"), enforce=True)
 
@@ -182,62 +162,26 @@ def test_risk_manager_total_exposure_includes_pending_orders():
     assert check.details["total_exposure"] == 120.0
 
 
-def test_run_tui_uses_config_defaults():
-    import run_tui
+def test_kill_switch_uses_verified_cancel_all_orders():
+    manager = RiskManager(enforce=True)
 
-    with patch.object(sys, "argv", ["run_tui.py", "--token", "token-1"]):
-        with patch("run_tui.DRY_RUN", True):
-            with patch("run_tui.validate_config"):
-                with patch("run_tui.run_with_tui", new=AsyncMock()) as mock_run:
-                    with patch("run_tui.cleanup_orphaned_orders") as mock_cleanup:
-                        run_tui.main()
+    with patch("src.risk.manager.cancel_all_orders", return_value=2) as mock_cancel:
+        manager.kill_switch("manual")
 
-    mock_cleanup.assert_not_called()
-    kwargs = mock_run.await_args.kwargs
-    assert kwargs["spread"] == float(run_tui.SPREAD_BASE)
-    assert kwargs["size"] == float(run_tui.MM_SIZE)
-    assert kwargs["position_limit"] == float(run_tui.MM_POSITION_LIMIT)
+    mock_cancel.assert_called_once_with(verify=True, raise_on_failure=True)
+    assert manager.is_killed is True
+    assert manager._kill_reason == "manual"
 
 
-def test_run_tui_live_mode_requires_credentials():
-    import run_tui
+def test_kill_switch_surfaces_cancel_verification_failure():
+    manager = RiskManager(enforce=True)
 
-    with patch.object(sys, "argv", ["run_tui.py", "--token", "token-1"]):
-        with patch("run_tui.DRY_RUN", False):
-            with patch("run_tui.validate_config"):
-                with patch("run_tui.has_credentials", return_value=False):
-                    with patch("builtins.input", side_effect=AssertionError("should not prompt")):
-                        with pytest.raises(SystemExit):
-                            run_tui.main()
+    with patch(
+        "src.risk.manager.cancel_all_orders",
+        side_effect=OrderCancellationError("residual live orders remain"),
+    ):
+        with pytest.raises(OrderCancellationError, match="residual live orders remain"):
+            manager.kill_switch("manual")
 
-
-def test_run_tui_live_mode_cleans_orphaned_orders_before_start():
-    import run_tui
-
-    with patch.object(sys, "argv", ["run_tui.py", "--token", "token-1"]):
-        with patch("run_tui.DRY_RUN", False):
-            with patch("run_tui.validate_config"):
-                with patch("run_tui.has_credentials", return_value=True):
-                    with patch("builtins.input", return_value="y"):
-                        with patch("run_tui.cleanup_orphaned_orders", return_value=0) as mock_cleanup:
-                            with patch("run_tui.run_with_tui", new=AsyncMock()) as mock_run:
-                                run_tui.main()
-
-    mock_cleanup.assert_called_once_with("token-1")
-    assert mock_run.await_count == 1
-
-
-def test_run_tui_aborts_when_orphan_cleanup_cannot_verify_state():
-    import run_tui
-
-    with patch.object(sys, "argv", ["run_tui.py", "--token", "token-1"]):
-        with patch("run_tui.DRY_RUN", False):
-            with patch("run_tui.validate_config"):
-                with patch("run_tui.has_credentials", return_value=True):
-                    with patch("builtins.input", return_value="y"):
-                        with patch("run_tui.cleanup_orphaned_orders", return_value=-1):
-                            with patch("run_tui.run_with_tui", new=AsyncMock()) as mock_run:
-                                with pytest.raises(SystemExit):
-                                    run_tui.main()
-
-    assert mock_run.await_count == 0
+    assert manager.is_killed is True
+    assert manager._kill_reason == "manual"

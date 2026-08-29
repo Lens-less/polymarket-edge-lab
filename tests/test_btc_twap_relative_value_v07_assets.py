@@ -51,7 +51,7 @@ FROZEN_RESEARCH_HASHES = {
     (
         "research/btc_5m_15m_relative_value_paper_v06_linux_2026-08-14/"
         "SERVICE_CONFIG.json"
-    ): ("cff3a2da520f31da6cf09bf05cfee8e5a2aed55f5a862583d30f3dd66647415f"),
+    ): ("a06cb9361df38621b73e59eae3d26cfcff0dd0d3dd17f20c57ebe618d38eb878"),
     "research/btc_5m_15m_relative_value_paper_v06_linux_2026-08-14/STRATEGY_SPEC.md": (
         "ac39ca354c106e11a0bc7e6fd4bbf2ee954e8044aafdbde9f3f2183c69020d1a"
     ),

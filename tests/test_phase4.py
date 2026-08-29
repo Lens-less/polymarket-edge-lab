@@ -136,6 +136,7 @@ class TestAuth:
 
         print(f"✓ Wallet address: {address}")
 
+    @pytest.mark.network
     def test_get_balances(self):
         """Test getting balances."""
         from src.config import has_credentials
@@ -149,6 +150,7 @@ class TestAuth:
         assert 'usdc_allowance' in balances
         print(f"✓ Balances: {balances}")
 
+    @pytest.mark.network
     def test_check_allowances(self):
         """Test checking allowances."""
         from src.config import has_credentials
@@ -162,6 +164,7 @@ class TestAuth:
         assert 'usdc_approved' in allowances
         print(f"✓ Allowances: {allowances}")
 
+    @pytest.mark.network
     def test_verify_setup(self):
         """Test full setup verification."""
         from src.config import has_credentials
@@ -183,6 +186,7 @@ class TestAuth:
             print(f"  Issues: {result['issues']}")
 
 
+@pytest.mark.network
 class TestIntegration:
     """Integration tests with real API."""
 

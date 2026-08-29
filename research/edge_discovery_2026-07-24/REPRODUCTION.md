@@ -1,5 +1,10 @@
 # Reproduction
 
+> [!NOTE]
+> 这是生成最终证据包时冻结的审计记录，其中的 `/Users/lens/...` 路径属于
+> 生成时 provenance，并非运行前提。新检出请从仓库根目录按
+> [`docs/user/reproduction.md`](../../docs/user/reproduction.md) 执行可移植命令。
+
 除最后单独标出的 live network canary 外，以下验证均为离线、只读输入；不读取 `.env`、不使用凭证、不提交订单。需要写出 replay 结果的命令只写入 `mktemp` 临时目录。
 
 ## Canonical paths
