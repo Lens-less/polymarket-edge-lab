@@ -39,7 +39,9 @@ jobs:
         run: |
           uv lock --check
           uv export --locked --extra dev --no-emit-project --format requirements-txt --output-file /tmp/requirements.lock
-          diff --unified requirements.lock /tmp/requirements.lock
+          tail -n +3 requirements.lock > /tmp/requirements.expected
+          tail -n +3 /tmp/requirements.lock > /tmp/requirements.actual
+          diff --unified /tmp/requirements.expected /tmp/requirements.actual
 
       - name: Compile Python sources
         run: uv run python -m compileall -q src scripts
