@@ -7,7 +7,7 @@
 
 有盈利可能，但前提很苛刻：它必须是“市场锚定的残差型概率模型”，而不是一个独立的 BTC 方向预测器。
 
-如果目标是同时打赢 5m 和 15m 两条市场概率基线，最有希望的不是去预测价格本身，而是去预测“当前可成交市场概率表面”与“真实条件分布表面”之间的残差。Polymarket 的公开文档明确说明：价格本身就是概率，市场有 CLOB、可见 bid/ask、实时数据流、成交流与 250ms taker-delay，而且 taker fee 会直接侵蚀小边际优势。换句话说，能活下来的 alpha 必须很小、很稳定、并且在可执行价格上仍为正。  
+如果目标是同时打赢 5m 和 15m 两条市场概率基线，最有希望的不是去预测价格本身，而是去预测“当前可成交市场概率表面”与“真实条件分布表面”之间的残差。Polymarket 的公开文档明确说明：价格本身就是概率，市场有 CLOB、可见 bid/ask、实时数据流、成交流与 250ms taker-delay，而且 taker fee 会直接侵蚀小边际优势。换句话说，能活下来的 alpha 必须很小、很稳定、并且在可执行价格上仍为正。
 来源：Polymarket 的价格/订单簿/实时数据/费用/订单生命周期文档，以及概率预测的标准评价文献。[Polymarket Prices & Orderbook](https://docs.polymarket.com/concepts/prices-orderbook), [Get CLOB market info](https://docs.polymarket.com/api-reference/markets/get-clob-market-info), [Real-Time Data](https://docs.polymarket.com/market-data/realtime-data), [Fees](https://docs.polymarket.com/trading/fees), [Order Lifecycle](https://docs.polymarket.com/concepts/order-lifecycle), [Probabilistic Forecasting](https://www.annualreviews.org/content/journals/10.1146/annurev-statistics-062713-085831), [Strictly Proper Scoring Rules, Prediction, and Estimation](https://www.tandfonline.com/doi/abs/10.1198/016214506000001437)
 
 ## 为什么原思路最终会输
