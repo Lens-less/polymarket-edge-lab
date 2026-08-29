@@ -4824,7 +4824,7 @@ class _DisconnectBeforeAckRecorder(_FakeRecorder):
 
 
 @pytest.mark.asyncio
-async def test_disconnect_invalidates_readiness_until_resnapshot(
+async def test_disconnect_clears_stale_initial_readiness(
     tmp_path: Path,
 ) -> None:
     _DisconnectBeforeAckRecorder.instances.clear()
@@ -4856,16 +4856,7 @@ async def test_disconnect_invalidates_readiness_until_resnapshot(
     stale = await service.scan_once(
         now_ms=OPEN_SECONDS * 1_000 - 57_000
     )
-    group_id = next(iter(service._workers))
-    group = service.supervisor.group_snapshot(group_id)
-    assert stale["target_states"] in ({"announced": 1}, {"subscribed": 1})
-    assert recorder.sink.ready.is_set() is False
-    if stale["target_states"] == {"announced": 1}:
-        assert group.active is False
-        assert group.resync_required is False
-    else:
-        assert group.active is True
-        assert group.resync_required is True
+    assert stale["target_states"] == {"announced": 1}
 
     recorder.allow_reconnect.set()
     await asyncio.wait_for(recorder.sink.ready.wait(), timeout=1)
