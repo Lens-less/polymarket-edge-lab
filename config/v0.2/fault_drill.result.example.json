@@ -1,0 +1,48 @@
+{
+  "schema_version": "polymm-fault-drill-result.v0.2",
+  "report_kind": "fault_drill_result",
+  "generated_at": "2026-08-30T00:00:00Z",
+  "status": "BLOCKED",
+  "drills": [
+    {
+      "drill_id": "kill_switch_manual_reset",
+      "status": "BLOCKED",
+      "detail": "Drill missing or failed.",
+      "evidence": {
+        "receipt_recorded": false
+      }
+    },
+    {
+      "drill_id": "restart_recovery",
+      "status": "BLOCKED",
+      "detail": "Drill missing or failed.",
+      "evidence": {
+        "receipt_recorded": false
+      }
+    },
+    {
+      "drill_id": "user_stream_disconnect_cancel_all",
+      "status": "BLOCKED",
+      "detail": "Drill missing or failed.",
+      "evidence": {
+        "receipt_recorded": false
+      }
+    },
+    {
+      "drill_id": "heartbeat_timeout_blocks_new_orders",
+      "status": "BLOCKED",
+      "detail": "Drill missing or failed.",
+      "evidence": {
+        "receipt_recorded": false
+      }
+    },
+    {
+      "drill_id": "reconciliation_mismatch_blocks_new_orders",
+      "status": "BLOCKED",
+      "detail": "Drill missing or failed.",
+      "evidence": {
+        "receipt_recorded": false
+      }
+    }
+  ]
+}

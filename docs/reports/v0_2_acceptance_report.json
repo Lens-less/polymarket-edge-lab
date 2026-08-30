@@ -1,0 +1,135 @@
+{
+  "schema_version": "polymm-v0.2.acceptance-report.v1",
+  "report_kind": "v0_2_acceptance_report",
+  "generated_at": "2026-08-30T00:00:00Z",
+  "source": {
+    "command": "polymm acceptance --track all",
+    "report_version": "profit-system-v0.2.acceptance.v2",
+    "mode": "offline fixed acceptance preview evidence"
+  },
+  "tracks": [
+    {
+      "track": "A",
+      "strategy_id": "track_a.complete_set.arbitrage.v0_2",
+      "final_status": "GO",
+      "research_status": "GO",
+      "replay_confirm_status": "CONFIRMED",
+      "paper_confirm_status": "CONFIRMED",
+      "paper_simulated_realized_net_pnl": "2.5",
+      "shadow_status": "GO",
+      "shadow_realized_net_pnl": null,
+      "offline_evidence_only": true,
+      "note": "Paper and shadow evidence are offline simulation receipts, not live profit."
+    },
+    {
+      "track": "B",
+      "strategy_id": "track_b.maker.quote.v0_2",
+      "final_status": "NO_GO",
+      "research_status": "GO",
+      "replay_confirm_status": "CONFIRMED",
+      "paper_confirm_status": "CONFIRMED",
+      "paper_simulated_realized_net_pnl": "0",
+      "shadow_status": "NO_GO",
+      "shadow_expected_net_edge": "-0.12",
+      "shadow_realized_net_pnl": null,
+      "offline_evidence_only": true,
+      "note": "Negative shadow edge blocks promotion."
+    }
+  ],
+  "summary": {
+    "track_count": "2",
+    "track_a_final_status": "GO",
+    "track_b_final_status": "NO_GO",
+    "final_ci_status": "PASS",
+    "live_status": "LIVE_BLOCKED",
+    "never_submitted_real_orders": true,
+    "real_funds_changed": false
+  },
+  "spec_18": [
+    {
+      "item": "WP0-WP6 preview code and docs surface",
+      "status": "PARTIAL",
+      "claim_class": "INTERNAL"
+    },
+    {
+      "item": "Deterministic Research / Replay / Paper / Shadow acceptance paths exist",
+      "status": "PASS",
+      "claim_class": "INTERNAL"
+    },
+    {
+      "item": "Production market/config-backed scanner, replay, shadow, and packaged desk",
+      "status": "DEFERRED",
+      "claim_class": "NOT_CLAIMED"
+    },
+    {
+      "item": "Track A and Track B fixed acceptance scenes each reach Research -> Replay -> Paper -> Shadow",
+      "status": "PASS",
+      "claim_class": "INTERNAL"
+    },
+    {
+      "item": "Same strategy logic across the fixed Replay / Paper / Shadow scenes",
+      "status": "PASS",
+      "claim_class": "INTERNAL"
+    },
+    {
+      "item": "Local trade-desk preview completes a synthetic opportunity -> plan -> confirm -> order -> fill -> PnL flow",
+      "status": "PASS",
+      "claim_class": "INTERNAL"
+    },
+    {
+      "item": "All ordinary CI checks",
+      "status": "PASS",
+      "claim_class": "INTERNAL"
+    },
+    {
+      "item": "No known high-priority correctness, security, or funds-risk defects",
+      "status": "PASS",
+      "claim_class": "INTERNAL"
+    },
+    {
+      "item": "Legacy live hard gate is not bypassed by a boolean or environment variable",
+      "status": "PASS",
+      "claim_class": "INTERNAL"
+    },
+    {
+      "item": "Offline doctor rejects unsigned or self-asserted all-green live evidence",
+      "status": "PASS",
+      "claim_class": "INTERNAL"
+    },
+    {
+      "item": "No live credentials appear in browser or logs",
+      "status": "PASS",
+      "claim_class": "INTERNAL"
+    },
+    {
+      "item": "If a real-money Canary cannot run, a complete LIVE_BLOCKED report is produced instead of fake completion",
+      "status": "PASS",
+      "claim_class": "INTERNAL"
+    },
+    {
+      "item": "External provenance-attestation verification",
+      "status": "DEFERRED",
+      "claim_class": "NOT_CLAIMED"
+    },
+    {
+      "item": "Real-money Canary execution",
+      "status": "EXTERNAL",
+      "claim_class": "NOT_CLAIMED"
+    },
+    {
+      "item": "Real profitability claim",
+      "status": "EXTERNAL",
+      "claim_class": "NOT_CLAIMED"
+    },
+    {
+      "item": "LIVE_LIMITED qualification",
+      "status": "EXTERNAL",
+      "claim_class": "NOT_CLAIMED"
+    }
+  ],
+  "notes": [
+    "All paper and shadow values are offline acceptance evidence only.",
+    "The v0.2.0 commands use fixed acceptance scenarios and do not claim production market/config-backed execution.",
+    "No real orders were submitted and no real funds changed."
+  ]
+}

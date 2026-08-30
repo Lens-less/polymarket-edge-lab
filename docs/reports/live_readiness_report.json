@@ -1,0 +1,179 @@
+{
+  "schema_version": "polymm-gate-report.v0.2",
+  "report_kind": "gate_report",
+  "generated_at": "2026-08-30T00:00:00Z",
+  "gate": "CANARY",
+  "status": "LIVE_BLOCKED",
+  "strategy_id": "replace-with-qualified-strategy-id",
+  "summary": "LIVE_BLOCKED: the current environment is missing external authorization and readiness evidence for a real-money canary.",
+  "blocking_check_ids": [
+    "explicit_user_authorization",
+    "geoblock",
+    "credentials_signing",
+    "balance_allowance",
+    "market_constraints",
+    "user_stream",
+    "heartbeat",
+    "reconciliation",
+    "risk_config",
+    "qualification",
+    "kill_restart_drills"
+  ],
+  "remaining_conditions": [
+    "explicit_user_authorization",
+    "geoblock",
+    "credentials_signing",
+    "balance_allowance",
+    "market_constraints",
+    "user_stream",
+    "heartbeat",
+    "reconciliation",
+    "risk_config",
+    "qualification",
+    "kill_restart_drills"
+  ],
+  "checks": [
+    {
+      "check_id": "explicit_user_authorization",
+      "label": "explicit user authorization",
+      "status": "BLOCKED",
+      "detail": "No current explicit authorization exists for a real-money canary in the target environment.",
+      "evidence": {
+        "offline_safe": true,
+        "verified": false,
+        "real_orders_submitted": false,
+        "real_funds_changed": false
+      }
+    },
+    {
+      "check_id": "geoblock",
+      "label": "geoblock",
+      "status": "BLOCKED",
+      "detail": "Geoblock eligibility has not been proven for this environment.",
+      "evidence": {
+        "offline_safe": true,
+        "verified": false,
+        "real_orders_submitted": false,
+        "real_funds_changed": false
+      }
+    },
+    {
+      "check_id": "credentials_signing",
+      "label": "credentials signing",
+      "status": "BLOCKED",
+      "detail": "Signing credentials and live signing path have not been provided as current external evidence.",
+      "evidence": {
+        "offline_safe": true,
+        "verified": false,
+        "real_orders_submitted": false,
+        "real_funds_changed": false
+      }
+    },
+    {
+      "check_id": "balance_allowance",
+      "label": "balance allowance",
+      "status": "BLOCKED",
+      "detail": "Balance and allowance evidence for a real canary budget are unavailable.",
+      "evidence": {
+        "offline_safe": true,
+        "verified": false,
+        "real_orders_submitted": false,
+        "real_funds_changed": false
+      }
+    },
+    {
+      "check_id": "market_constraints",
+      "label": "market constraints",
+      "status": "BLOCKED",
+      "detail": "Live market constraints were not supplied as current external proof for a canary window.",
+      "evidence": {
+        "offline_safe": true,
+        "verified": false,
+        "real_orders_submitted": false,
+        "real_funds_changed": false
+      }
+    },
+    {
+      "check_id": "user_stream",
+      "label": "user stream",
+      "status": "BLOCKED",
+      "detail": "Authenticated user stream evidence is missing for the current environment.",
+      "evidence": {
+        "offline_safe": true,
+        "verified": false,
+        "real_orders_submitted": false,
+        "real_funds_changed": false
+      }
+    },
+    {
+      "check_id": "heartbeat",
+      "label": "heartbeat",
+      "status": "BLOCKED",
+      "detail": "Order heartbeat health has not been demonstrated for a live canary.",
+      "evidence": {
+        "offline_safe": true,
+        "verified": false,
+        "real_orders_submitted": false,
+        "real_funds_changed": false
+      }
+    },
+    {
+      "check_id": "reconciliation",
+      "label": "reconciliation",
+      "status": "BLOCKED",
+      "detail": "Authoritative reconciliation evidence is unavailable for the current environment.",
+      "evidence": {
+        "offline_safe": true,
+        "verified": false,
+        "real_orders_submitted": false,
+        "real_funds_changed": false
+      }
+    },
+    {
+      "check_id": "risk_config",
+      "label": "risk config",
+      "status": "BLOCKED",
+      "detail": "Reviewed live risk configuration and budget evidence are missing.",
+      "evidence": {
+        "offline_safe": true,
+        "verified": false,
+        "real_orders_submitted": false,
+        "real_funds_changed": false
+      }
+    },
+    {
+      "check_id": "qualification",
+      "label": "qualification",
+      "status": "BLOCKED",
+      "detail": "Strategy qualification for a real canary has not been supplied as current proof.",
+      "evidence": {
+        "offline_safe": true,
+        "verified": false,
+        "real_orders_submitted": false,
+        "real_funds_changed": false
+      }
+    },
+    {
+      "check_id": "kill_restart_drills",
+      "label": "kill restart drills",
+      "status": "BLOCKED",
+      "detail": "Kill and restart drill receipts for the current live environment are missing.",
+      "evidence": {
+        "offline_safe": true,
+        "verified": false,
+        "real_orders_submitted": false,
+        "real_funds_changed": false
+      }
+    }
+  ],
+  "context": {
+    "never_submitted_real_orders": true,
+    "real_funds_changed": false,
+    "paper_only": true,
+    "shadow_only": true,
+    "live_canary_ready": false,
+    "offline_evidence_only": true,
+    "live_evidence_policy": "unsigned local probe and drill JSON are advisory only until external attestation verification exists",
+    "live_status": "LIVE_BLOCKED"
+  }
+}

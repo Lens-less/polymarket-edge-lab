@@ -17,6 +17,14 @@ htmlcov/
 dist/
 build/
 
+# Frontend
+node_modules/
+apps/trade-desk/dist/
+apps/trade-desk/coverage/
+apps/trade-desk/playwright-report/
+apps/trade-desk/test-results/
+apps/trade-desk/.vite/
+
 # Virtual environments
 venv/
 env/
@@ -55,6 +63,16 @@ autoresearch-results.tsv
 # writer-owned partials, and are verified through the compact manifests kept
 # under research/. They belong in external/object storage, not normal Git.
 /data/
+
+# Local V0.2 state and generated readiness/evidence outputs
+/var/
+/reports/generated/
+/.desk-state/
+/tmpdesk/
+/tmpdesk2/
+/tmpdesk-check/
+/tmpdesk-http/
+/tmp-pipeline-state/
 
 # Reproducible acquisition cache. The immutable run manifest and experiment
 # outputs remain tracked; individual Gamma cache responses can exceed GitHub's

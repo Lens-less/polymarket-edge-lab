@@ -4,10 +4,11 @@
 
 | Version | Supported |
 |---|---|
+| `0.2.0` | Yes |
 | `0.1.x` | Yes |
 | `< 0.1.0` | No |
 
-`v0.1.x` 只支持公开数据研究。新订单入口无条件关闭；历史部署资产和实验协议不属于受支持的生产系统。
+`v0.2.0` 是当前 GitHub 源码检出离线 developer preview；仓库内支持本地 editable install 和 `polymm` CLI，但 `uv build` 产物不作为独立 wheel / PyPI 安装目标。`v0.1.x` 只保留历史/兼容的公开数据研究语义，新订单入口无条件关闭；历史部署资产和实验协议不属于受支持的生产系统。
 
 ## Reporting a vulnerability
 
