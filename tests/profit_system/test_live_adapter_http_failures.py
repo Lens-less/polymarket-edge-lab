@@ -263,16 +263,17 @@ async def test_submit_surfaces_safe_retry_http_failures_as_policy_errors(
 async def test_submit_503_is_ambiguous_and_cached_instead_of_retryable() -> None:
     client = _SubmitFailureClient(_HttpFailure(status_code=503))
     adapter = PolymarketLiveVenueAdapter(client_factory=lambda: client)
+    orders = (_order(),)
 
     await adapter.preflight(_request())
 
     first = await adapter.submit(
-        orders=(_order(),),
+        orders=orders,
         mode=ExecutionMode.LIVE_CANARY,
         idempotency_key="submit-503",
     )
     second = await adapter.submit(
-        orders=(_order(),),
+        orders=orders,
         mode=ExecutionMode.LIVE_CANARY,
         idempotency_key="submit-503",
     )
