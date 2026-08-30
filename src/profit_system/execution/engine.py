@@ -15,6 +15,7 @@ from .adapters import VenueAdapter
 from .errors import (
     HeartbeatError,
     IdempotencyConflictError,
+    OrderValidationError,
     PersistentKillError,
     QualificationError,
     ReconciliationRequiredError,
@@ -40,6 +41,7 @@ from .models import (
     QualificationRecord,
     ReleasePermit,
     RiskContext,
+    TimeInForce,
     VenueEventKind,
     VenueOrderSpec,
     VenueOrderState,
@@ -384,19 +386,29 @@ class ExecutionEngine:
         if risk.open_order_count + len(intent.orders) > limits.max_open_orders:
             raise RiskLimitError("max_open_orders exceeded")
         total_notional = sum((order.notional for order in intent.orders), Decimal("0"))
+        market_additions: dict[str, Decimal] = {}
+        event_additions: dict[str, Decimal] = {}
         for order in intent.orders:
             if order.notional > limits.max_order_notional:
                 raise RiskLimitError(f"max_order_notional exceeded for {order.client_order_id}")
+            market_additions[order.market_id] = (
+                market_additions.get(order.market_id, Decimal("0")) + order.notional
+            )
+            event_additions[order.event_id] = (
+                event_additions.get(order.event_id, Decimal("0")) + order.notional
+            )
+        for market_id, added_notional in market_additions.items():
             if (
-                risk.market_exposure.get(order.market_id, Decimal("0")) + order.notional
+                risk.market_exposure.get(market_id, Decimal("0")) + added_notional
                 > limits.max_market_exposure
             ):
-                raise RiskLimitError(f"max_market_exposure exceeded for {order.market_id}")
+                raise RiskLimitError(f"max_market_exposure exceeded for {market_id}")
+        for event_id, added_notional in event_additions.items():
             if (
-                risk.event_exposure.get(order.event_id, Decimal("0")) + order.notional
+                risk.event_exposure.get(event_id, Decimal("0")) + added_notional
                 > limits.max_event_exposure
             ):
-                raise RiskLimitError(f"max_event_exposure exceeded for {order.event_id}")
+                raise RiskLimitError(f"max_event_exposure exceeded for {event_id}")
         strategy_total = (
             risk.strategy_exposure.get(intent.strategy_id, Decimal("0")) + total_notional
         )
@@ -484,13 +496,14 @@ class ExecutionEngine:
         *,
         plan: ExecutionPlan,
         approval: ExecutionApproval,
+        now: datetime,
     ) -> None:
         permit = approval.release_permit
         if permit is None:
             raise ReleasePermitError("live execution requires a structured release permit")
         if self.permit_authority is None:
             raise ReleasePermitError("no release permit authority is configured")
-        self.permit_authority.verify(permit, now=self.clock())
+        self.permit_authority.verify(permit, now=now)
         if permit.plan_id != plan.plan_id or permit.plan_hash != plan.plan_hash:
             raise ReleasePermitError("release permit does not bind this exact plan")
         if permit.confirmation_phrase != approval.confirmation_phrase:
@@ -508,6 +521,20 @@ class ExecutionEngine:
         )
         if qualification_rank(permit.qualification) < qualification_rank(required_rank):
             raise ReleasePermitError("release permit qualification is insufficient")
+
+    def _ensure_gtd_orders_still_live(
+        self,
+        *,
+        orders: Sequence[VenueOrderSpec],
+        now: datetime,
+    ) -> None:
+        current = now.astimezone(UTC)
+        for order in orders:
+            if order.time_in_force is not TimeInForce.GTD:
+                continue
+            assert order.expires_at is not None
+            if order.expires_at.astimezone(UTC) <= current:
+                raise RiskLimitError(f"GTD order {order.client_order_id} expired before confirm")
 
     async def _run_submit_journal(
         self,
@@ -558,14 +585,16 @@ class ExecutionEngine:
             raise ReleasePermitError("approval plan hash does not match the reviewed plan")
         if approval.confirmation_phrase != plan.confirmation_phrase:
             raise ReleasePermitError("approval confirmation phrase does not match the plan")
+        confirmation_now = self.clock()
         if plan.intent.mode is ExecutionMode.SHADOW:
             raise RiskLimitError(
                 "shadow mode is observational only; confirm is blocked before submit"
             )
         if plan.intent.mode in {ExecutionMode.LIVE_CANARY, ExecutionMode.LIVE_LIMITED}:
-            self._require_live_permit(plan=plan, approval=approval)
+            self._require_live_permit(plan=plan, approval=approval, now=confirmation_now)
             self._ensure_live_stream_health(qualification=plan.qualification, stage="confirm")
         self._ensure_new_orders_allowed()
+        self._ensure_gtd_orders_still_live(orders=plan.intent.orders, now=confirmation_now)
         fresh_preflight = await self.venue.preflight(
             VenuePreflightRequest(
                 mode=plan.intent.mode,
@@ -573,7 +602,7 @@ class ExecutionEngine:
                 orders=plan.intent.orders,
                 risk_context=plan.intent.risk_context,
                 idempotency_key=approval.idempotency_key,
-                now=self.clock(),
+                now=confirmation_now,
             )
         )
         if not fresh_preflight.ok:
@@ -585,7 +614,7 @@ class ExecutionEngine:
             permit = approval.release_permit
             assert permit is not None
             assert self.permit_authority is not None
-            self.permit_authority.reserve(permit, now=self.clock())
+            self.permit_authority.reserve(permit, now=confirmation_now)
             reserved_permit = permit
         self._plan_confirmations[plan_id] = approval.idempotency_key
         previous_records: dict[str, OrderRecord] = {}
@@ -814,11 +843,23 @@ class ExecutionEngine:
             remaining_ids=canceled.unresolved_ids,
         )
 
+    def _reconcile_open_order_ids(self) -> tuple[str, ...] | None:
+        open_order_ids = tuple(
+            dict.fromkeys(
+                order.venue_order_id
+                for order in self._orders.values()
+                if order.venue_order_id is not None and order.status in LIVEISH_STATUSES
+            )
+        )
+        return open_order_ids or None
+
     async def _reconcile_orders(self) -> InterventionResult:
-        snapshot = await self.venue.reconcile()
+        snapshot = await self.venue.reconcile(open_order_ids=self._reconcile_open_order_ids())
         self._last_reconcile_at = snapshot.as_of
         for state in snapshot.open_orders:
-            self._apply_venue_state(state)
+            self._apply_venue_state(state, authoritative_reconciliation=True)
+        for state in snapshot.resolved_orders:
+            self._apply_venue_state(state, authoritative_reconciliation=True)
         for fill in snapshot.fills:
             self._apply_fill(fill)
         if snapshot.backfill_complete:
@@ -850,7 +891,31 @@ class ExecutionEngine:
             reconciliation=snapshot,
         )
 
-    def _apply_venue_state(self, state: VenueOrderState) -> None:
+    def _transition_from_authoritative_reconciliation(
+        self,
+        *,
+        record: OrderRecord,
+        status: OrderLifecycleStatus,
+        updated_at: datetime,
+    ) -> OrderRecord:
+        try:
+            return record.transition(status, updated_at=updated_at)
+        except OrderValidationError as exc:
+            try:
+                bridged = record.transition(
+                    OrderLifecycleStatus.RECONCILING,
+                    updated_at=updated_at,
+                )
+                return bridged.transition(status, updated_at=updated_at)
+            except OrderValidationError:
+                raise exc from None
+
+    def _apply_venue_state(
+        self,
+        state: VenueOrderState,
+        *,
+        authoritative_reconciliation: bool = False,
+    ) -> None:
         for client_order_id, record in list(self._orders.items()):
             if (
                 record.venue_order_id == state.venue_order_id
@@ -870,7 +935,15 @@ class ExecutionEngine:
                         updated_at=state.updated_at,
                     )
                 else:
-                    updated = record.transition(state.status, updated_at=state.updated_at)
+                    updated = (
+                        self._transition_from_authoritative_reconciliation(
+                            record=record,
+                            status=state.status,
+                            updated_at=state.updated_at,
+                        )
+                        if authoritative_reconciliation
+                        else record.transition(state.status, updated_at=state.updated_at)
+                    )
                     updated = OrderRecord(
                         client_order_id=updated.client_order_id,
                         spec=updated.spec,

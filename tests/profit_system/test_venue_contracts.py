@@ -348,6 +348,7 @@ async def test_venue_adapter_contracts_cover_preflight_submit_cancel_reconcile_a
 
     reconciliation = await adapter.reconcile()
     assert isinstance(reconciliation.open_orders, tuple)
+    assert isinstance(reconciliation.resolved_orders, tuple)
     assert isinstance(reconciliation.fills, tuple)
 
     events = [event async for event in adapter.stream_user_events(markets=("market-1",))]

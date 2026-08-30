@@ -13,7 +13,19 @@ from src.profit_system.acceptance import (
     build_track_a_fixture,
     build_track_b_fixture,
 )
-from src.profit_system.execution import ExecutionMode, VenueEventKind, VenueUserEvent
+from src.profit_system.execution import (
+    ExecutionMode,
+    OrderLifecycleStatus,
+    OrderSide,
+    TimeInForce,
+    VenueEventKind,
+    VenueOrderState,
+    VenuePreflightResult,
+    VenueReconciliation,
+    VenueSubmitBatch,
+    VenueSubmitResult,
+    VenueUserEvent,
+)
 from src.profit_system.opportunities import OpportunityEngine
 from src.profit_system.orchestrator import ProfitPipelineOrchestrator
 from src.profit_system.persistence import PersistenceStore
@@ -266,6 +278,36 @@ async def test_shadow_uses_identical_strategy_logic_without_submitting_orders(
         store.close()
 
 
+async def test_execution_stage_uses_injected_clock_for_historical_gtd_orders(
+    tmp_path: Path,
+) -> None:
+    fixture = build_track_b_fixture()
+    store = PersistenceStore(tmp_path / "orchestrator-historical-clock.db")
+    orchestrator = ProfitPipelineOrchestrator(
+        config=fixture.config,
+        strategy=fixture.strategy,
+        store=store,
+        opportunity_engine=OpportunityEngine(),
+        runtime=StrategyRuntime(fixture.strategy),
+        now=lambda: fixture.snapshot.captured_at + timedelta(seconds=1),
+    )
+    try:
+        result = await orchestrator.run_execution_stage(
+            snapshot=fixture.snapshot,
+            portfolio=fixture.portfolio,
+            mode=ExecutionMode.REPLAY,
+            venue=build_fixed_replay_venue(fixture),
+            phase="replay",
+            actor="pytest",
+            realized_outcome=fixture.replay_outcome,
+        )
+
+        assert result.ticket is not None
+        assert all(order.spec.expires_at is not None for order in result.ticket.orders)
+    finally:
+        store.close()
+
+
 async def test_monitor_cycle_consumes_user_events_and_rebuilds_authoritative_view(
     tmp_path: Path,
 ) -> None:
@@ -277,7 +319,7 @@ async def test_monitor_cycle_consumes_user_events_and_rebuilds_authoritative_vie
         store=store,
         opportunity_engine=OpportunityEngine(),
         runtime=StrategyRuntime(fixture.strategy),
-        now=lambda: fixture.snapshot.captured_at + timedelta(seconds=12),
+        now=lambda: fixture.snapshot.captured_at + timedelta(seconds=1),
     )
     venue = build_fixed_paper_venue()
     try:
@@ -307,5 +349,144 @@ async def test_monitor_cycle_consumes_user_events_and_rebuilds_authoritative_vie
         assert len(store.list_reconciliation_runs()) >= 2
         assert len(store.list_orders()) == 2
         assert monitored.ledger_snapshot.open_orders
+    finally:
+        store.close()
+
+
+async def test_execution_stage_persists_resolved_reconciliation_orders_separately_from_open(
+    tmp_path: Path,
+) -> None:
+    fixture = build_track_a_fixture()
+    store = PersistenceStore(tmp_path / "orchestrator-resolved-reconcile.db")
+    orchestrator = ProfitPipelineOrchestrator(
+        config=fixture.config,
+        strategy=fixture.strategy,
+        store=store,
+        opportunity_engine=OpportunityEngine(),
+        runtime=StrategyRuntime(fixture.strategy),
+        now=lambda: fixture.snapshot.captured_at + timedelta(seconds=10),
+    )
+
+    class ResolvedOrderVenue:
+        def __init__(self) -> None:
+            self._submitted_client_order_ids: tuple[str, ...] = ()
+
+        async def preflight(self, request: object) -> VenuePreflightResult:
+            assert isinstance(request, object)
+            return VenuePreflightResult(ok=True, checks=(), as_of=fixture.snapshot.captured_at)
+
+        async def submit(
+            self,
+            *,
+            orders: Sequence[object],
+            mode: object,
+            idempotency_key: str,
+        ) -> VenueSubmitBatch:
+            del mode, idempotency_key
+            self._submitted_client_order_ids = tuple(order.client_order_id for order in orders)
+            return VenueSubmitBatch(
+                results=tuple(
+                    VenueSubmitResult(
+                        client_order_id=order.client_order_id,
+                        status=OrderLifecycleStatus.LIVE,
+                        venue_order_id=f"venue-{index}",
+                    )
+                    for index, order in enumerate(orders, start=1)
+                ),
+                submitted_at=fixture.snapshot.captured_at,
+            )
+
+        async def cancel(
+            self,
+            *,
+            order_ids: Sequence[str],
+            idempotency_key: str,
+            reason: str | None = None,
+        ) -> object:
+            del idempotency_key, reason
+            return type(
+                "CancelResult",
+                (),
+                {
+                    "canceled_ids": tuple(order_ids),
+                    "unresolved_ids": (),
+                    "canceled_at": fixture.snapshot.captured_at,
+                },
+            )()
+
+        async def reconcile(
+            self,
+            *,
+            open_order_ids: Sequence[str] | None = None,
+            since_trade_id: str | None = None,
+        ) -> VenueReconciliation:
+            del open_order_ids, since_trade_id
+            return VenueReconciliation(
+                open_orders=(),
+                resolved_orders=tuple(
+                    VenueOrderState(
+                        venue_order_id=f"venue-{index}",
+                        client_order_id=client_order_id,
+                        market_id="market-track-a",
+                        token_id="YES_TRACK_A" if index == 1 else "NO_TRACK_A",
+                        side=OrderSide.BUY,
+                        quantity=Decimal("12"),
+                        limit_price=Decimal("0.48") if index == 1 else Decimal("0.44"),
+                        filled_quantity=Decimal("0"),
+                        status=OrderLifecycleStatus.CANCELED,
+                        time_in_force=TimeInForce.GTC,
+                        updated_at=fixture.snapshot.captured_at,
+                    )
+                    for index, client_order_id in enumerate(
+                        self._submitted_client_order_ids,
+                        start=1,
+                    )
+                ),
+                fills=(),
+                as_of=fixture.snapshot.captured_at,
+                backfill_complete=True,
+            )
+
+        def stream_user_events(
+            self,
+            *,
+            markets: Sequence[str] | None = None,
+            since_cursor: str | None = None,
+        ) -> AsyncIterator[VenueUserEvent]:
+            del markets, since_cursor
+
+            async def iterate() -> AsyncIterator[VenueUserEvent]:
+                if False:
+                    yield VenueUserEvent(
+                        kind=VenueEventKind.STATUS,
+                        occurred_at=fixture.snapshot.captured_at,
+                        cursor="unused",
+                    )
+
+            return iterate()
+
+    try:
+        result = await orchestrator.run_execution_stage(
+            snapshot=fixture.snapshot,
+            portfolio=fixture.portfolio,
+            mode=ExecutionMode.REPLAY,
+            venue=ResolvedOrderVenue(),
+            phase="replay",
+            actor="pytest",
+            realized_outcome=None,
+        )
+
+        assert result.reconciliation is not None
+        assert result.reconciliation.open_orders == ()
+        assert {state.status for state in result.reconciliation.resolved_orders} == {
+            OrderLifecycleStatus.CANCELED
+        }
+        assert store.list_open_orders() == []
+        assert {order.lifecycle_state for order in store.list_orders()} == {"canceled"}
+        reconciliation_run = store.list_reconciliation_runs()[-1]
+        assert reconciliation_run.report["open_order_count"] == 0
+        assert reconciliation_run.report["resolved_order_count"] == 2
+        assert reconciliation_run.venue_snapshot["open_orders"] == []
+        assert reconciliation_run.venue_snapshot["resolved_orders"][0]["status"] == "CANCELED"
     finally:
         store.close()

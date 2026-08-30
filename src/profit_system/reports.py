@@ -143,6 +143,7 @@ def _serialize_reconciliation(reconciliation: VenueReconciliation | None) -> JSO
         {
             "as_of": reconciliation.as_of,
             "open_order_count": len(reconciliation.open_orders),
+            "resolved_order_count": len(reconciliation.resolved_orders),
             "fill_count": len(reconciliation.fills),
             "cash_balance": reconciliation.cash_balance,
             "allowance_available": reconciliation.allowance_available,

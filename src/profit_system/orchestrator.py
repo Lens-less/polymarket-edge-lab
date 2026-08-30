@@ -399,6 +399,7 @@ def _persist_reconciliation(
         {
             "as_of": _isoformat(reconciliation.as_of),
             "open_orders": [state.to_document() for state in reconciliation.open_orders],
+            "resolved_orders": [state.to_document() for state in reconciliation.resolved_orders],
             "fills": [
                 {
                     "fill_id": fill.fill_id,
@@ -419,6 +420,7 @@ def _persist_reconciliation(
     )
     report = {
         "open_order_count": len(reconciliation.open_orders),
+        "resolved_order_count": len(reconciliation.resolved_orders),
         "fill_count": len(reconciliation.fills),
         "close_only": reconciliation.close_only,
         "geoblocked": reconciliation.geoblocked,
@@ -458,6 +460,9 @@ def _persist_reconciliation(
                 {
                     "as_of": _isoformat(reconciliation.as_of),
                     "open_orders": [state.to_document() for state in reconciliation.open_orders],
+                    "resolved_orders": [
+                        state.to_document() for state in reconciliation.resolved_orders
+                    ],
                 }
             ),
         ),
@@ -806,6 +811,7 @@ class ProfitPipelineOrchestrator:
             qualification_registry=InMemoryQualificationRegistry(
                 records={self.config.strategy_id: qualification}
             ),
+            clock=self.now,
             submit_journal=persist_submit_journal,
         )
         intent = decision_to_intent(
@@ -971,21 +977,32 @@ class ProfitPipelineOrchestrator:
             reconciliation=reconciliation,
         )
         self.store.save_user_stream_snapshot(
-            {
-                "as_of": _isoformat(reconciliation.as_of),
-                "consumed_events": [
+            cast(
+                dict[str, Any],
+                to_canonical_jsonable(
                     {
-                        "cursor": event.cursor,
-                        "kind": event.kind.value,
-                        "occurred_at": _isoformat(event.occurred_at),
-                        "detail": event.detail,
+                        "as_of": _isoformat(reconciliation.as_of),
+                        "open_orders": [
+                            state.to_document() for state in reconciliation.open_orders
+                        ],
+                        "resolved_orders": [
+                            state.to_document() for state in reconciliation.resolved_orders
+                        ],
+                        "consumed_events": [
+                            {
+                                "cursor": event.cursor,
+                                "kind": event.kind.value,
+                                "occurred_at": _isoformat(event.occurred_at),
+                                "detail": event.detail,
+                            }
+                            for event in consumed_events
+                        ],
+                        "last_event_at": None
+                        if not consumed_events
+                        else _isoformat(consumed_events[-1].occurred_at),
                     }
-                    for event in consumed_events
-                ],
-                "last_event_at": None
-                if not consumed_events
-                else _isoformat(consumed_events[-1].occurred_at),
-            },
+                ),
+            ),
             idempotency_key=f"{session.cycle_id}:{monitor_phase}:user_stream_snapshot",
         )
         book = PortfolioBook(self.store)

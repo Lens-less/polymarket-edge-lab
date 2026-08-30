@@ -6,7 +6,7 @@
 
 暂无。
 
-## [0.2.0] - 2026-08-30
+## [0.2.0] - 2026-08-31
 
 ### Added
 
@@ -19,6 +19,12 @@
 
 - GitHub 源码检出 `v0.2.0` 定位为离线 developer preview；支持仓库内 editable install，`uv build` 产物仅用于构建校验，不作为独立 wheel / PyPI 分发目标。
 - 公开只读 HTTP 请求的 `User-Agent` 随软件版本更新到 `0.2.0`。
+
+### Fixed
+
+- 批量订单现在先按 market / event 聚合新增名义敞口再执行风险上限检查；GTD 订单在确认时会用新鲜时钟再次校验到期时间。
+- live 对账会追踪恢复后的本地活动订单；若 open-orders、直接查询和完整成交历史都不能解释缺失订单，则保持 fail-closed 并报告 reconciliation mismatch。
+- 组合账本按 `(token_id, cycle_id)` 选择显式 realized-outcome 行作为单一权威来源，避免成交成本和已实现交易 PnL 重复计入，同时保留缺失或修复历史的回退语义。
 
 ### Safety
 

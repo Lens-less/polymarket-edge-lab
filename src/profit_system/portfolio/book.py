@@ -536,9 +536,13 @@ class PortfolioBook:
     def _build_local_snapshot(self) -> PortfolioSnapshot:
         orders = self.store.list_orders()
         fills = self._dedupe_fills(self.store.list_fills())
-        pnl_rows = self.store.list_pnl_attribution()
+        pnl_rows = self._resolve_authoritative_pnl_rows(self.store.list_pnl_attribution())
         as_of = self._latest_timestamp(orders, fills, pnl_rows)
-        accumulators = self._accumulate_positions(fills)
+        explicit_realization_cycles = self._explicit_realization_cycles(pnl_rows)
+        accumulators = self._accumulate_positions(
+            fills,
+            suppressed_fill_realization_cycles=explicit_realization_cycles,
+        )
         self._apply_order_open_quantities(accumulators, orders)
         self._apply_pnl_rows(accumulators, pnl_rows)
         market_prices = self._latest_market_prices()
@@ -843,16 +847,28 @@ class PortfolioBook:
             unique.setdefault(fill.dedupe_key(), fill)
         return list(unique.values())
 
-    def _accumulate_positions(self, fills: Sequence[FillRecord]) -> dict[str, _Accumulator]:
+    def _accumulate_positions(
+        self,
+        fills: Sequence[FillRecord],
+        *,
+        suppressed_fill_realization_cycles: set[tuple[str, str]] | None = None,
+    ) -> dict[str, _Accumulator]:
         positions: dict[str, _Accumulator] = {}
         for fill in fills:
             accumulator = positions.setdefault(fill.token_id, _Accumulator())
             quantity = fill.quantity
+            realized_trading_pnl = ZERO
+            cycle_key = self._fill_realization_cycle_key(fill)
+            suppress_fill_realization = (
+                cycle_key is not None
+                and suppressed_fill_realization_cycles is not None
+                and cycle_key in suppressed_fill_realization_cycles
+            )
             if fill.side == "buy":
                 if accumulator.quantity < ZERO:
                     close_quantity = min(abs(accumulator.quantity), quantity)
                     if accumulator.average_cost is not None:
-                        accumulator.realized_trading_pnl += (
+                        realized_trading_pnl += (
                             accumulator.average_cost - fill.price
                         ) * close_quantity
                     accumulator.quantity += close_quantity
@@ -872,7 +888,7 @@ class PortfolioBook:
                 if accumulator.quantity > ZERO:
                     close_quantity = min(accumulator.quantity, quantity)
                     if accumulator.average_cost is not None:
-                        accumulator.realized_trading_pnl += (
+                        realized_trading_pnl += (
                             fill.price - accumulator.average_cost
                         ) * close_quantity
                     accumulator.quantity -= close_quantity
@@ -890,10 +906,12 @@ class PortfolioBook:
                         else None
                     )
 
-            accumulator.fee_pnl -= fill.fee_amount
-            accumulator.slippage_pnl -= fill.slippage_amount
-            accumulator.unwind_pnl -= fill.unwind_amount
-            accumulator.onchain_pnl -= fill.onchain_amount
+            if not suppress_fill_realization:
+                accumulator.realized_trading_pnl += realized_trading_pnl
+                accumulator.fee_pnl -= fill.fee_amount
+                accumulator.slippage_pnl -= fill.slippage_amount
+                accumulator.unwind_pnl -= fill.unwind_amount
+                accumulator.onchain_pnl -= fill.onchain_amount
             adverse_bps = fill.metadata.get("adverse_selection_bps")
             if adverse_bps is not None:
                 accumulator.adverse_selection_bps_weighted += (
@@ -916,6 +934,88 @@ class PortfolioBook:
             market_price = order.metadata.get("market_price")
             if market_price is not None:
                 accumulator.market_price = _decimal(market_price, name="market_price")
+
+    def _fill_realization_cycle_key(self, fill: FillRecord) -> tuple[str, str] | None:
+        cycle_id = fill.metadata.get("cycle_id")
+        if cycle_id is None:
+            return None
+        cycle_id_text = str(cycle_id).strip()
+        if not cycle_id_text:
+            return None
+        return (fill.token_id, cycle_id_text)
+
+    def _explicit_realization_cycle_key(self, row: PnLAttributionRecord) -> tuple[str, str] | None:
+        metadata = row.metadata
+        if not isinstance(metadata, Mapping) or "explicit_realized_net_pnl" not in metadata:
+            return None
+        cycle_id = metadata.get("cycle_id")
+        if cycle_id is None:
+            return None
+        cycle_id_text = str(cycle_id).strip()
+        if not cycle_id_text:
+            return None
+        return (row.token_id, cycle_id_text)
+
+    def _explicit_realization_signature(
+        self, row: PnLAttributionRecord
+    ) -> tuple[Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, str]:
+        metadata = row.metadata
+        explicit_net = ""
+        if isinstance(metadata, Mapping):
+            raw_explicit_net = metadata.get("explicit_realized_net_pnl")
+            if raw_explicit_net is not None:
+                explicit_net = str(raw_explicit_net)
+        return (
+            row.realized_trading_pnl,
+            row.fee_pnl,
+            row.slippage_pnl,
+            row.unwind_pnl,
+            row.onchain_pnl,
+            row.incentive_pnl_confirmed,
+            row.incentive_pnl_pending,
+            explicit_net,
+        )
+
+    def _resolve_authoritative_pnl_rows(
+        self, rows: Sequence[PnLAttributionRecord]
+    ) -> list[PnLAttributionRecord]:
+        explicit_winners: dict[tuple[str, str], PnLAttributionRecord] = {}
+        explicit_latest_at: dict[tuple[str, str], str] = {}
+        explicit_latest_rows: dict[tuple[str, str], list[PnLAttributionRecord]] = {}
+        for row in rows:
+            cycle_key = self._explicit_realization_cycle_key(row)
+            if cycle_key is not None:
+                latest_at = explicit_latest_at.get(cycle_key)
+                if latest_at is None or row.occurred_at > latest_at:
+                    explicit_latest_at[cycle_key] = row.occurred_at
+                    explicit_latest_rows[cycle_key] = [row]
+                elif row.occurred_at == latest_at:
+                    explicit_latest_rows.setdefault(cycle_key, []).append(row)
+        for cycle_key, latest_rows in explicit_latest_rows.items():
+            winner = latest_rows[0]
+            winner_signature = self._explicit_realization_signature(winner)
+            for candidate in latest_rows[1:]:
+                if self._explicit_realization_signature(candidate) != winner_signature:
+                    raise ValueError(
+                        "conflicting explicit realized rows for "
+                        f"{cycle_key[0]} cycle {cycle_key[1]} at {winner.occurred_at}"
+                    )
+            explicit_winners[cycle_key] = winner
+        authoritative_rows: list[PnLAttributionRecord] = []
+        for row in rows:
+            cycle_key = self._explicit_realization_cycle_key(row)
+            if cycle_key is None or explicit_winners.get(cycle_key) is row:
+                authoritative_rows.append(row)
+        return authoritative_rows
+
+    def _explicit_realization_cycles(
+        self, rows: Sequence[PnLAttributionRecord]
+    ) -> set[tuple[str, str]]:
+        return {
+            cycle_key
+            for row in rows
+            if (cycle_key := self._explicit_realization_cycle_key(row)) is not None
+        }
 
     def _apply_pnl_rows(
         self,
@@ -1029,7 +1129,7 @@ class PortfolioBook:
 
     def _realized_pnl_timeline(self) -> list[Decimal]:
         timeline: list[tuple[str, Decimal]] = []
-        for row in self.store.list_pnl_attribution():
+        for row in self._resolve_authoritative_pnl_rows(self.store.list_pnl_attribution()):
             net = (
                 row.realized_trading_pnl
                 + row.fee_pnl
@@ -1072,7 +1172,7 @@ class PortfolioBook:
         fills: Sequence[FillRecord],
         pnl_rows: Sequence[PnLAttributionRecord],
     ) -> str:
-        candidates = [order.updated_at for order in orders]
+        candidates: list[str] = [order.updated_at for order in orders]
         candidates.extend(fill.occurred_at for fill in fills)
         candidates.extend(row.occurred_at for row in pnl_rows)
         if not candidates:

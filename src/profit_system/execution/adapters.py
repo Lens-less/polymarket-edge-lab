@@ -141,6 +141,15 @@ def _status_from_wire(status: str, *, filled: Decimal, quantity: Decimal) -> Ord
     return OrderLifecycleStatus.ATTENTION_REQUIRED
 
 
+def _is_terminal_reconciliation_status(status: OrderLifecycleStatus) -> bool:
+    return status in {
+        OrderLifecycleStatus.CANCELED,
+        OrderLifecycleStatus.FILLED,
+        OrderLifecycleStatus.REJECTED,
+        OrderLifecycleStatus.KILLED,
+    }
+
+
 class _BaseVenueAdapter(VenueAdapter):
     def __init__(
         self,
@@ -872,6 +881,50 @@ class PolymarketLiveVenueAdapter(_BaseVenueAdapter):
             }
         )
 
+    def _tracked_live_order_ids_for_reconciliation(
+        self,
+        *,
+        open_order_ids: Sequence[str] | None,
+    ) -> tuple[str, ...]:
+        if open_order_ids is not None:
+            return tuple(dict.fromkeys(str(order_id) for order_id in open_order_ids))
+        return self._known_live_order_ids()
+
+    def _open_order_state_from_payload(self, payload: object) -> VenueOrderState:
+        venue_order_id = str(_field(payload, "id"))
+        quantity = to_decimal(_field(payload, "original_size"), name="original_size")
+        filled = to_decimal(_field(payload, "size_matched"), name="size_matched")
+        tracked_state = self._orders_by_venue_id.get(venue_order_id)
+        return VenueOrderState(
+            venue_order_id=venue_order_id,
+            client_order_id=(
+                venue_order_id if tracked_state is None else tracked_state.client_order_id
+            ),
+            market_id=str(_field(payload, "market")),
+            token_id=str(_field(payload, "token_id")),
+            side=OrderSide(str(_field(payload, "side")).upper()),
+            quantity=quantity,
+            limit_price=to_decimal(_field(payload, "price"), name="price"),
+            filled_quantity=filled,
+            status=_status_from_wire(
+                str(_field(payload, "status")),
+                filled=filled,
+                quantity=quantity,
+            ),
+            time_in_force=TimeInForce(
+                str(_field(payload, "order_type")).upper().replace("IOC", "FAK")
+            ),
+            updated_at=self._clock(),
+        )
+
+    def _filled_quantities_by_order_id(self) -> dict[str, Decimal]:
+        filled_quantities: dict[str, Decimal] = {}
+        for fill in self._fills_by_id.values():
+            filled_quantities[fill.venue_order_id] = (
+                filled_quantities.get(fill.venue_order_id, Decimal("0")) + fill.quantity
+            )
+        return filled_quantities
+
     async def _load_live_market_evidence(
         self,
         request: VenuePreflightRequest,
@@ -1247,52 +1300,41 @@ class PolymarketLiveVenueAdapter(_BaseVenueAdapter):
         since_trade_id: str | None = None,
     ) -> VenueReconciliation:
         client = await self._get_client()
+        tracked_live_order_ids = self._tracked_live_order_ids_for_reconciliation(
+            open_order_ids=open_order_ids,
+        )
+        tracked_live_order_id_set = set(tracked_live_order_ids)
+        requested_open_order_ids = None if open_order_ids is None else set(open_order_ids)
         open_orders_iter = await cast(Any, client).list_open_orders()
-        open_orders: list[VenueOrderState] = []
+        open_orders_by_id: dict[str, VenueOrderState] = {}
+        resolved_orders_by_id: dict[str, VenueOrderState] = {}
         discrepancies: list[str] = []
         async for item in _iter_items(open_orders_iter):
             venue_order_id = str(_field(item, "id"))
-            if open_order_ids is not None and venue_order_id not in set(open_order_ids):
+            if (
+                requested_open_order_ids is not None
+                and venue_order_id not in requested_open_order_ids
+            ):
                 continue
-            quantity = to_decimal(_field(item, "original_size"), name="original_size")
-            filled = to_decimal(_field(item, "size_matched"), name="size_matched")
-            state = VenueOrderState(
-                venue_order_id=venue_order_id,
-                client_order_id=self._orders_by_venue_id.get(
-                    venue_order_id,
-                    VenueOrderState(
-                        venue_order_id=venue_order_id,
-                        client_order_id=venue_order_id,
-                        market_id=str(_field(item, "market")),
-                        token_id=str(_field(item, "token_id")),
-                        side=OrderSide(str(_field(item, "side")).upper()),
-                        quantity=quantity,
-                        limit_price=to_decimal(_field(item, "price"), name="price"),
-                        filled_quantity=filled,
-                        status=_status_from_wire(
-                            str(_field(item, "status")), filled=filled, quantity=quantity
-                        ),
-                        time_in_force=TimeInForce(
-                            str(_field(item, "order_type")).upper().replace("IOC", "FAK")
-                        ),
-                    ),
-                ).client_order_id,
-                market_id=str(_field(item, "market")),
-                token_id=str(_field(item, "token_id")),
-                side=OrderSide(str(_field(item, "side")).upper()),
-                quantity=quantity,
-                limit_price=to_decimal(_field(item, "price"), name="price"),
-                filled_quantity=filled,
-                status=_status_from_wire(
-                    str(_field(item, "status")), filled=filled, quantity=quantity
-                ),
-                time_in_force=TimeInForce(
-                    str(_field(item, "order_type")).upper().replace("IOC", "FAK")
-                ),
-                updated_at=self._clock(),
-            )
+            state = self._open_order_state_from_payload(item)
             self._store_order(state)
-            open_orders.append(state)
+            open_orders_by_id[venue_order_id] = state
+        get_order = getattr(client, "get_order", None)
+        missing_open_order_ids = [
+            order_id for order_id in tracked_live_order_ids if order_id not in open_orders_by_id
+        ]
+        if callable(get_order):
+            for order_id in missing_open_order_ids:
+                try:
+                    payload = await cast(Any, get_order)(order_id=order_id)
+                except Exception:  # noqa: BLE001
+                    continue
+                state = self._open_order_state_from_payload(payload)
+                self._store_order(state)
+                if _is_terminal_reconciliation_status(state.status):
+                    resolved_orders_by_id[order_id] = state
+                else:
+                    open_orders_by_id[order_id] = state
         trades_iter = await cast(Any, client).list_account_trades(after=since_trade_id)
         async for item in _iter_items(trades_iter):
             try:
@@ -1305,8 +1347,31 @@ class PolymarketLiveVenueAdapter(_BaseVenueAdapter):
                 continue
             for fill in fills:
                 self._store_fill(fill)
+        unresolved_tracked_live_order_ids = sorted(
+            tracked_live_order_id_set.difference(open_orders_by_id).difference(
+                resolved_orders_by_id
+            )
+        )
+        if unresolved_tracked_live_order_ids:
+            filled_quantities = self._filled_quantities_by_order_id()
+            for order_id in unresolved_tracked_live_order_ids:
+                tracked_state = self._orders_by_venue_id.get(order_id)
+                if (
+                    tracked_state is not None
+                    and filled_quantities.get(order_id, Decimal("0")) >= tracked_state.quantity
+                ):
+                    continue
+                discrepancies.append(
+                    "locally tracked live order "
+                    f"{order_id} is missing from venue open orders and has no terminal evidence"
+                )
         return VenueReconciliation(
-            open_orders=tuple(sorted(open_orders, key=lambda state: state.venue_order_id)),
+            open_orders=tuple(
+                sorted(open_orders_by_id.values(), key=lambda state: state.venue_order_id)
+            ),
+            resolved_orders=tuple(
+                sorted(resolved_orders_by_id.values(), key=lambda state: state.venue_order_id)
+            ),
             fills=tuple(sorted(self._fills_by_id.values(), key=lambda fill: fill.fill_id)),
             as_of=self._clock(),
             cash_balance=self.cash_available,

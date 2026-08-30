@@ -521,6 +521,211 @@ async def test_live_adapter_reconciliation_maps_maker_trade_to_owned_order_leg()
 
 
 @pytest.mark.asyncio
+async def test_live_adapter_reconciliation_flags_missing_live_order_without_terminal_evidence() -> (
+    None
+):
+    class MissingTrackedOrderClient(_LiveClient):
+        async def list_open_orders(self):
+            return _AsyncList([])
+
+        async def list_account_trades(self, *, after=None):
+            del after
+            return _AsyncList([])
+
+    client = MissingTrackedOrderClient()
+    adapter = PolymarketLiveVenueAdapter(client_factory=lambda: client)
+
+    await adapter.preflight(_request())
+    await adapter.submit(
+        orders=(_order(),),
+        mode=ExecutionMode.LIVE_CANARY,
+        idempotency_key="submit-missing-live-order",
+    )
+
+    reconciliation = await adapter.reconcile(open_order_ids=("venue-1",))
+
+    assert reconciliation.open_orders == ()
+    assert reconciliation.discrepancies == (
+        "locally tracked live order venue-1 is missing from venue open orders "
+        "and has no terminal evidence",
+    )
+
+
+@pytest.mark.asyncio
+async def test_live_adapter_flags_requested_missing_order_without_local_cache() -> None:
+    class FreshAdapterClient:
+        async def list_open_orders(self):
+            return _AsyncList([])
+
+        async def list_account_trades(self, *, after=None):
+            del after
+            return _AsyncList([])
+
+    adapter = PolymarketLiveVenueAdapter(client_factory=FreshAdapterClient)
+
+    reconciliation = await adapter.reconcile(open_order_ids=("venue-1",))
+
+    assert reconciliation.open_orders == ()
+    assert reconciliation.discrepancies == (
+        "locally tracked live order venue-1 is missing from venue open orders "
+        "and has no terminal evidence",
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("fill_size", "expected_discrepancies"),
+    (
+        (Decimal("2"), ()),
+        (
+            Decimal("1"),
+            (
+                "locally tracked live order venue-1 is missing from venue open orders "
+                "and has no terminal evidence",
+            ),
+        ),
+    ),
+)
+async def test_live_adapter_reconciliation_requires_full_fill_history_to_resolve_missing_order(
+    fill_size: Decimal,
+    expected_discrepancies: tuple[str, ...],
+) -> None:
+    class FilledTrackedOrderClient(_LiveClient):
+        async def list_open_orders(self):
+            return _AsyncList([])
+
+        async def list_account_trades(self, *, after=None):
+            del after
+            return _AsyncList(
+                [
+                    SimpleNamespace(
+                        id="fill-venue-1",
+                        trader_side="TAKER",
+                        taker_order_id="venue-1",
+                        market="market-1",
+                        token_id="token-1",
+                        side="BUY",
+                        size=fill_size,
+                        price=Decimal("0.40"),
+                        status="MATCHED",
+                        matched_at=datetime.now(tz=UTC),
+                        owner=self.wallet,
+                        maker_address="0xother-maker",
+                    )
+                ]
+            )
+
+    client = FilledTrackedOrderClient()
+    adapter = PolymarketLiveVenueAdapter(client_factory=lambda: client)
+
+    await adapter.preflight(_request())
+    await adapter.submit(
+        orders=(_order(),),
+        mode=ExecutionMode.LIVE_CANARY,
+        idempotency_key="submit-filled-missing-live-order",
+    )
+
+    reconciliation = await adapter.reconcile(open_order_ids=("venue-1",))
+
+    assert reconciliation.open_orders == ()
+    assert reconciliation.discrepancies == expected_discrepancies
+    assert reconciliation.fills[-1].venue_order_id == "venue-1"
+    assert reconciliation.fills[-1].quantity == fill_size
+
+
+@pytest.mark.asyncio
+async def test_live_adapter_reconciliation_uses_direct_order_lookup_for_missing_live_order() -> (
+    None
+):
+    class RecoverableMissingOrderClient(_LiveClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.get_order_calls: list[str] = []
+
+        async def list_open_orders(self):
+            return _AsyncList([])
+
+        async def list_account_trades(self, *, after=None):
+            del after
+            return _AsyncList([])
+
+        async def get_order(self, *, order_id: str):
+            self.get_order_calls.append(order_id)
+            return SimpleNamespace(
+                id=order_id,
+                market="market-1",
+                token_id="token-1",
+                side="BUY",
+                original_size=Decimal("2"),
+                size_matched=Decimal("0"),
+                price=Decimal("0.40"),
+                order_type="GTC",
+                status="LIVE",
+            )
+
+    client = RecoverableMissingOrderClient()
+    adapter = PolymarketLiveVenueAdapter(client_factory=lambda: client)
+
+    await adapter.preflight(_request())
+    await adapter.submit(
+        orders=(_order(),),
+        mode=ExecutionMode.LIVE_CANARY,
+        idempotency_key="submit-get-order-recovery",
+    )
+
+    reconciliation = await adapter.reconcile(open_order_ids=("venue-1",))
+
+    assert client.get_order_calls == ["venue-1"]
+    assert reconciliation.discrepancies == ()
+    assert [state.venue_order_id for state in reconciliation.open_orders] == ["venue-1"]
+    assert reconciliation.open_orders[0].client_order_id == "client-1"
+
+
+@pytest.mark.asyncio
+async def test_live_adapter_reconciliation_uses_terminal_direct_order_lookup_as_authoritative() -> (
+    None
+):
+    class TerminalLookupClient(_LiveClient):
+        async def list_open_orders(self):
+            return _AsyncList([])
+
+        async def list_account_trades(self, *, after=None):
+            del after
+            return _AsyncList([])
+
+        async def get_order(self, *, order_id: str):
+            return SimpleNamespace(
+                id=order_id,
+                market="market-1",
+                token_id="token-1",
+                side="BUY",
+                original_size=Decimal("2"),
+                size_matched=Decimal("0"),
+                price=Decimal("0.40"),
+                order_type="GTC",
+                status="CANCELED",
+            )
+
+    client = TerminalLookupClient()
+    adapter = PolymarketLiveVenueAdapter(client_factory=lambda: client)
+
+    await adapter.preflight(_request())
+    await adapter.submit(
+        orders=(_order(),),
+        mode=ExecutionMode.LIVE_CANARY,
+        idempotency_key="submit-terminal-get-order",
+    )
+
+    reconciliation = await adapter.reconcile(open_order_ids=("venue-1",))
+
+    assert reconciliation.discrepancies == ()
+    assert reconciliation.open_orders == ()
+    assert [state.status for state in reconciliation.resolved_orders] == [
+        OrderLifecycleStatus.CANCELED
+    ]
+
+
+@pytest.mark.asyncio
 async def test_live_adapter_stream_user_events_backfills_before_live_events() -> None:
     client = _LiveClient()
     adapter = PolymarketLiveVenueAdapter(client_factory=lambda: client)

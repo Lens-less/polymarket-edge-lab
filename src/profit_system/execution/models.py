@@ -672,6 +672,7 @@ class VenueReconciliation:
     open_orders: tuple[VenueOrderState, ...]
     fills: tuple[FillRecord, ...]
     as_of: datetime
+    resolved_orders: tuple[VenueOrderState, ...] = ()
     cash_balance: Decimal = ZERO
     allowance_available: Decimal = ZERO
     close_only: bool = False

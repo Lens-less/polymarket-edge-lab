@@ -107,6 +107,7 @@ class _ScriptedVenue:
     ) -> None:
         self._submit_batch = submit_batch
         self._reconcile_snapshot = reconcile_snapshot
+        self.reconcile_calls: list[tuple[tuple[str, ...] | None, str | None]] = []
 
     async def preflight(self, request) -> VenuePreflightResult:
         return VenuePreflightResult(ok=True, checks=(), as_of=request.now)
@@ -128,7 +129,8 @@ class _ScriptedVenue:
         )()
 
     async def reconcile(self, *, open_order_ids=None, since_trade_id=None) -> VenueReconciliation:
-        del open_order_ids, since_trade_id
+        captured_ids = None if open_order_ids is None else tuple(open_order_ids)
+        self.reconcile_calls.append((captured_ids, since_trade_id))
         if self._reconcile_snapshot is None:
             raise AssertionError("reconcile was not scripted for this test")
         return self._reconcile_snapshot
@@ -408,6 +410,123 @@ async def test_gap_then_backfill_recovers_live_state_without_duplicate_order_or_
     assert len(snapshot.orders) == 1
     assert snapshot.orders[0].filled_quantity == Decimal("1")
     assert len(snapshot.orders[0].fills) == 1
+
+
+@pytest.mark.asyncio
+async def test_reconcile_threads_restored_live_order_ids_and_fails_closed_when_missing() -> None:
+    restored = OrderRecord(
+        client_order_id="client-1",
+        spec=_order(),
+        status=OrderLifecycleStatus.LIVE,
+        plan_id="plan-1",
+        venue_order_id="venue-1",
+        updated_at=datetime.now(tz=UTC),
+    )
+    venue = _ScriptedVenue(
+        submit_batch=VenueSubmitBatch(results=(), submitted_at=datetime.now(tz=UTC))
+    )
+    engine = ExecutionEngine(
+        mode=ExecutionMode.PAPER,
+        venue=venue,
+        qualification_registry=InMemoryQualificationRegistry(records={"strat-1": _qualification()}),
+        restored_orders=(restored,),
+    )
+
+    expected_message = (
+        "locally tracked live order venue-1 is missing from venue open orders "
+        "and has no terminal evidence"
+    )
+    venue._reconcile_snapshot = VenueReconciliation(  # noqa: SLF001
+        open_orders=(),
+        fills=(),
+        as_of=datetime.now(tz=UTC),
+        backfill_complete=True,
+        discrepancies=(expected_message,),
+    )
+
+    result = await engine.intervene(
+        InterventionAction(kind=InterventionKind.RECONCILE, reason="restart"),
+        actor="alice",
+        idempotency_key="reconcile-restored-live",
+    )
+
+    assert venue.reconcile_calls == [(("venue-1",), None)]
+    assert result.reconciliation is not None
+    assert result.reconciliation.discrepancies == (expected_message,)
+    assert "reconciliation_mismatch" in engine.snapshot().blocked_reasons
+
+
+@pytest.mark.asyncio
+async def test_reconcile_applies_authoritative_canceled_state_without_invalid_live_transition() -> (
+    None
+):
+    restored = OrderRecord(
+        client_order_id="client-1",
+        spec=_order(),
+        status=OrderLifecycleStatus.LIVE,
+        plan_id="plan-1",
+        venue_order_id="venue-1",
+        updated_at=datetime.now(tz=UTC),
+    )
+    canceled_state = VenueOrderState(
+        venue_order_id="venue-1",
+        client_order_id="client-1",
+        market_id="market-1",
+        token_id="token-1",
+        side=OrderSide.BUY,
+        quantity=Decimal("2"),
+        limit_price=Decimal("0.40"),
+        filled_quantity=Decimal("0"),
+        status=OrderLifecycleStatus.CANCELED,
+        time_in_force=TimeInForce.GTC,
+        updated_at=datetime.now(tz=UTC),
+    )
+    venue = _ScriptedVenue(
+        submit_batch=VenueSubmitBatch(results=(), submitted_at=datetime.now(tz=UTC)),
+        reconcile_snapshot=VenueReconciliation(
+            open_orders=(),
+            resolved_orders=(canceled_state,),
+            fills=(),
+            as_of=datetime.now(tz=UTC),
+            backfill_complete=True,
+            discrepancies=("cash_mismatch",),
+        ),
+    )
+    engine = ExecutionEngine(
+        mode=ExecutionMode.PAPER,
+        venue=venue,
+        qualification_registry=InMemoryQualificationRegistry(records={"strat-1": _qualification()}),
+        restored_orders=(restored,),
+    )
+
+    first = await engine.intervene(
+        InterventionAction(kind=InterventionKind.RECONCILE, reason="restart"),
+        actor="alice",
+        idempotency_key="reconcile-canceled-1",
+    )
+
+    assert first.reconciliation is not None
+    assert engine.snapshot().orders[0].status is OrderLifecycleStatus.CANCELED
+    assert "reconciliation_mismatch" in engine.snapshot().blocked_reasons
+
+    venue._reconcile_snapshot = VenueReconciliation(  # noqa: SLF001
+        open_orders=(),
+        resolved_orders=(canceled_state,),
+        fills=(),
+        as_of=datetime.now(tz=UTC),
+        backfill_complete=True,
+        discrepancies=(),
+    )
+    second = await engine.intervene(
+        InterventionAction(kind=InterventionKind.RECONCILE, reason="restart"),
+        actor="alice",
+        idempotency_key="reconcile-canceled-2",
+    )
+
+    assert second.reconciliation is not None
+    assert engine.snapshot().orders[0].status is OrderLifecycleStatus.CANCELED
+    assert "reconciliation_mismatch" not in engine.snapshot().blocked_reasons
+    assert "restart_reconcile_required" not in engine.snapshot().blocked_reasons
 
 
 @pytest.mark.asyncio

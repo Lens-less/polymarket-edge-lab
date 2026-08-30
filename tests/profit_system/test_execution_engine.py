@@ -144,6 +144,82 @@ async def test_review_and_confirm_produce_execution_ticket_and_snapshot() -> Non
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("orders", "risk_context", "error_match"),
+    (
+        (
+            (
+                replace(_order(client_order_id="client-1"), quantity=Decimal("75")),
+                replace(
+                    _order(client_order_id="client-2"),
+                    side=OrderSide.SELL,
+                    quantity=Decimal("75"),
+                ),
+            ),
+            RiskContext(market_data_age_ms=100),
+            "max_market_exposure exceeded for market-1",
+        ),
+        (
+            (
+                replace(_order(client_order_id="client-1"), quantity=Decimal("75")),
+                replace(
+                    _order(client_order_id="client-2"),
+                    market_id="market-2",
+                    quantity=Decimal("75"),
+                ),
+            ),
+            RiskContext(
+                market_exposure={"market-1": Decimal("20"), "market-2": Decimal("20")},
+                event_exposure={"event-1": Decimal("5")},
+                market_data_age_ms=100,
+            ),
+            "max_event_exposure exceeded for event-1",
+        ),
+    ),
+)
+async def test_review_aggregates_new_market_and_event_exposure_before_limit_check(
+    orders: tuple[VenueOrderSpec, ...],
+    risk_context: RiskContext,
+    error_match: str,
+) -> None:
+    qualification = replace(
+        _qualification(QualificationLevel.PROBE_ALLOWED),
+        risk_limits=replace(
+            _risk_limits(),
+            max_strategy_exposure=Decimal("100"),
+            max_total_exposure=Decimal("100"),
+        ),
+    )
+    if {order.market_id for order in orders} != {"market-1"}:
+        qualification = replace(
+            qualification,
+            market_whitelist=tuple(dict.fromkeys(order.market_id for order in orders)),
+        )
+    engine = ExecutionEngine(
+        mode=ExecutionMode.PAPER,
+        venue=PaperVenueAdapter(
+            market_data_provider=lambda order: PaperOrderBook(
+                best_bid=Decimal("0.39"),
+                best_ask=Decimal("0.41"),
+                bid_size=Decimal("10"),
+                ask_size=Decimal("10"),
+                as_of=datetime.now(tz=UTC),
+            )
+        ),
+        qualification_registry=InMemoryQualificationRegistry(records={"strat-1": qualification}),
+    )
+    intent = ExecutionIntent(
+        strategy_id="strat-1",
+        mode=ExecutionMode.PAPER,
+        orders=orders,
+        risk_context=risk_context,
+    )
+
+    with pytest.raises(RiskLimitError, match=error_match):
+        await engine.review(intent, actor="alice", idempotency_key=f"review-{error_match}")
+
+
+@pytest.mark.asyncio
 async def test_qualification_gate_blocks_before_adapter_preflight() -> None:
     calls = {"preflight": 0}
 
@@ -472,6 +548,74 @@ async def test_live_release_permit_rejects_validity_window_longer_than_verifier_
                 release_permit=long_window_permit,
             ),
         )
+
+
+@pytest.mark.asyncio
+async def test_confirm_fails_closed_when_gtd_order_has_expired_since_review() -> None:
+    current = [datetime(2026, 8, 30, 12, 0, tzinfo=UTC)]
+
+    def clock() -> datetime:
+        return current[0]
+
+    class CountingPaper(PaperVenueAdapter):
+        def __init__(self) -> None:
+            super().__init__(
+                market_data_provider=lambda order: PaperOrderBook(
+                    best_bid=Decimal("0.39"),
+                    best_ask=Decimal("0.41"),
+                    bid_size=Decimal("10"),
+                    ask_size=Decimal("10"),
+                    as_of=clock(),
+                )
+            )
+            self.submit_calls = 0
+
+        async def submit(self, *, orders, mode, idempotency_key):
+            self.submit_calls += 1
+            return await super().submit(
+                orders=orders,
+                mode=mode,
+                idempotency_key=idempotency_key,
+            )
+
+    adapter = CountingPaper()
+    engine = ExecutionEngine(
+        mode=ExecutionMode.PAPER,
+        venue=adapter,
+        qualification_registry=InMemoryQualificationRegistry(
+            records={"strat-1": _qualification(QualificationLevel.PROBE_ALLOWED)}
+        ),
+        clock=clock,
+    )
+    expires_at = clock() + timedelta(seconds=5)
+    intent = ExecutionIntent(
+        strategy_id="strat-1",
+        mode=ExecutionMode.PAPER,
+        orders=(
+            replace(
+                _order(),
+                time_in_force=TimeInForce.GTD,
+                expires_at=expires_at,
+            ),
+        ),
+        risk_context=RiskContext(market_data_age_ms=100),
+    )
+
+    plan = await engine.review(intent, actor="alice", idempotency_key="review-gtd-expiry")
+    current[0] = expires_at
+
+    with pytest.raises(RiskLimitError, match="expired before confirm"):
+        await engine.confirm(
+            plan.plan_id,
+            ExecutionApproval(
+                actor="alice",
+                idempotency_key="confirm-gtd-expiry",
+                plan_hash=plan.plan_hash,
+                confirmation_phrase=plan.confirmation_phrase,
+            ),
+        )
+
+    assert adapter.submit_calls == 0
 
 
 @pytest.mark.asyncio

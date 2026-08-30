@@ -1,13 +1,23 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
 
+from src.profit_system.execution import (
+    OrderLifecycleStatus,
+    OrderSide,
+    TimeInForce,
+    VenueOrderState,
+    VenueReconciliation,
+)
 from src.profit_system.reports import (
     ACCEPTANCE_REPORT_SCHEMA_VERSION,
     SCAN_REPORT_SCHEMA_VERSION,
     SHADOW_REPORT_SCHEMA_VERSION,
+    _serialize_reconciliation,
     build_acceptance_report,
     build_desk_report,
     build_replay_report,
@@ -80,3 +90,32 @@ def test_desk_report_never_invents_live_profitability_evidence() -> None:
     assert report["real_funds_changed"] is False
     gate_snapshots = cast(list[dict[str, Any]], report["gate_snapshots"])
     assert [gate["gate"] for gate in gate_snapshots] == ["CANARY"]
+
+
+def test_reconciliation_report_counts_resolved_orders_separately_from_open_orders() -> None:
+    serialized = _serialize_reconciliation(
+        VenueReconciliation(
+            open_orders=(),
+            fills=(),
+            as_of=datetime.now(tz=UTC),
+            resolved_orders=(
+                VenueOrderState(
+                    venue_order_id="venue-1",
+                    client_order_id="client-1",
+                    market_id="market-1",
+                    token_id="token-1",
+                    side=OrderSide.BUY,
+                    quantity=Decimal("2"),
+                    limit_price=Decimal("0.40"),
+                    filled_quantity=Decimal("0"),
+                    status=OrderLifecycleStatus.CANCELED,
+                    time_in_force=TimeInForce.GTC,
+                ),
+            ),
+        )
+    )
+
+    assert serialized is not None
+    serialized = cast(dict[str, Any], serialized)
+    assert serialized["open_order_count"] == 0
+    assert serialized["resolved_order_count"] == 1

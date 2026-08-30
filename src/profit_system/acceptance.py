@@ -499,6 +499,28 @@ def _rewrite_reconciliation(
                 updated_at=state.updated_at,
             )
         )
+    resolved_orders = []
+    for state in reconciliation.resolved_orders:
+        resolved_orders.append(
+            VenueOrderState(
+                venue_order_id=mapping.get(state.venue_order_id, state.venue_order_id),
+                client_order_id=client_order_ids[0]
+                if state.client_order_id == "pending"
+                else client_order_ids[1],
+                market_id=state.market_id,
+                token_id=state.token_id,
+                side=state.side,
+                quantity=state.quantity,
+                limit_price=state.limit_price,
+                filled_quantity=state.filled_quantity,
+                status=state.status,
+                time_in_force=state.time_in_force,
+                post_only=state.post_only,
+                expires_at=state.expires_at,
+                reject_reason=state.reject_reason,
+                updated_at=state.updated_at,
+            )
+        )
     fills = []
     for fill in reconciliation.fills:
         fills.append(
@@ -517,6 +539,7 @@ def _rewrite_reconciliation(
         )
     return VenueReconciliation(
         open_orders=tuple(open_orders),
+        resolved_orders=tuple(resolved_orders),
         fills=tuple(fills),
         as_of=reconciliation.as_of,
         cash_balance=reconciliation.cash_balance,
@@ -717,7 +740,7 @@ async def run_fixed_track(base_dir: Path, fixture: FixedTrackFixture) -> FixedTr
         store=store,
         opportunity_engine=OpportunityEngine(),
         runtime=StrategyRuntime(fixture.strategy),
-        now=lambda: fixture.snapshot.captured_at + timedelta(seconds=10),
+        now=lambda: fixture.snapshot.captured_at,
     )
     try:
         research = orchestrator.evaluate_gate(
