@@ -1,0 +1,1 @@
+"""Profit-system execution tests."""

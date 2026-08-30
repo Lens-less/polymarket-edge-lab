@@ -1,0 +1,44 @@
+{
+  "schema_version": "polymm-strategy-performance-report.v0.2",
+  "report_kind": "strategy_performance_report",
+  "generated_at": "2026-08-30T00:00:00Z",
+  "source": {
+    "command": "polymm acceptance --track all",
+    "mode": "offline fixed acceptance evidence"
+  },
+  "tracks": [
+    {
+      "track": "A",
+      "strategy_id": "track_a.complete_set.arbitrage.v0_2",
+      "research_status": "GO",
+      "replay_confirm_status": "CONFIRMED",
+      "paper_confirm_status": "CONFIRMED",
+      "paper_simulated_realized_net_pnl": "2.5",
+      "shadow_status": "GO",
+      "shadow_realized_net_pnl": null,
+      "notes": "Paper and shadow evidence are offline simulation receipts and do not prove live profit."
+    },
+    {
+      "track": "B",
+      "strategy_id": "track_b.maker.quote.v0_2",
+      "research_status": "GO",
+      "replay_confirm_status": "CONFIRMED",
+      "paper_confirm_status": "CONFIRMED",
+      "paper_simulated_realized_net_pnl": "0",
+      "shadow_status": "NO_GO",
+      "shadow_expected_net_edge": "-0.12",
+      "shadow_realized_net_pnl": null,
+      "notes": "Negative shadow edge blocks promotion."
+    }
+  ],
+  "summary": {
+    "track_count": "2",
+    "live_status": "LIVE_BLOCKED",
+    "live_profit_claimed": false,
+    "offline_evidence_only": true
+  },
+  "notes": [
+    "Paper and shadow values are simulated acceptance evidence only.",
+    "No real orders were submitted and no real funds changed."
+  ]
+}

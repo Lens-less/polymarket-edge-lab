@@ -1,8 +1,9 @@
 # 复现指南
 
-本页是 `v0.1.1` 的可移植复现入口。命令均从仓库根目录运行，不依赖维护者的
-本机路径；除最后单独标出的网络 canary 外，默认不读取 `.env`、不使用凭证、
-不签名，也不提交订单。
+本页是 `v0.2.0` 的 GitHub 源码检出离线 developer preview 复现入口。仓库支持
+本地 editable install；安装后可直接使用 `polymm` CLI。命令均从仓库根目录运行，
+不依赖维护者的本机路径；除最后单独标出的网络 canary 外，默认不读取 `.env`、
+不使用凭证、不签名，也不提交订单。
 
 ## 准备环境
 
@@ -10,7 +11,11 @@
 git clone https://github.com/Lens-less/polymarket-edge-lab.git
 cd polymarket-edge-lab
 uv sync --locked --python 3.12 --extra dev
+uv run polymm --help
 ```
+
+`uv sync` 会把当前源码安装为可编辑包，并注册 `polymm` 命令；`uv build` 只用于
+确认发行构建可通过，不代表独立 wheel/PyPI 分发被支持。
 
 Windows 上复算最深层证据时建议使用短检出路径，例如
 `C:\src\polymarket-edge-lab`。
@@ -32,8 +37,9 @@ uv run python -m pytest -q tests/test_edge_lab_final_bundle.py
 }
 ```
 
-这些检查只验证已提交配置、固定资产和安全门，不会把合成或静态结果升级为
-真实成交证据。
+这些检查只验证已提交配置、固定场景资产和安全门，不会把合成或静态结果升级为
+真实成交证据；它们是 developer preview 的验收面，不是生产扫描器、生产回放器
+或完整 live desk 启动器。
 
 ## 固定证据入口
 

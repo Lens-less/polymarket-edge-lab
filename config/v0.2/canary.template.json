@@ -1,0 +1,37 @@
+{
+  "schema_version": "polymm-canary-config.v0.2",
+  "profile_name": "template-canary",
+  "authorization": {
+    "explicit_live_authorization": false,
+    "first_canary_manual_confirmation": false,
+    "plan_id": "replace-with-reviewed-plan-id",
+    "approved_by": "replace-with-human-operator",
+    "approved_at": null
+  },
+  "strategy": {
+    "strategy_id": "replace-with-qualified-strategy-id",
+    "market_whitelist": [
+      "replace-with-whitelisted-market-id"
+    ],
+    "qualification": {
+      "research_gate_passed": false,
+      "shadow_gate_passed": false
+    }
+  },
+  "risk": {
+    "max_order_notional": "1.00",
+    "max_market_exposure": "2.00",
+    "max_event_exposure": "2.00",
+    "max_strategy_exposure": "2.00",
+    "max_total_exposure": "5.00",
+    "max_daily_loss": "2.00",
+    "max_drawdown": "3.00",
+    "max_open_orders": 2,
+    "max_unmatched_leg_seconds": "15",
+    "max_market_data_age_ms": 1500,
+    "max_user_stream_gap_seconds": 5,
+    "max_order_rate": "1"
+  },
+  "live_probe_result_path": "config/v0.2/live_probe.result.example.json",
+  "fault_drill_result_path": "config/v0.2/fault_drill.result.example.json"
+}

@@ -49,6 +49,26 @@ jobs:
       - name: Run README offline smoke test
         run: uv run python scripts/run_edge_capture.py --config research/edge_discovery_2026-07-24/FORWARD_CAPTURE_CONFIG.json --validate-only
 
+      - name: Run V0.2 source-checkout CLI smoke tests
+        if: matrix.python-version == '3.12'
+        run: |
+          uv run polymm --help
+          uv run polymm doctor --config config/v0.2/canary.template.json \
+            | uv run python -c 'import json, sys; assert json.load(sys.stdin)["status"] == "LIVE_BLOCKED"'
+          uv run polymm acceptance --track all --output /tmp/v0_2_acceptance.json
+
+      - name: Check Ruff formatting
+        if: matrix.python-version == '3.12'
+        run: uv run ruff format --check src/profit_system tests/profit_system
+
+      - name: Run Ruff lint
+        if: matrix.python-version == '3.12'
+        run: uv run ruff check src/profit_system tests/profit_system
+
+      - name: Run mypy
+        if: matrix.python-version == '3.12'
+        run: uv run mypy
+
       - name: Check patch whitespace
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
@@ -61,3 +81,59 @@ jobs:
       - name: Build source and wheel artifacts
         if: matrix.python-version == '3.12'
         run: uv build
+
+  frontend:
+    name: Frontend Node 22
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.7"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install locked Python dependencies for local backend
+        run: uv sync --locked --extra dev
+
+      - name: Prefer repository virtualenv for Playwright backend helper
+        run: echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Install Node.js 22
+        uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8 # v4.0.2
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/trade-desk/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: apps/trade-desk
+        run: npm ci
+
+      - name: Run frontend typecheck
+        working-directory: apps/trade-desk
+        run: npm run typecheck
+
+      - name: Run frontend unit tests
+        working-directory: apps/trade-desk
+        run: npm run test
+
+      - name: Build frontend bundle
+        working-directory: apps/trade-desk
+        run: npm run build
+
+      - name: Install Playwright Chromium
+        working-directory: apps/trade-desk
+        run: npx playwright install --with-deps chromium
+
+      - name: Run fake/paper Playwright E2E
+        working-directory: apps/trade-desk
+        run: npm run e2e

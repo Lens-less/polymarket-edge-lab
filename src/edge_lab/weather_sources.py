@@ -41,7 +41,7 @@ OPEN_METEO_PREVIOUS_RUNS_URL = (
 CLOB_PRICE_HISTORY_URL = "https://clob.polymarket.com/prices-history"
 DAILY_TEMPERATURE_TAG_ID = 103040
 FORECAST_AVAILABILITY_SAFETY = timedelta(minutes=10)
-USER_AGENT = "polymarket-edge-lab/0.1.1 (public-read-only)"
+USER_AGENT = "polymarket-edge-lab/0.2.0 (public-read-only)"
 SAFE_RESPONSE_HEADER_NAMES = frozenset(
     {
         "age",

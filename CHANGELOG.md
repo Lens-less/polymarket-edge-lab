@@ -6,6 +6,35 @@
 
 暂无。
 
+## [0.2.0] - 2026-08-30
+
+### Added
+
+- `src/profit_system` V0.2 模块化单体，覆盖机会归一化、策略运行时、持久化、组合账本、执行、门禁和报告。
+- `polymm` 离线安全 CLI，提供 `doctor`、`scan`、`replay`、`shadow`、`acceptance`、`desk` 和 `status` 的固定验收/演示表面。
+- `apps/trade-desk` React/Vite 本地预览台，以及对应的 Vitest / Playwright 验证。
+- V0.2 迁移说明、运行手册和门禁 / live probe / fault drill 报告 Schema。
+
+### Changed
+
+- GitHub 源码检出 `v0.2.0` 定位为离线 developer preview；支持仓库内 editable install，`uv build` 产物仅用于构建校验，不作为独立 wheel / PyPI 分发目标。
+- 公开只读 HTTP 请求的 `User-Agent` 随软件版本更新到 `0.2.0`。
+
+### Safety
+
+- 默认 live 状态是 `LIVE_BLOCKED`；没有明确的当前环境授权、风险预算和外部证据时，不开放真实下单。
+- 未经外部验证的本地 live probe / fault-drill JSON 只作诊断参考；即使字段全部标为 `READY`，离线 `doctor` 也不能据此解锁 Canary。
+- legacy `assert_new_orders_disabled()` 仍然是无条件 fail-closed。
+- BTC 5m/15m 结构线继续维持 `STRUCTURAL_STOP`，奖励线继续冻结为未验证研究假设。
+
+### Known limitations
+
+- 没有已验证盈利策略。
+- `paper`、`shadow` 和离线 gate 结果都是证据，不是盈利证明。
+- `scan`、`replay`、`shadow`、`status` 和 `desk` 仍是固定场景验收/本地预览，不是实时市场/配置驱动的生产工作流或打包好的前端启动器。
+- 当前发行只支持 GitHub 源码检出流程，不支持独立 wheel 或 PyPI 安装。
+- 真实 live canary 仍然是外部依赖，不能仅凭软件合并自动完成。
+
 ## [0.1.1] - 2026-08-30
 
 ### Fixed
@@ -41,6 +70,7 @@
 - `deploy/` 是历史复现资产，不是受支持的生产部署。
 - 部分冻结研究产物保留生成时的原始绝对路径，仅作为复现证据，不是运行时前提。
 
-[Unreleased]: https://github.com/Lens-less/polymarket-edge-lab/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/Lens-less/polymarket-edge-lab/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Lens-less/polymarket-edge-lab/releases/tag/v0.2.0
 [0.1.1]: https://github.com/Lens-less/polymarket-edge-lab/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Lens-less/polymarket-edge-lab/releases/tag/v0.1.0

@@ -11,8 +11,13 @@ pandas
 pyarrow  # For Parquet export
 certifi
 requests
+fastapi>=0.116,<1
+uvicorn>=0.35,<1
 
 # Development dependencies
 pytest
 pytest-asyncio
 pytest-timeout
+httpx>=0.28,<1
+mypy>=1.17,<2
+ruff>=0.12,<1

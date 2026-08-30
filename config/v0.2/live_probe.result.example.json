@@ -1,0 +1,78 @@
+{
+  "schema_version": "polymm-live-probe-result.v0.2",
+  "report_kind": "live_probe_result",
+  "generated_at": "2026-08-30T00:00:00Z",
+  "status": "BLOCKED",
+  "checks": [
+    {
+      "check_id": "geoblock",
+      "label": "geoblock",
+      "status": "BLOCKED",
+      "detail": "Trading geography allowed. Live proof still required.",
+      "evidence": {
+        "offline_safe": true,
+        "verified": false
+      }
+    },
+    {
+      "check_id": "credentials_signing",
+      "label": "credentials signing",
+      "status": "BLOCKED",
+      "detail": "Credentials present and signing path verified without exposing secrets. Live proof still required.",
+      "evidence": {
+        "offline_safe": true,
+        "verified": false
+      }
+    },
+    {
+      "check_id": "balance_allowance",
+      "label": "balance allowance",
+      "status": "BLOCKED",
+      "detail": "Balance and allowance cover the tiny canary budget. Live proof still required.",
+      "evidence": {
+        "offline_safe": true,
+        "verified": false
+      }
+    },
+    {
+      "check_id": "market_constraints",
+      "label": "market constraints",
+      "status": "BLOCKED",
+      "detail": "Market constraints fetched and validated. Live proof still required.",
+      "evidence": {
+        "offline_safe": true,
+        "verified": false
+      }
+    },
+    {
+      "check_id": "user_stream",
+      "label": "user stream",
+      "status": "BLOCKED",
+      "detail": "User stream connected and receiving private events. Live proof still required.",
+      "evidence": {
+        "offline_safe": true,
+        "verified": false
+      }
+    },
+    {
+      "check_id": "heartbeat",
+      "label": "heartbeat",
+      "status": "BLOCKED",
+      "detail": "Order heartbeat stayed healthy inside the configured gap. Live proof still required.",
+      "evidence": {
+        "offline_safe": true,
+        "verified": false
+      }
+    },
+    {
+      "check_id": "reconciliation",
+      "label": "reconciliation",
+      "status": "BLOCKED",
+      "detail": "Orders, trades, positions, and cash reconcile cleanly. Live proof still required.",
+      "evidence": {
+        "offline_safe": true,
+        "verified": false
+      }
+    }
+  ]
+}

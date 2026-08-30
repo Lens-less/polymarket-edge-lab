@@ -13,11 +13,20 @@ uv sync --locked --python 3.12 --extra dev
 提交前运行：
 
 ```bash
+uv run polymm --help
+uv run polymm doctor --config config/v0.2/canary.template.json
+uv run ruff format --check src/profit_system tests/profit_system
+uv run ruff check src/profit_system tests/profit_system
+uv run mypy
 uv run python -m compileall -q src scripts
 uv run python -m pytest -q
 uv build
 git diff --check
 ```
+
+涉及 `apps/trade-desk` 时还需在该目录运行 `npm ci`、`npm run typecheck`、
+`npm run test`、`npm run build`、`npx playwright install chromium` 和
+`npm run e2e`。
 
 默认测试排除 `network` 标记。不要为了让测试通过而访问真实账户、写入固定研究产物或放宽新订单安全门。
 

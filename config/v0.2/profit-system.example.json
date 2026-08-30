@@ -1,0 +1,109 @@
+{
+  "schema_version": "profit-system.config.v0.2",
+  "generated_at": "2026-08-30T12:00:00Z",
+  "strategies": [
+    {
+      "schema_version": "profit-system.strategy-config.v0.2",
+      "strategy_id": "track_a.complete_set.arbitrage.v0_2",
+      "strategy_version": "0.2.0",
+      "hypothesis_summary": "Track A research candidate for complete-set arbitrage. Shadow-only by default; no live authorization is implied.",
+      "operating_mode": "SHADOW",
+      "qualification": "SHADOW_ONLY",
+      "allowed_modes": [
+        "RESEARCH",
+        "REPLAY",
+        "PAPER",
+        "SHADOW"
+      ],
+      "min_net_edge": "0.02",
+      "min_trade_size": "5",
+      "risk_penalty_multiplier": "1.20",
+      "max_candidate_ttl_seconds": "90",
+      "risk_limits": {
+        "max_order_notional": "25",
+        "max_market_exposure": "50",
+        "max_event_exposure": "75",
+        "max_strategy_exposure": "80",
+        "max_total_exposure": "100",
+        "max_daily_loss": "20",
+        "max_drawdown": "30",
+        "max_open_orders": 5,
+        "max_unmatched_leg_seconds": "10",
+        "max_market_data_age_ms": 1000,
+        "max_user_stream_gap_seconds": "5",
+        "max_order_rate": "2"
+      },
+      "market_whitelist": [
+        "track-a-market-yes-no-1",
+        "track-a-market-yes-no-2"
+      ],
+      "code_version_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "schema_version": "profit-system.strategy-config.v0.2",
+      "strategy_id": "track_b.maker.quote.v0_2",
+      "strategy_version": "0.2.0",
+      "hypothesis_summary": "Track B maker candidate with frozen rewards thesis excluded. Shadow-only by default and not auto-restored into live trading.",
+      "operating_mode": "SHADOW",
+      "qualification": "SHADOW_ONLY",
+      "allowed_modes": [
+        "RESEARCH",
+        "REPLAY",
+        "PAPER",
+        "SHADOW"
+      ],
+      "min_net_edge": "0.01",
+      "min_trade_size": "5",
+      "risk_penalty_multiplier": "1.10",
+      "max_candidate_ttl_seconds": "120",
+      "risk_limits": {
+        "max_order_notional": "25",
+        "max_market_exposure": "50",
+        "max_event_exposure": "75",
+        "max_strategy_exposure": "80",
+        "max_total_exposure": "100",
+        "max_daily_loss": "20",
+        "max_drawdown": "30",
+        "max_open_orders": 5,
+        "max_unmatched_leg_seconds": "10",
+        "max_market_data_age_ms": 1000,
+        "max_user_stream_gap_seconds": "5",
+        "max_order_rate": "2"
+      },
+      "market_whitelist": [
+        "track-b-maker-market-1"
+      ],
+      "code_version_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    {
+      "schema_version": "profit-system.strategy-config.v0.2",
+      "strategy_id": "legacy.btc_twap.structural_stop.v0_1",
+      "strategy_version": "0.1.0",
+      "hypothesis_summary": "Legacy BTC 5m/15m structural stop stays frozen and is not auto-restored by the V0.2 config example.",
+      "operating_mode": "KILLED",
+      "qualification": "STOPPED",
+      "allowed_modes": [
+        "KILLED"
+      ],
+      "min_net_edge": "0.25",
+      "min_trade_size": "5",
+      "risk_penalty_multiplier": "1",
+      "max_candidate_ttl_seconds": "60",
+      "risk_limits": {
+        "max_order_notional": "10",
+        "max_market_exposure": "10",
+        "max_event_exposure": "10",
+        "max_strategy_exposure": "10",
+        "max_total_exposure": "10",
+        "max_daily_loss": "5",
+        "max_drawdown": "5",
+        "max_open_orders": 0,
+        "max_unmatched_leg_seconds": "0",
+        "max_market_data_age_ms": 0,
+        "max_user_stream_gap_seconds": "0",
+        "max_order_rate": "0"
+      },
+      "code_version_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
+  ]
+}

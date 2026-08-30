@@ -2,7 +2,7 @@ cff-version: 1.2.0
 message: "If you use this software or its frozen research artifacts, please cite it using this metadata."
 title: "Polymarket Edge Lab"
 type: software
-version: 0.1.1
+version: 0.2.0
 date-released: 2026-08-30
 repository-code: "https://github.com/Lens-less/polymarket-edge-lab"
 url: "https://github.com/Lens-less/polymarket-edge-lab"
@@ -17,6 +17,6 @@ keywords:
   - execution replay
   - reproducible research
 abstract: >-
-  A public-data-only research, replay, and evidence-audit toolkit for testing
-  Polymarket hypotheses without presenting synthetic or shadow results as
-  realized trading profit.
+  A source-checkout developer preview for public-data research, deterministic
+  replay and trading-system evidence audits without presenting synthetic or
+  shadow results as realized trading profit.
